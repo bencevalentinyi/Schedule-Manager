@@ -1,52 +1,73 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
 </head>
 <body>
-  <h1>Configure Team Types</h1>
-  <p class="muted">Team types are reusable defaults. Teams using the <i>Standard</i> layout follow their type's schedule columns automatically; staff fields are copied to a team when it is created.</p>
-  <div id="status"></div>
-  <div class="row" style="align-items:flex-start">
-    <div style="flex:0 0 250px">
-      <div class="scroll" style="max-height:420px" id="list"></div>
-      <p><button class="btn small" onclick="edit(null)">+ New team type</button></p>
+  <header class="app-header">
+    <h1>Configure Team Types</h1>
+    <p class="subtitle">Team types are reusable defaults. Teams on the "Follow the team type" layout use their type's schedule columns automatically; staff fields are copied to a team when it is created.</p>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div class="split">
+      <div>
+        <div class="list" id="list" role="listbox" aria-label="Team types"></div>
+        <button type="button" class="btn sm mt-2" onclick="edit(null)">+ New team type</button>
+      </div>
+      <div>
+        <div id="placeholder">
+          <div class="empty"><div class="empty-icon" aria-hidden="true">☰</div><p class="empty-title">Select a team type</p><p>Choose a type on the left to edit it, or create a new one.</p></div>
+        </div>
+        <div id="editor" class="hidden">
+          <div class="panel-head"><h2 id="edTitle">Team type</h2><span id="edUsage"></span></div>
+          <div class="row">
+            <div class="field"><label class="label" for="typeName">Name<span class="req" aria-hidden="true">*</span></label><input type="text" id="typeName" maxlength="60" required></div>
+            <div class="field"><label class="label" for="defaultProfile">Default import profile</label><select id="defaultProfile"></select></div>
+          </div>
+          <div class="field"><label class="label" for="typeDescription">Description<span class="optional">optional</span></label><input type="text" id="typeDescription" maxlength="500"></div>
+
+          <h3>Operating hours (default for new teams)</h3>
+          <div class="row">
+            <div class="field"><label class="label" for="hMode">Mode</label><select id="hMode" onchange="hoursModeChanged()"></select></div>
+            <div class="field" id="hStartBox"><label class="label" for="wStart">From</label><input type="time" id="wStart"></div>
+            <div class="field" id="hEndBox"><label class="label" for="wEnd">Until</label><input type="time" id="wEnd"><p class="hint">23:59 means "until midnight".</p></div>
+          </div>
+          <fieldset>
+            <legend>Show in the daily view</legend>
+            <div class="check-grid">
+              <label class="check"><input type="checkbox" id="dBreaks" class="switch"> Breaks</label>
+              <label class="check"><input type="checkbox" id="dDur" class="switch"> Durations</label>
+              <label class="check"><input type="checkbox" id="dTeam" class="switch"> Team-specific fields</label>
+              <label class="check"><input type="checkbox" id="dHead" class="switch"> Headcount</label>
+            </div>
+          </fieldset>
+
+          <h3>Schedule columns</h3>
+          <div class="check-grid panel subtle" id="schedFields"></div>
+          <h3>Staff fields</h3>
+          <div class="check-grid panel subtle" id="staffFields"></div>
+          <details class="disclosure">
+            <summary>Advanced: free-text staff columns (legacy)</summary>
+            <div class="disclosure-body">
+              <div class="field mt-3"><label class="label" for="customStaff">Free-text columns</label><input type="text" id="customStaff" placeholder="Comma-separated"></div>
+            </div>
+          </details>
+
+          <div class="cluster mt-3">
+            <button type="button" class="btn primary" onclick="save()">Save team type</button>
+            <button type="button" class="btn" id="toggleBtn" onclick="toggle()">Disable</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn danger" id="deleteBtn" onclick="del()">Delete</button>
+          </div>
+          <div id="confirmBox" class="hidden"></div>
+        </div>
+      </div>
     </div>
-    <div style="flex:1 1 420px" id="editor" class="hidden">
-      <div class="row">
-        <div><label for="typeName">Name *</label><input type="text" id="typeName" maxlength="60"></div>
-        <div><label for="defaultProfile">Default import profile</label><select id="defaultProfile"></select></div>
-      </div>
-      <label for="typeDescription">Description</label>
-      <input type="text" id="typeDescription" maxlength="500">
-      <h3>Schedule columns</h3>
-      <div class="checks card" id="schedFields"></div>
-      <h3>Staff fields</h3>
-      <div class="checks card" id="staffFields"></div>
-      <label for="customStaff">Custom staff fields (comma-separated)</label>
-      <input type="text" id="customStaff">
-      <h3>Display defaults</h3>
-      <div class="row">
-        <div><label for="hMode">Operating hours</label><select id="hMode" onchange="show('hTimes', this.value !== '24_7')"></select></div>
-      </div>
-      <div class="row" id="hTimes">
-        <div><label for="wStart">From</label><input type="time" id="wStart"></div>
-        <div><label for="wEnd">Until (23:59 = midnight)</label><input type="time" id="wEnd"></div>
-      </div>
-      <label class="inline"><input type="checkbox" id="dBreaks"> Show breaks</label>
-      <label class="inline"><input type="checkbox" id="dDur"> Show durations</label>
-      <label class="inline"><input type="checkbox" id="dTeam"> Show team-specific fields</label>
-      <label class="inline"><input type="checkbox" id="dHead"> Show headcount</label>
-      <p class="small muted" id="usage"></p>
-      <p>
-        <button class="btn primary" onclick="save()">Save team type</button>
-        <button class="btn" id="toggleBtn" onclick="toggle()">Disable</button>
-        <button class="btn danger" id="deleteBtn" onclick="del()">Delete</button>
-      </p>
-    </div>
-  </div>
-  <div class="footer"><span class="spacer"></span><button class="btn" onclick="closeDialog()">Close</button></div>
+  </main>
+  <footer class="app-footer"><span class="spacer"></span><button type="button" class="btn" onclick="closeDialog()">Close</button></footer>
 
   <?!= include('ClientCore') ?>
   <script>
@@ -58,48 +79,53 @@
         data = d;
         $('defaultProfile').innerHTML = options(d.profiles, 'profileId', 'profileName', '', '(none — auto-detect)');
         $('list').innerHTML = d.types.map(function (t, i) {
-          return '<div class="list-item" data-i="' + i + '" onclick="edit(' + i + ')"><b>' + esc(t.typeName) + '</b> ' +
-            (t.enabled ? '' : '<span class="badge warn">disabled</span>') +
-            '<div class="small muted">' + esc(t.typeId) + ' · ' + t.teamCount + ' team(s)</div></div>';
-        }).join('') || '<p class="muted" style="padding:8px">No team types yet.</p>';
+          return '<button type="button" class="list-item" role="option" aria-selected="false" data-i="' + i + '" onclick="edit(' + i + ')"><span class="name">' + esc(t.typeName) +
+            (t.enabled ? '' : ' ' + badge('warn', 'Disabled')) + '</span><span class="meta">' + esc(t.typeId) + ' · ' + t.teamCount + ' team(s)</span></button>';
+        }).join('') || emptyHtml('☰', 'No team types yet', 'Create one with "+ New team type".');
         var idx = selectId ? d.types.map(function (t) { return t.typeId; }).indexOf(selectId) : -1;
         if (idx >= 0) edit(idx);
       });
     }
 
+    function hoursModeChanged() { var full = $('hMode').value === '24_7'; show('hStartBox', !full); show('hEndBox', !full); }
+
     function edit(i) {
       current = i === null ? null : data.types[i];
-      document.querySelectorAll('.list-item').forEach(function (el) { el.classList.toggle('sel', Number(el.dataset.i) === i); });
+      document.querySelectorAll('.list-item').forEach(function (el) { el.setAttribute('aria-selected', Number(el.dataset.i) === i ? 'true' : 'false'); });
+      closeConfirm('confirmBox');
+      clearFieldErrors();
       var t = current || { typeName: '', description: '', scheduleFields: data.defaults.scheduleFields, staffFields: data.defaults.staffFields,
         defaultImportProfileId: '', display: data.defaults.display, enabled: true, teamCount: 0 };
+      $('edTitle').textContent = current ? current.typeName : 'New team type';
+      $('edUsage').innerHTML = current ? badge(current.enabled ? '' : 'warn', current.enabled ? 'Used by ' + current.teamCount + ' team(s)' : 'Disabled') : '';
       $('typeName').value = t.typeName; $('typeDescription').value = t.description;
       $('defaultProfile').value = t.defaultImportProfileId || '';
       $('schedFields').innerHTML = Object.keys(data.displayFields).map(function (k) {
         var locked = k === 'start' || k === 'end';
-        return '<label class="inline"><input type="checkbox" data-f="' + k + '"' + (t.scheduleFields.indexOf(k) >= 0 || locked ? ' checked' : '') + (locked ? ' disabled' : '') + '> ' + esc(data.displayFields[k].label) + '</label>';
+        return '<label class="check"><input type="checkbox" data-f="' + k + '"' + (t.scheduleFields.indexOf(k) >= 0 || locked ? ' checked' : '') + (locked ? ' disabled' : '') + '> ' + esc(data.displayFields[k].label) + '</label>';
       }).join('');
       var staffChoices = Object.keys(data.staffFieldDefs).map(function (k) { return { k: k, l: data.staffFieldDefs[k].label, req: data.staffFieldDefs[k].required }; })
         .concat(data.staffRegistry.map(function (f) { return { k: 'field:' + f.fieldKey, l: f.displayName + (f.fieldType === 'IDENTIFIER' ? ' (ID)' : ''), req: false }; }));
       $('staffFields').innerHTML = staffChoices.map(function (c) {
-        return '<label class="inline"><input type="checkbox" data-s="' + esc(c.k) + '"' + (t.staffFields.indexOf(c.k) >= 0 || c.req ? ' checked' : '') + (c.req ? ' disabled' : '') + '> ' + esc(c.l) + '</label>';
+        return '<label class="check"><input type="checkbox" data-s="' + esc(c.k) + '"' + (t.staffFields.indexOf(c.k) >= 0 || c.req ? ' checked' : '') + (c.req ? ' disabled' : '') + '> ' + esc(c.l) + '</label>';
       }).join('');
       $('customStaff').value = t.staffFields.filter(function (f) { return f.indexOf('custom:') === 0; }).map(function (f) { return f.substr(7); }).join(', ');
-      $('hMode').innerHTML = options(Object.keys(data.operatingModes).map(function (k) { return { k: k, l: data.operatingModes[k] }; }), 'k', 'l', t.display.operatingHoursMode || 'STANDARD');
-      show('hTimes', t.display.operatingHoursMode !== '24_7');
+      $('hMode').innerHTML = options(kv(data.operatingModes), 'k', 'l', t.display.operatingHoursMode || 'STANDARD');
       $('wStart').value = t.display.operatingHoursStart; $('wEnd').value = t.display.operatingHoursEnd === '24:00' ? '23:59' : t.display.operatingHoursEnd;
+      hoursModeChanged();
       $('dBreaks').checked = t.display.showBreaks; $('dDur').checked = t.display.showDurations;
       $('dTeam').checked = t.display.showTeamFields; $('dHead').checked = t.display.showHeadcount;
-      $('usage').textContent = current ? 'Used by ' + current.teamCount + ' team(s).' : 'New team type.';
       show('toggleBtn', !!current); show('deleteBtn', !!current);
       $('toggleBtn').textContent = current && !current.enabled ? 'Enable' : 'Disable';
-      show('editor', true);
+      show('placeholder', false); show('editor', true);
       showStatus('', '');
+      if (!current) $('typeName').focus();
     }
 
     function collect() {
       var order = current ? current.scheduleFields : data.defaults.scheduleFields;
-      var checked = Array.prototype.filter.call(document.querySelectorAll('[data-f]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.f; });
-      var staff = Array.prototype.filter.call(document.querySelectorAll('[data-s]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.s; });
+      var checked = checkedData('f');
+      var staff = checkedData('s');
       $('customStaff').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (c) { staff.push('custom:' + c); });
       return {
         typeId: current ? current.typeId : '', typeName: $('typeName').value, description: $('typeDescription').value,
@@ -112,15 +138,30 @@
     }
 
     function save() {
-      call('Saving…', 'apiSaveTeamType', collect()).then(function (t) { showStatus('ok', 'Saved team type ' + esc(t.typeName) + '.'); load(t.typeId); });
+      clearFieldErrors();
+      if (!$('typeName').value.trim()) { fieldError('typeName', 'Enter a name.'); $('typeName').focus(); return; }
+      call('Saving…', 'apiSaveTeamType', collect()).then(function (t) { showStatus('ok', '', 'Saved team type ' + t.typeName + '.'); load(t.typeId); });
     }
     function toggle() {
-      call('Saving…', 'apiSetTeamTypeEnabled', current.typeId, !current.enabled).then(function (t) { load(t.typeId); });
+      call('Saving…', 'apiSetTeamTypeEnabled', current.typeId, !current.enabled).then(function (t) {
+        showStatus('ok', '', t.typeName + (t.enabled ? ' is enabled.' : ' is disabled. Existing teams keep it; it is no longer offered for new teams.')); load(t.typeId);
+      });
     }
     function del() {
-      if ($('deleteBtn').dataset.armed !== '1') { $('deleteBtn').dataset.armed = '1'; $('deleteBtn').textContent = 'Click again to delete'; return; }
-      $('deleteBtn').dataset.armed = '';
-      call('Deleting…', 'apiDeleteTeamType', current.typeId).then(function () { show('editor', false); showStatus('ok', 'Deleted.'); load(); });
+      if (current.teamCount) {
+        showStatus('warn', 'It is used by ' + current.teamCount + ' team(s). Disable it instead, or move those teams to another type first.', 'This team type cannot be deleted');
+        return;
+      }
+      askConfirm('confirmBox', {
+        title: 'Delete team type "' + current.typeName + '"?',
+        html: 'This permanently removes the type. No team uses it.',
+        confirmLabel: 'Delete type',
+        onConfirm: function () {
+          call('Deleting…', 'apiDeleteTeamType', current.typeId).then(function () {
+            closeConfirm('confirmBox'); show('editor', false); show('placeholder', true); showStatus('ok', '', 'Team type deleted.'); load();
+          });
+        }
+      });
     }
     load();
   </script>

@@ -1,5 +1,14 @@
 <script>
-  /** Promise wrapper around google.script.run; server functions return {ok, data|error}. */
+  /* ======================================================================
+     Shared client helpers and UI components (v1.1.2).
+     Included by every dialog and sidebar after Styles:
+       <?!= include('ClientCore') ?>
+     Server functions return {ok, data|error}; api()/call() unwrap them.
+     ====================================================================== */
+
+  /* ---------- Transport ---------- */
+
+  /** Promise wrapper around google.script.run. */
   function api(name) {
     var args = Array.prototype.slice.call(arguments, 1);
     return new Promise(function (resolve, reject) {
@@ -14,23 +23,11 @@
       runner[name].apply(runner, args);
     });
   }
-  function $(id) { return document.getElementById(id); }
-  function esc(s) {
-    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-  function show(el, on) { (typeof el === 'string' ? $(el) : el).classList.toggle('hidden', !on); }
-  var busyCount = 0;
-  function busy(on, text) {
-    var el = $('busy');
-    if (!el) { el = document.createElement('div'); el.id = 'busy'; el.className = 'busy hidden'; document.body.appendChild(el); }
-    busyCount += on ? 1 : -1;
-    if (busyCount < 0) busyCount = 0;
-    el.textContent = text || 'Working…';
-    show(el, busyCount > 0);
-  }
-  /** Runs an API call with a busy overlay; shows errors in the element with id "status" (or alertBox). */
+
+  /**
+   * Runs an API call behind the loading overlay (which also blocks duplicate
+   * clicks) and shows failures in #status. Resolves with the data.
+   */
   function call(text, name) {
     var args = Array.prototype.slice.call(arguments, 1);
     busy(true, text);
@@ -38,43 +35,31 @@
     var slow = setTimeout(function () {
       if (done) return;
       busy(false);
-      showStatus('warn', '<b>No answer from Google after 25 seconds.</b> The most common cause is being signed into <b>several Google accounts</b> in this browser — ' +
-        'dialogs then cannot reach the script. Open the spreadsheet in an incognito/private window signed into only this account, or sign out of the other accounts. ' +
-        'Also check Apps Script editor → Executions for an error.');
+      showStatus('warn', 'This dialog cannot reach the script, so its buttons cannot work. The most common cause is being signed into <b>several Google accounts</b> in this browser. ' +
+        'Open the spreadsheet in a private window signed into only this account, or sign out of the other accounts. If that does not help, check Apps Script editor → Executions for an error.',
+        'No answer from Google after 25 seconds');
     }, 25000);
     return api.apply(null, args).then(function (d) { done = true; clearTimeout(slow); busy(false); return d; }, function (e) {
       done = true; clearTimeout(slow); busy(false); showError(e); throw e;
     });
   }
 
-  // Show unexpected script errors in the dialog instead of failing silently.
-  window.addEventListener('error', function (ev) {
-    var box = document.getElementById('status');
-    if (box) box.innerHTML = '<div class="msg fatal"><b>The dialog hit an error:</b> ' + String(ev.message).replace(/</g, '&lt;') +
-      '<br>Check that every HTML file exists with the exact name (e.g. ClientCore, Styles) and was created with + → HTML.</div>';
-  });
-  function showError(e) {
-    var box = $('status');
-    var html = '<div class="msg fatal"><b>' + esc(e.message || 'Error') + '</b>' + reportList(e.details) + '</div>';
-    if (box) { box.innerHTML = html; box.scrollIntoView({ block: 'nearest' }); }
+  /* ---------- DOM basics ---------- */
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
-  function showStatus(type, text) {
-    var box = $('status');
-    if (box) box.innerHTML = text ? '<div class="msg ' + type + '">' + text + '</div>' : '';
-  }
-  function reportList(rep) {
-    if (!rep || (!rep.fatal && !rep.warnings)) return '';
-    var items = (rep.fatal || []).concat(rep.warnings || []);
-    return items.length > 1 ? '<ul>' + items.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>' : '';
-  }
-  /** Renders a {fatal, warnings, info} report as message blocks. */
-  function renderReport(rep) {
-    if (!rep) return '';
-    var block = function (cls, title, items) {
-      if (!items || !items.length) return '';
-      return '<div class="msg ' + cls + '"><b>' + title + '</b><ul>' + items.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul></div>';
-    };
-    return block('fatal', 'Must fix', rep.fatal) + block('warn', 'Warnings', rep.warnings) + block('info', 'Information', rep.info);
+  function show(el, on) { (typeof el === 'string' ? $(el) : el).classList.toggle('hidden', !on); }
+  function closeDialog() { google.script.host.close(); }
+  function radio(name) { var el = document.querySelector('input[name="' + name + '"]:checked'); return el ? el.value : ''; }
+  function setRadio(name, v) { var el = document.querySelector('input[name="' + name + '"][value="' + v + '"]'); if (el) el.checked = true; }
+  /** Values of the checked checkboxes carrying data-<attr>. */
+  function checkedData(attr, scope) {
+    return Array.prototype.filter.call((scope || document).querySelectorAll('[data-' + attr + ']'), function (c) { return c.checked; })
+      .map(function (c) { return c.getAttribute('data-' + attr); });
   }
   function options(list, valueKey, labelKey, selected, blankLabel) {
     var html = blankLabel !== undefined ? '<option value="">' + esc(blankLabel) + '</option>' : '';
@@ -83,5 +68,202 @@
       return '<option value="' + esc(v) + '"' + (String(v) === String(selected) ? ' selected' : '') + '>' + esc(l) + '</option>';
     }).join('');
   }
-  function closeDialog() { google.script.host.close(); }
+  /** {KEY: label} → [{k, l}] for options(). */
+  function kv(map) { return Object.keys(map).map(function (k) { return { k: k, l: map[k] }; }); }
+  /** Moves keyboard focus to the first usable control in el (or el itself). */
+  function focusFirst(el) {
+    el = typeof el === 'string' ? $(el) : el;
+    if (!el) return;
+    var c = el.querySelector('input:not([type=hidden]):not(:disabled), select:not(:disabled), textarea:not(:disabled)');
+    if (c && c.offsetParent !== null) { c.focus(); return; }
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+    el.focus();
+  }
+
+  /* ---------- Loading overlay ---------- */
+
+  var busyCount = 0;
+  function busy(on, text) {
+    var el = $('busy');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'busy'; el.className = 'loading-overlay hidden';
+      el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+      el.innerHTML = '<div class="loading-box"><span class="spinner" aria-hidden="true"></span><span id="busyText"></span></div>';
+      document.body.appendChild(el);
+    }
+    busyCount += on ? 1 : -1;
+    if (busyCount < 0) busyCount = 0;
+    if (on) $('busyText').textContent = text || 'Working…';
+    show(el, busyCount > 0);
+    document.body.setAttribute('aria-busy', busyCount > 0 ? 'true' : 'false');
+  }
+
+  /* ---------- Components (return HTML strings) ---------- */
+
+  var ALERT_TYPES = { ok: 'success', success: 'success', warn: 'warning', warning: 'warning', fatal: 'error', error: 'error', info: 'info' };
+  var ALERT_ICONS = { success: '✓', warning: '!', error: '✕', info: 'i' };
+  /** Alert banner. type: success|warning|error|info (or ok|warn|fatal). body is HTML. */
+  function alertHtml(type, title, body, items) {
+    var t = ALERT_TYPES[type] || 'info';
+    var list = items && items.length ? '<ul>' + items.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>' : '';
+    return '<div class="alert ' + t + '" role="' + (t === 'error' ? 'alert' : 'status') + '"><span class="alert-icon" aria-hidden="true">' + ALERT_ICONS[t] + '</span>' +
+      '<div class="alert-body">' + (title ? '<span class="alert-title">' + esc(title) + '</span>' : '') + (body || '') + list + '</div></div>';
+  }
+  /** Status badge; kind: ok|warn|bad|info|meeting|shift|'' (neutral). Text is always shown, so color is never the only signal. */
+  function badge(kind, text, tip) {
+    return '<span class="badge ' + (kind || '') + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + esc(text) + '</span>';
+  }
+  /** Summary metric tile; cls: good|warn|bad|meeting|''. */
+  function stat(label, value, cls) {
+    return '<div class="stat ' + (cls || '') + '"><b>' + esc(value) + '</b><span>' + esc(label) + '</span></div>';
+  }
+  /** Empty state with an explanation of how to fill the area. */
+  function emptyHtml(icon, title, text, actionHtml) {
+    return '<div class="empty"><div class="empty-icon" aria-hidden="true">' + esc(icon || '∅') + '</div><p class="empty-title">' + esc(title) + '</p>' +
+      (text ? '<p>' + text + '</p>' : '') + (actionHtml || '') + '</div>';
+  }
+  /** Small "?" tooltip. */
+  function tip(text) { return '<button type="button" class="tip" data-tip="' + esc(text) + '" aria-label="' + esc(text) + '">?</button>'; }
+  /** Step indicator for multi-step workflows. */
+  function stepperHtml(names, current) {
+    return names.map(function (n, i) {
+      var st = i === current ? ' aria-current="step"' : '';
+      return '<li class="' + (i < current ? 'done' : '') + '"' + st + '><span class="num">' + (i + 1) + '</span><span class="lbl">' + esc(n) + '</span></li>';
+    }).join('');
+  }
+  function renderStepper(id, names, current) {
+    var el = $(id);
+    if (!el) return;
+    el.innerHTML = stepperHtml(names, current);
+    el.setAttribute('aria-label', 'Step ' + (current + 1) + ' of ' + names.length + ': ' + names[current]);
+  }
+  /** Two-column key/value table; rows: [[label, valueHtml]] (values must already be escaped). */
+  function kvTable(rows) {
+    return '<table class="kv">' + rows.map(function (r) { return '<tr><th scope="row">' + esc(r[0]) + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>';
+  }
+
+  /* ---------- Status, errors and reports ---------- */
+
+  function showStatus(type, html, title) {
+    var box = $('status');
+    if (!box) return;
+    box.innerHTML = html || title ? alertHtml(type, title || '', html || '') : '';
+    if (html || title) box.scrollIntoView({ block: 'nearest' });
+  }
+  var ERROR_HINTS = {
+    TRANSPORT: 'Check your connection and try again. If several Google accounts are signed in, open the spreadsheet in a window signed into only this account.',
+    NEEDS_UPGRADE: 'Next step: Schedule Manager → Setup & Configuration → Setup / Configure Spreadsheet → Upgrade.',
+    NOT_INITIALIZED: 'Next step: Schedule Manager → Setup & Configuration → Setup / Configure Spreadsheet → Initialize.'
+  };
+  /** Shows a readable error with a suggested next step. Technical details stay in the execution log. */
+  function showError(e) {
+    e = e || {};
+    var hint = ERROR_HINTS[e.code];
+    var body = '<div>' + esc(e.message || 'Something went wrong.') + '</div>' + reportList(e.details) + (hint ? '<div class="small mt-2">' + esc(hint) + '</div>' : '');
+    var box = $('status');
+    if (box) { box.innerHTML = alertHtml('error', 'Could not complete the action', body); box.scrollIntoView({ block: 'nearest' }); }
+  }
+  function reportList(rep) {
+    if (!rep || (!rep.fatal && !rep.warnings)) return '';
+    var items = (rep.fatal || []).concat(rep.warnings || []);
+    return items.length > 1 ? '<ul>' + items.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>' : '';
+  }
+  /** Renders a {fatal, warnings, info} report as alerts. */
+  function renderReport(rep) {
+    if (!rep) return '';
+    var block = function (type, title, items) { return items && items.length ? alertHtml(type, title, '', items) : ''; };
+    return block('error', 'Must be fixed', rep.fatal) + block('warning', 'Warnings', rep.warnings) + block('info', 'Information', rep.info);
+  }
+
+  /* ---------- Form validation ---------- */
+
+  /** Shows (or clears with an empty msg) an inline error under a control. */
+  function fieldError(id, msg) {
+    var el = $(id);
+    if (!el) return;
+    var errId = id + '-err';
+    var box = $(errId);
+    if (!msg) {
+      el.removeAttribute('aria-invalid');
+      if (box) box.remove();
+      return;
+    }
+    el.setAttribute('aria-invalid', 'true');
+    if (!box) {
+      box = document.createElement('p');
+      box.id = errId; box.className = 'field-error';
+      (el.closest('.field') || el.parentNode).appendChild(box);
+    }
+    box.textContent = msg;
+    var d = (el.getAttribute('aria-describedby') || '').split(' ').filter(Boolean);
+    if (d.indexOf(errId) < 0) { d.push(errId); el.setAttribute('aria-describedby', d.join(' ')); }
+  }
+  function clearFieldErrors(scope) {
+    Array.prototype.forEach.call((scope || document).querySelectorAll('[aria-invalid="true"]'), function (el) { if (el.id) fieldError(el.id, ''); });
+  }
+
+  /* ---------- Tabs ---------- */
+
+  /** Wires a [role=tablist] (buttons with data-tab) with click and arrow-key navigation. */
+  function initTabs(listId, onSelect) {
+    var list = $(listId);
+    var tabs = Array.prototype.slice.call(list.querySelectorAll('[role="tab"]'));
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { onSelect(t.dataset.tab); });
+      t.addEventListener('keydown', function (ev) {
+        var k = ev.key, j = -1;
+        if (k === 'ArrowRight') j = (i + 1) % tabs.length;
+        else if (k === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
+        else if (k === 'Home') j = 0;
+        else if (k === 'End') j = tabs.length - 1;
+        if (j < 0) return;
+        ev.preventDefault(); tabs[j].focus(); onSelect(tabs[j].dataset.tab);
+      });
+    });
+  }
+  function selectTab(listId, name) {
+    Array.prototype.forEach.call($(listId).querySelectorAll('[role="tab"]'), function (t) {
+      var on = t.dataset.tab === name;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      var panel = $(t.getAttribute('aria-controls'));
+      if (panel) show(panel, on);
+    });
+  }
+
+  /* ---------- Confirmation panel ---------- */
+
+  /**
+   * Renders an inline confirmation panel into containerId.
+   * o: {title, html, confirmLabel, typeToConfirm (exact text the user must type, optional),
+   *     extraHtml (e.g. an option checkbox), onConfirm(typedValue), onCancel}
+   */
+  function askConfirm(containerId, o) {
+    var box = $(containerId);
+    var typed = o.typeToConfirm !== undefined && o.typeToConfirm !== null;
+    box.innerHTML = '<div class="confirm-panel" role="group" aria-labelledby="' + containerId + '-t"><h3 id="' + containerId + '-t">' + esc(o.title) + '</h3>' +
+      '<div class="small">' + (o.html || '') + '</div>' + (o.extraHtml || '') +
+      (typed ? '<div class="field mt-3"><label class="label" for="' + containerId + '-in">Type <b>' + esc(o.typeToConfirm) + '</b> to confirm</label>' +
+        '<input type="text" id="' + containerId + '-in" autocomplete="off" spellcheck="false"></div>' : '') +
+      '<div class="actions"><button type="button" class="btn" id="' + containerId + '-no">Cancel</button>' +
+      '<button type="button" class="btn danger-solid" id="' + containerId + '-yes"' + (typed ? ' disabled' : '') + '>' + esc(o.confirmLabel || 'Confirm') + '</button></div></div>';
+    show(box, true);
+    var input = $(containerId + '-in'), yes = $(containerId + '-yes');
+    if (input) {
+      input.addEventListener('input', function () { yes.disabled = input.value.trim() !== String(o.typeToConfirm).trim(); });
+      input.focus();
+    } else yes.focus();
+    $(containerId + '-no').onclick = function () { box.innerHTML = ''; show(box, false); if (o.onCancel) o.onCancel(); };
+    yes.onclick = function () { o.onConfirm(input ? input.value : ''); };
+    box.scrollIntoView({ block: 'nearest' });
+  }
+  function closeConfirm(containerId) { var b = $(containerId); if (b) { b.innerHTML = ''; show(b, false); } }
+
+  // Show unexpected script errors in the page instead of failing silently.
+  window.addEventListener('error', function (ev) {
+    var box = document.getElementById('status');
+    if (box) box.innerHTML = alertHtml('error', 'The dialog hit an error', esc(String(ev.message)) +
+      '<div class="small mt-2">Check that every HTML file exists with the exact name (for example ClientCore, Styles) and was created with + → HTML.</div>');
+  });
 </script>

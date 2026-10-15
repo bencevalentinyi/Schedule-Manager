@@ -1,5 +1,89 @@
 # Changelog
 
+## 1.1.2 — User interface overhaul
+
+A UI release. The scheduling engine, import rules, data model and stored configuration are unchanged, so **no migration is needed** (see "Version and upgrade" below).
+
+### Design system
+
+- **One stylesheet** (`Styles.html`) with tokens and components, used by every dialog and sidebar:
+  - **tokens** for color, type, spacing and radius;
+  - **controls:** buttons (primary, secondary, ghost, danger, danger-solid, small, icon), form fields with labels, hints and inline errors, styled selects, checkboxes, radios, switches and choice cards;
+  - **feedback:** alerts with an icon and a title, badges that always carry text, summary tiles, empty states, a loading overlay and inline loading, confirmation panels and tooltips;
+  - **structure:** panels, collapsible sections, tables with sticky headers, master/detail lists, tabs, a step indicator and a toolbar.
+- **One set of client helpers** (`ClientCore.html`):
+  - **calls:** `api` / `call`, where the overlay also blocks duplicate submissions;
+  - **HTML builders:** `alertHtml`, `badge`, `stat`, `emptyHtml`, `stepperHtml`, `kvTable`;
+  - **forms and navigation:** `fieldError`, accessible tabs with arrow-key navigation (`initTabs` / `selectTab`), `askConfirm` (optionally type-to-confirm) and `focusFirst`;
+  - **errors:** readable messages with a suggested next step; technical details stay in the execution log.
+- **The same frame on every page:** a header (title, subtitle, steps or tabs), a scrolling body, and a footer that stays visible. Cancel/Close sit on the left and the primary action on the right.
+- **Three standard dialog sizes:** 520×420, 780×620 and 960×700. The page shows its own title; the dialog frame shows "Schedule Manager".
+- **Layout and accessibility:**
+  - layouts adapt to narrow windows and browser zoom, and wide tables scroll horizontally;
+  - focus is visible and every control has a label;
+  - status is never shown by color alone;
+  - reduced-motion preferences are respected.
+
+### Pages
+
+| Page | What changed |
+|---|---|
+| Setup | Status alert, sheet table with badges, connection test shown inline |
+| Create / Edit Team | Six steps: General, Schedule, Staff directory, Quinyx import, Meetings, Review. Operating hours, staff directory and shift-type mode are choice cards; advanced options are collapsed. When editing, any step can be opened directly ("Review changes"). The review lists name, type, display mode, directory, columns, import format and profile, shift types, meeting import, matching, duplicate handling, aliases and the sheets to be created |
+| Manage Teams | Searchable table: Ready / Active / Shared or Dedicated badges, operating hours, shift types and meetings per team; deletion in a type-to-confirm panel |
+| Team Types | Master/detail layout; deleting a type in use is explained instead of attempted |
+| Staff Fields | Master/detail layout; hide vs. delete explained; delete panel where clearing values requires typing the field name |
+| Staff Directory (sidebar) | List view, editor and unknown-employees view; dedicated or shared directory stated at the top (shared: "records are shared; membership and schedules stay team-specific"); membership switches; required fields checked inline |
+| Schedule Viewer (sidebar, new) | Replaces the small date dialog. Team, ◀ date ▶, Today, Refresh, header facts (date, weekday, operating-hours mode and window, last import and status), summary tiles, employee search, shift-type and status filters, legend. Uses the team's default date when opened |
+| Import | Steps: Select file, Inspect & map, Team & shift types, Review & confirm, Results. Detected file facts (name, type, structure, schedule date, profile); shift types marked Included / Excluded / New-unknown, and meeting types listed separately with whether this team imports them; grouped preview metrics; collapsible detail tables (shift types, routing decisions, teams, rejected rows, unknown employees, overlaps, row warnings); a "Confirm what will be written" summary (teams, dates, activity types, meetings, duplicate handling, updates/removals) built from the server's plan |
+| Import History | Summary tiles, search and status filter, undo in a confirmation panel |
+| Settings | Accessible tabs; settings shown with readable names (raw key beside them); profile deletion confirmed |
+| Slack | Generate tab (current scope, Preview, results with records, blocks, teams, employees, missing identifiers, invalid URLs, unresolved employees; an "Open generated payloads" button; states plainly that nothing is sent to Slack); configuration grouped into Scope, Content and Output, with a re-orderable grouping list; Dashboard URL tab with placeholder chips, a "{EMPLOYEE_ID} = before + field + after" line, a status badge, and the inserted identifier highlighted in the test URL. The template is never modified |
+| Report / Help | Error, warning and information tiles; updated help |
+
+### Daily schedule sheet
+
+- **Meeting rows** are shaded violet when the sheet has a Flags or Category column. Their Flags text ("Meeting (in shift)" / "Meeting (outside shift)") is no longer colored as a warning.
+- **Row 5** shows a short legend when there is no problem message.
+- **Existing sheets** get the meeting shading after **Maintenance → Repair Formatting**; new or rebuilt sheets get it automatically.
+- **Operating hours, 24/7 coverage and overnight shifts are unchanged:** no display logic was touched.
+
+### Menu
+
+*Schedule Management* now starts with **Schedule Viewer (date, filters, refresh)**. *Select Schedule Date* and *View Team Schedule* open the viewer, and a separator sets *View Staff Directory* apart. All existing menu functions keep their names.
+
+### Server changes (additive; no contract removed)
+
+| Function | Change |
+|---|---|
+| `apiViewerRender(teamId, date, filters)` | New. Renders, activates and returns the header facts, summary and filter options |
+| `renderDailyView_` | Accepts `opts.filters` and returns more fields; existing callers are unaffected |
+| `apiImportBootstrap` | Team entries include `importMeetings` and `meetingTypes` |
+| `apiSlackPreview` / `apiSlackGenerate` | Also return `employees` (distinct employees) |
+| `apiSlackOpenPayloadSheet()` | New |
+| `showHtml_` | Takes a `DIALOG_SIZE` entry; `showScheduleViewer_` added |
+
+### Version and upgrade
+
+- `APP.VERSION` is `1.1.2`, and `APP.COMPATIBLE_VERSIONS = ['1.1.1']`.
+- A spreadsheet stored as 1.1.1 is **not** blocked with "upgrade required". Running Setup simply records 1.1.2 ("no data or configuration changes were needed").
+- Older versions still require Setup → Upgrade, as before.
+
+### Tests
+
+| Suite | Change |
+|---|---|
+| `tests/run-ui-checks.js` (new) | Static checks of every page: includes, script syntax, inline handlers, server calls, element IDs, label targets, labelled controls, button types and names, duplicate IDs, and the status area. Also checks menu targets and the pages opened by `showHtml_` |
+| Unit tests | Version compatibility and the employee count |
+| Integration tests | Schedule Viewer filters, stored filter cells, the meeting-shading rule, refusal of an unknown team |
+| Migration test | Scenario C: 1.1.1 → 1.1.2 (no forced upgrade; teams, types, records, configuration and sheets unchanged; second run changes nothing) |
+
+### Known limitations
+
+- **No role filter in the viewer:** the daily sheet has no role filter cell, and adding one would change every team's sheet layout. Employee, shift-type/activity and status filters are available.
+- **Native menu:** Google Sheets menus cannot be styled, so only labels and grouping changed.
+- **Not visually verified in Google Sheets:** the pages have not been checked in a real Sheets dialog, at different zoom levels, or with a screen reader. The static checks do not replace that review.
+
 ## 1.1.1
 
 ### Meetings and multiple assignments per day

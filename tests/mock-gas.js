@@ -64,6 +64,21 @@ function makeUtilities() {
   };
 }
 
+/** Conditional-format rule builder that records its formula and background (enough to assert on). */
+function ruleBuilder() {
+  const rule = {};
+  const p = new Proxy(function () {}, {
+    get(t, k) {
+      if (k === 'build') return () => rule;
+      if (k === 'whenFormulaSatisfied') return (f) => { rule.formula = f; return p; };
+      if (k === 'setBackground') return (b) => { rule.background = b; return p; };
+      return () => p;
+    },
+    apply() { return p; }
+  });
+  return p;
+}
+
 function chain() {
   const p = new Proxy(function () {}, {
     get(t, k) { return k === 'build' ? () => ({}) : () => p; },
@@ -123,7 +138,8 @@ class MockSheet {
   getFilter() { return this.filter; }
   protect() { const p = chain(); this.protections.push(p); return p; }
   getProtections() { return this.protections; }
-  setConditionalFormatRules() { return this; }
+  setConditionalFormatRules(rules) { this.cfRules = rules || []; return this; }
+  getConditionalFormatRules() { return this.cfRules || []; }
   setFrozenRows() { return this; }
   setColumnWidth() { return this; }
   setRowHeight() { return this; }
@@ -230,7 +246,7 @@ function makeGlobals(tz) {
       SpreadsheetApp: {
         getActiveSpreadsheet: () => ss,
         newDataValidation: chain,
-        newConditionalFormatRule: chain,
+        newConditionalFormatRule: ruleBuilder,
         ProtectionType: { SHEET: 'SHEET', RANGE: 'RANGE' },
         BorderStyle: { SOLID: 'SOLID' },
         flush() {},

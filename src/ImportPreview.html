@@ -1,110 +1,158 @@
 <!-- Included by ImportDialog.html: renders the analysis returned by apiImportAnalyze / apiImportCommit. -->
 <script>
-  function stat(label, value, cls) {
-    return '<div class="stat ' + (cls || '') + '"><b>' + esc(value) + '</b><span>' + esc(label) + '</span></div>';
+  var ROUTING_NEEDS_DECISION = ['AMBIGUOUS', 'UNKNOWN_EMPLOYEE', 'NO_MEMBERSHIP', 'AMBIGUOUS_NAME', 'ASSIGNED_MANUALLY', 'SKIPPED'];
+
+  /** Collapsible detail section; open when it needs attention. */
+  function detailSection(title, count, bodyHtml, open, kind) {
+    return '<details class="disclosure"' + (open ? ' open' : '') + '><summary>' + esc(title) + ' ' + badge(kind || '', String(count)) + '</summary>' +
+      '<div class="disclosure-body">' + bodyHtml + '</div></details>';
   }
+  function tableHtml(headers, rows, numCols) {
+    numCols = numCols || [];
+    return '<div class="table-wrap mt-3"><table class="table"><thead><tr>' + headers.map(function (h, i) {
+      return '<th scope="col"' + (numCols.indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>';
+    }).join('') + '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+  }
+  function n(v) { return Number(v) || 0; }
 
   function renderPreview(p) {
     var S = p.summary;
     var html = '';
-    if (p.previewOnly) html += '<div class="msg info"><b>Preview mode:</b> nothing will be written. Use Schedule Import → Import Quinyx Export to apply a file.</div>';
-    html += '<div class="card small">' + (S.scheduleDate ? '<b>Schedule date:</b> ' + esc(S.scheduleDate) + ' · ' : '') +
-      '<b>Source:</b> ' + esc(p.sourceFile) + ' · <b>Format:</b> ' + esc(p.format) + (p.sheetName ? ' · <b>Sheet:</b> ' + esc(p.sheetName) : '') +
-      ' · <b>Shift dates:</b> ' + esc(S.dateFrom ? S.dateFrom + (S.dateTo !== S.dateFrom ? ' → ' + S.dateTo : '') : '—') +
-      ' · <b>Team routing:</b> ' + esc(p.teamMode) + (p.dateOrder ? ' · <b>Date order:</b> ' + esc(p.dateOrder) : '') +
-      (S.shiftTypeFilters && S.shiftTypeFilters.length ? '<br><b>Selected shift types:</b> ' + S.shiftTypeFilters.map(function (f) {
-        return esc(f.teamName) + ': ' + (f.mode === 'ALL' ? 'all' : f.mode === 'SELECTED' ? esc(f.types.join(', ') || '(none)') : '<span style="color:#a50e0e">not configured</span>');
-      }).join(' · ') : '') + '</div>';
-    (p.fileWarnings || []).forEach(function (w) { html += '<div class="msg warn">' + esc(w) + '</div>'; });
+    if (p.previewOnly) html += alertHtml('info', 'Preview mode', 'Nothing will be written. Use Schedule Import → Import Quinyx Export to apply a file.');
 
-    html += '<div class="stats">' +
-      stat('Source rows', S.sourceRows) +
-      stat('Matching shift types', S.sourceRows - S.excludedByShiftType - S.otherTeamRows) +
-      stat('Excluded by shift type', S.excludedByShiftType, S.excludedByShiftType ? 'warn' : '') +
-      stat('Valid rows', S.validRows, 'good') +
-      stat('Invalid rows', S.rejectedRows, S.rejectedRows ? 'bad' : '') +
-      stat('Missing employee name', S.missingEmployee, S.missingEmployee ? 'bad' : '') +
-      stat('Unparseable shift info', S.unparseableShiftInfo, S.unparseableShiftInfo ? 'bad' : '') +
-      stat('Hours missing / invalid', S.hoursMissing + S.hoursInvalid, S.hoursMissing + S.hoursInvalid ? 'warn' : '') +
-      stat('Hours differ', S.hoursDiscrepancies, S.hoursDiscrepancies ? 'warn' : '') +
-      stat('Normal shifts', S.normalShifts) +
-      stat('Meetings detected', S.meetingsDetected) +
-      stat('Meetings selected', S.meetingsSelected, S.meetingsSelected ? 'good' : '') +
-      stat('Meetings excluded', S.meetingsExcluded, S.meetingsExcluded ? 'warn' : '') +
-      stat('Ambiguous team', S.ambiguousRouting, S.ambiguousRouting ? 'bad' : '') +
-      stat('Unroutable rows', S.unroutable, S.unroutable ? 'bad' : '') +
-      stat('New shifts', S.insert + S.restore, 'good') +
-      stat('Updated shifts', S.update) +
-      stat('Removed (replace)', S.remove, S.remove ? 'warn' : '') +
-      stat('Duplicates / conflicts', S.potentialDuplicates, S.changedPending ? 'warn' : '') +
-      stat('Unknown employees', S.unknownEmployeeCount, S.unknownEmployeeCount ? 'warn' : '') +
-      stat('Overlaps', S.overlapsCount, S.overlapsCount ? 'warn' : '') +
-      '</div>';
-
-    if (p.blockers.length && !p.previewOnly) {
-      html += '<div class="msg fatal"><b>The import cannot be applied yet:</b><ul>' + p.blockers.map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul></div>';
-    } else if (!p.previewOnly) {
-      html += '<div class="msg ok"><b>Ready.</b> Review the details, then click <b>Apply import</b>.</div>';
+    // Source facts
+    html += '<dl class="facts">' +
+      '<div><dt>File</dt><dd>' + esc(p.sourceFile) + (p.sheetName ? ' <span class="muted">· ' + esc(p.sheetName) + '</span>' : '') + '</dd></div>' +
+      '<div><dt>Format</dt><dd>' + esc(p.format) + '</dd></div>' +
+      (S.scheduleDate ? '<div><dt>Schedule date</dt><dd>' + esc(S.scheduleDate) + '</dd></div>' : '') +
+      '<div><dt>Shift dates</dt><dd>' + esc(S.dateFrom ? S.dateFrom + (S.dateTo !== S.dateFrom ? ' → ' + S.dateTo : '') : '—') + '</dd></div>' +
+      '<div><dt>Team routing</dt><dd>' + esc(p.teamMode) + '</dd></div>' +
+      (p.dateOrder ? '<div><dt>Date order</dt><dd>' + esc(p.dateOrder) + '</dd></div>' : '') + '</dl>';
+    if (S.shiftTypeFilters && S.shiftTypeFilters.length) {
+      html += '<p class="small"><b>Selected shift types</b> — ' + S.shiftTypeFilters.map(function (f) {
+        return esc(f.teamName) + ': ' + (f.mode === 'ALL' ? 'all' : f.mode === 'SELECTED' ? esc(f.types.join(', ') || '(none)') : badge('bad', 'Not configured'));
+      }).join(' · ') + '</p>';
     }
+    (p.fileWarnings || []).forEach(function (w) { html += alertHtml('warning', '', esc(w)); });
+
+    // Status of the whole import
+    if (p.blockers.length && !p.previewOnly) html += alertHtml('error', 'The import cannot be applied yet', '', p.blockers);
+    else if (!p.previewOnly) html += alertHtml('success', 'Ready to apply', 'Review the summary and the confirmation below, then click <b>Apply import</b>.');
+
+    // Metrics, grouped
+    var group = function (title, tiles) { return '<div class="stat-group"><div class="eyebrow">' + esc(title) + '</div><div class="stats mb-0">' + tiles.join('') + '</div></div>'; };
+    html += group('Source', [
+      stat('Source records', S.sourceRows),
+      stat('Valid', S.validRows, 'good'),
+      stat('Rejected', S.rejectedRows, S.rejectedRows ? 'bad' : ''),
+      stat('Excluded by shift type', S.excludedByShiftType, S.excludedByShiftType ? 'warn' : '')
+    ]);
+    html += group('Changes', [
+      stat('New assignments', n(S.insert) + n(S.restore), 'good'),
+      stat('Updated', S.update),
+      stat('Removed (replace)', S.remove, S.remove ? 'warn' : ''),
+      stat('Unchanged', S.unchanged),
+      stat('Potential duplicates', S.potentialDuplicates, S.changedPending ? 'warn' : '')
+    ]);
+    html += group('Shifts and meetings', [
+      stat('Normal shifts', S.normalShifts),
+      stat('Meetings detected', S.meetingsDetected, S.meetingsDetected ? 'meeting' : ''),
+      stat('Meetings included', S.meetingsSelected, S.meetingsSelected ? 'meeting' : ''),
+      stat('Meetings excluded', S.meetingsExcluded, S.meetingsExcluded ? 'warn' : '')
+    ]);
+    var attention = [
+      ['Unknown employees', S.unknownEmployeeCount, 'warn'], ['Ambiguous team', S.ambiguousRouting, 'bad'], ['Unroutable rows', S.unroutable, 'bad'],
+      ['Invalid times', S.invalidTimes, 'bad'], ['Unreadable shift info', S.unparseableShiftInfo, 'bad'], ['Missing employee name', S.missingEmployee, 'bad'],
+      ['Hours missing / invalid', n(S.hoursMissing) + n(S.hoursInvalid), 'warn'], ['Hours differ', S.hoursDiscrepancies, 'warn'], ['Overlaps', S.overlapsCount, 'warn']
+    ];
+    var hits = attention.filter(function (a) { return n(a[1]) > 0; });
+    html += hits.length ? group('Needs attention', hits.map(function (a) { return stat(a[0], a[1], a[2]); }))
+      : '<div class="stat-group"><div class="eyebrow">Needs attention</div><p class="small mb-0">' + badge('ok', 'Nothing') + ' No unknown employees, routing problems, invalid times or overlaps.</p></div>';
+
     html += renderReport(p.report);
 
+    // Details
     if (S.shiftTypes && S.shiftTypes.length) {
-      html += '<h3>Shift types in the file</h3><table class="grid"><tr><th>Shift type</th><th>Rows</th><th>Imported</th><th>Excluded</th><th></th></tr>' +
+      html += detailSection('Shift types in the file', S.shiftTypes.length, tableHtml(['Shift type', 'Rows', 'Imported', 'Excluded', ''],
         S.shiftTypes.map(function (t) {
-          return '<tr><td>' + esc(t.type || '(blank)') + '</td><td>' + t.rows + '</td><td>' + t.included + '</td><td>' + t.excluded + '</td><td>' +
-            (t.isNew ? '<span class="badge warn">new</span>' : '') + '</td></tr>';
-        }).join('') + '</table>';
+          return '<tr><td>' + esc(t.type || '(blank)') + '</td><td class="num">' + t.rows + '</td><td class="num">' + t.included + '</td><td class="num">' + t.excluded + '</td><td>' +
+            (t.isNew ? badge('warn', 'New') : '') + (t.excluded && !t.included ? ' ' + badge('', 'Excluded') : '') + '</td></tr>';
+        }), [1, 2, 3]), S.shiftTypes.some(function (t) { return t.isNew; }));
     }
     if (p.routing && p.routing.length) {
-      var needs = function (s) { return ['AMBIGUOUS', 'UNKNOWN_EMPLOYEE', 'NO_MEMBERSHIP', 'AMBIGUOUS_NAME', 'ASSIGNED_MANUALLY', 'SKIPPED'].indexOf(s) >= 0; };
       var teamsList = (typeof boot !== 'undefined' && boot && boot.teams) ? boot.teams.filter(function (t) { return t.status === 'READY'; }) : [];
       var ov = (typeof routingOverrides !== 'undefined') ? routingOverrides : {};
-      var problems = p.routing.filter(function (r) { return needs(r.status); }).length;
-      html += '<h3>Employee matching and team routing (' + p.routingTotal + ' row(s)' + (problems ? ', <span style="color:#a50e0e">' + problems + ' need a decision</span>' : '') + ')</h3>' +
-        '<div class="scroll" style="max-height:300px"><table class="grid"><tr><th>Row</th><th>Employee (Quinyx)</th><th>Matched ID</th><th>Staff name</th><th>Match</th><th>Membership</th><th>Resolved team</th><th>Routing</th></tr>' +
-        p.routing.map(function (r) {
-          var cell = esc(r.team || '—');
-          if (needs(r.status) && teamsList.length) {
-            var cur = ov[String(r.row)] || '';
-            var opts = '<option value="">— decide —</option><option value="SKIP"' + (cur === 'SKIP' ? ' selected' : '') + '>Skip this row</option>' +
-              r.candidates.concat(teamsList.filter(function (t) { return !r.candidates.some(function (c) { return c.teamId === t.teamId; }); }))
-                .map(function (t) { return '<option value="' + esc(t.teamId) + '"' + (cur === t.teamId ? ' selected' : '') + '>' + esc(t.teamName) + '</option>'; }).join('');
-            cell = '<select data-route="' + r.row + '" onchange="routeChanged(this)">' + opts + '</select>';
-          }
-          var cls = needs(r.status) && r.status !== 'ASSIGNED_MANUALLY' && r.status !== 'SKIPPED' ? 'bad' : (r.status === 'ROUTED' || r.status === 'SELECTED_TEAM' || r.status === 'TEAM_COLUMN' ? 'ok' : 'warn');
-          return '<tr><td>' + r.row + '</td><td>' + esc(r.sourceName || r.sourceId) + '</td><td>' + esc(r.employeeId || '—') + '</td><td>' + esc(r.staffName || '—') +
-            '</td><td>' + esc(r.method) + '</td><td>' + esc(r.membership || '—') + '</td><td>' + cell + '</td><td><span class="badge ' + cls + '">' + esc(r.status) + '</span></td></tr>';
-        }).join('') + '</table></div>' +
-        (p.routingTotal > p.routing.length ? '<p class="small muted">Showing ' + p.routing.length + ' of ' + p.routingTotal + ' rows (problems first).</p>' : '') +
-        (problems ? '<p class="small">Choose a team or "Skip" for each highlighted row, then click <b>Re-analyze with my routing decisions</b>.</p>' : '');
+      var problems = p.routing.filter(function (r) { return ROUTING_NEEDS_DECISION.indexOf(r.status) >= 0; }).length;
+      var body = (problems ? alertHtml('warning', problems + ' row(s) need a decision', 'Choose a team or "Skip this row" for each highlighted row, then click <b>Re-analyze</b>.') : '') +
+        tableHtml(['Row', 'Employee (Quinyx)', 'Matched ID', 'Staff name', 'Match', 'Membership', 'Resolved team', 'Routing'],
+          p.routing.map(function (r) {
+            var cell = esc(r.team || '—');
+            var needs = ROUTING_NEEDS_DECISION.indexOf(r.status) >= 0;
+            if (needs && teamsList.length) {
+              var cur = ov[String(r.row)] || '';
+              var opts = '<option value="">— decide —</option><option value="SKIP"' + (cur === 'SKIP' ? ' selected' : '') + '>Skip this row</option>' +
+                r.candidates.concat(teamsList.filter(function (t) { return !r.candidates.some(function (c) { return c.teamId === t.teamId; }); }))
+                  .map(function (t) { return '<option value="' + esc(t.teamId) + '"' + (cur === t.teamId ? ' selected' : '') + '>' + esc(t.teamName) + '</option>'; }).join('');
+              cell = '<label class="sr-only" for="route' + r.row + '">Team for row ' + r.row + '</label><select id="route' + r.row + '" data-route="' + r.row + '" onchange="routeChanged(this)">' + opts + '</select>';
+            }
+            var cls = needs && r.status !== 'ASSIGNED_MANUALLY' && r.status !== 'SKIPPED' ? 'bad' : (r.status === 'ROUTED' || r.status === 'SELECTED_TEAM' || r.status === 'TEAM_COLUMN' ? 'ok' : 'warn');
+            return '<tr' + (cls === 'bad' ? ' class="attention"' : '') + '><td class="num">' + r.row + '</td><td>' + esc(r.sourceName || r.sourceId) + '</td><td>' + esc(r.employeeId || '—') + '</td><td>' + esc(r.staffName || '—') +
+              '</td><td>' + esc(r.method) + '</td><td>' + esc(r.membership || '—') + '</td><td>' + cell + '</td><td>' + badge(cls, r.status) + '</td></tr>';
+          }), [0]) +
+        (p.routingTotal > p.routing.length ? '<p class="hint">Showing ' + p.routing.length + ' of ' + p.routingTotal + ' rows (problems first).</p>' : '');
+      html += detailSection('Employee matching and team routing', p.routingTotal, body, problems > 0, problems ? 'bad' : '');
     }
     if (S.teams.length) {
-      html += '<h3>Teams</h3><table class="grid"><tr><th>Team</th><th>Valid rows</th><th>Dates</th><th>New</th><th>Updated</th><th>Removed</th><th>Unchanged</th><th>Skipped</th><th>Pending decision</th><th>Rejected</th></tr>' +
+      html += detailSection('Teams', S.teams.length, tableHtml(['Team', 'Valid rows', 'Dates', 'New', 'Updated', 'Removed', 'Unchanged', 'Skipped', 'Pending', 'Rejected'],
         S.teams.map(function (t) {
-          return '<tr><td>' + esc(t.teamName) + '</td><td>' + t.rows + '</td><td>' + esc(t.dateFrom ? t.dateFrom + ' → ' + t.dateTo : '—') + '</td><td>' + t.insert + '</td><td>' + t.update +
-            '</td><td>' + t.remove + '</td><td>' + t.unchanged + '</td><td>' + t.skipped + '</td><td>' + t.pending + '</td><td>' + t.rejected + '</td></tr>';
-        }).join('') + '</table>';
+          return '<tr><td>' + esc(t.teamName) + '</td><td class="num">' + t.rows + '</td><td class="nowrap">' + esc(t.dateFrom ? t.dateFrom + ' → ' + t.dateTo : '—') + '</td><td class="num">' + t.insert +
+            '</td><td class="num">' + t.update + '</td><td class="num">' + t.remove + '</td><td class="num">' + t.unchanged + '</td><td class="num">' + t.skipped +
+            '</td><td class="num">' + t.pending + '</td><td class="num">' + t.rejected + '</td></tr>';
+        }), [1, 3, 4, 5, 6, 7, 8, 9]), S.teams.length > 1);
     }
     if (p.rejected.length) {
-      html += '<h3>Rejected rows (' + p.rejectedTotal + ')</h3><div class="scroll"><table class="grid"><tr><th>Row</th><th>Team</th><th>Reason</th></tr>' +
-        p.rejected.map(function (r) { return '<tr><td>' + r.row + '</td><td>' + esc(r.team) + '</td><td>' + esc(r.reasons.join(' ')) + '</td></tr>'; }).join('') +
-        '</table></div>' + (p.rejectedTotal > p.rejected.length ? '<p class="small muted">Showing the first ' + p.rejected.length + '.</p>' : '');
+      html += detailSection('Rejected rows', p.rejectedTotal, tableHtml(['Row', 'Team', 'Reason'],
+        p.rejected.map(function (r) { return '<tr><td class="num">' + r.row + '</td><td>' + esc(r.team) + '</td><td class="wrap">' + esc(r.reasons.join(' ')) + '</td></tr>'; }), [0]) +
+        (p.rejectedTotal > p.rejected.length ? '<p class="hint">Showing the first ' + p.rejected.length + '.</p>' : ''), true, 'bad');
     }
     if (S.unknownEmployees.length) {
-      html += '<h3>Unknown employees (' + S.unknownEmployeeCount + ')</h3><div class="scroll"><table class="grid"><tr><th>Team</th><th>Employee ID</th><th>Name</th><th>Rows</th><th>Note</th></tr>' +
-        S.unknownEmployees.map(function (u) { return '<tr><td>' + esc(u.team) + '</td><td>' + esc(u.employeeId || '—') + '</td><td>' + esc(u.employeeName) + '</td><td>' + u.rows + '</td><td>' + esc(u.reason) + '</td></tr>'; }).join('') +
-        '</table></div>';
+      html += detailSection('Unknown employees', S.unknownEmployeeCount, tableHtml(['Team', 'Employee ID', 'Name', 'Rows', 'Note'],
+        S.unknownEmployees.map(function (u) { return '<tr><td>' + esc(u.team) + '</td><td>' + esc(u.employeeId || '—') + '</td><td>' + esc(u.employeeName) + '</td><td class="num">' + u.rows + '</td><td class="wrap">' + esc(u.reason) + '</td></tr>'; }), [3]) +
+        '<p class="hint">Unknown employees are imported and flagged. Add them later with View Staff Directory → Unknown….</p>', false, 'warn');
     }
     if (S.overlaps.length) {
-      html += '<h3>Overlapping shifts</h3><div class="scroll"><table class="grid">' + S.overlaps.map(function (o) { return '<tr><td>' + esc(o) + '</td></tr>'; }).join('') + '</table></div>';
+      html += detailSection('Overlapping assignments', S.overlaps.length, '<ul class="plain small">' + S.overlaps.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>', false, 'warn');
     }
     if (p.rowWarnings.length) {
-      html += '<h3>Row warnings (' + p.rowWarningsTotal + ')</h3><div class="scroll"><table class="grid"><tr><th>Row</th><th>Warning</th></tr>' +
-        p.rowWarnings.map(function (r) { return '<tr><td>' + r.row + '</td><td>' + esc(r.messages.join(' ')) + '</td></tr>'; }).join('') + '</table></div>';
+      html += detailSection('Row warnings', p.rowWarningsTotal, tableHtml(['Row', 'Warning'],
+        p.rowWarnings.map(function (r) { return '<tr><td class="num">' + r.row + '</td><td class="wrap">' + esc(r.messages.join(' ')) + '</td></tr>'; }), [0]), false, 'warn');
     }
     if (p.unmappedColumns.length) {
-      html += '<p class="small muted"><b>Unmapped columns</b> (kept in each record\'s Extra JSON, shown when a team lists them as team-specific fields): ' + esc(p.unmappedColumns.join(', ')) + '</p>';
+      html += '<p class="hint"><b>Unmapped columns</b> (kept in each record\'s Extra JSON, shown when a team lists them as team-specific fields): ' + esc(p.unmappedColumns.join(', ')) + '</p>';
     }
     return html;
+  }
+
+  /**
+   * "What will be written" summary shown before Apply. Built only from the plan
+   * returned by the server, so it matches what the commit will do.
+   * strategies: {KEY: label}
+   */
+  function renderConfirmation(p, strategies) {
+    var S = p.summary;
+    if (p.previewOnly || !S.teams.length) return '';
+    var imported = (S.shiftTypes || []).filter(function (t) { return t.included > 0; }).map(function (t) { return t.type || '(blank)'; });
+    var rows = [
+      ['Teams affected', esc(S.teams.map(function (t) { return t.teamName; }).join(', '))],
+      ['Dates affected', S.teams.map(function (t) { return esc(t.teamName) + ': ' + esc(t.dateFrom ? t.dateFrom + (t.dateTo !== t.dateFrom ? ' → ' + t.dateTo : '') : '—'); }).join('<br>')],
+      ['Activity types imported', imported.length ? esc(imported.join(', ')) : '<span class="muted">All rows of the file (no shift-type column)</span>'],
+      ['Meetings', n(S.meetingsSelected) ? badge('meeting', n(S.meetingsSelected) + ' included') + ' as separate assignments' : (n(S.meetingsExcluded) ? n(S.meetingsExcluded) + ' excluded (meeting import off)' : 'None in this file')],
+      ['Duplicate handling', esc(strategies[p.strategy] || p.strategy)],
+      ['Existing records', (n(S.update) ? n(S.update) + ' will be updated' : 'None updated') + (n(S.remove) ? ' · <b>' + n(S.remove) + ' will be marked REMOVED</b> (replace)' : '') +
+        (n(S.unchanged) ? ' · ' + n(S.unchanged) + ' unchanged' : '')],
+      ['New assignments', String(n(S.insert) + n(S.restore))]
+    ];
+    return '<div class="panel mt-4"><div class="panel-head"><h3>Confirm what will be written</h3></div>' + kvTable(rows) +
+      '<p class="hint">Applying writes a journal first, so the whole import can be undone with Undo Last Import.</p></div>';
   }
 </script>

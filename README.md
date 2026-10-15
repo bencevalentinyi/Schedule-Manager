@@ -1,4 +1,4 @@
-# Schedule Manager: Quinyx schedules in Google Sheets (v1.1.1)
+# Schedule Manager: Quinyx schedules in Google Sheets (v1.1.2)
 
 A reusable Google Sheets template, powered by Apps Script, that:
 
@@ -18,9 +18,18 @@ Teams, team types, staff fields, team membership, shift and meeting types, layou
 
 > **Not yet verified against real files.** The Daily Schedule parser follows the layout as described; every row and column is configurable, and unreadable values are flagged rather than guessed. The Slack payload records are normalized rows, because the Slack Workflow input schema has not been confirmed (see ARCHITECTURE.md §1 and §9).
 
-## Updating an existing installation (1.0 or 1.1.0 → 1.1.1)
+## Updating from 1.1.1 to 1.1.2 (user interface release)
 
-1. **Replace and add the files.** In the Apps Script editor, replace every file marked *changed* below and add the files marked *new*, with exactly the listed names (`.gs` via **+ → Script**, `.html` via **+ → HTML**). With clasp: `git pull` then `clasp push`.
+1.1.2 redesigns every dialog and sidebar. It does not change sheets, data or configuration.
+
+1. **Replace the changed files.** Replace the files marked *1.1.2* in the manifest below, with the same names. No new files are needed in the Apps Script project. With clasp: `git pull`, then `clasp push`.
+2. **Check the files:** save, run **`checkInstall`**, then reload the spreadsheet.
+3. **No upgrade is required.** A 1.1.1 spreadsheet keeps working. Running *Setup / Configure Spreadsheet → Repair* once records version 1.1.2 and changes nothing else.
+4. **Optional:** run *Maintenance → Repair Formatting* so existing daily sheets shade meeting rows.
+
+## Updating an older installation (1.0 or 1.1.0 → 1.1.2)
+
+1. **Replace and add the files.** In the Apps Script editor, replace every file in `src/` and add any that are missing, with exactly the listed names (`.gs` via **+ → Script**, `.html` via **+ → HTML**). Files new since 1.1.0: `MembershipService.gs`, `SlackPayloadService.gs`, `SlackDialog.html`. With clasp: `git pull`, then `clasp push`.
 2. **Save,** reload the spreadsheet, and run **`checkInstall`** in the editor. It must report that all script and HTML files are present.
 3. **Run the upgrade:** choose *Schedule Manager → Setup & Configuration → Setup / Configure Spreadsheet → **Upgrade***.
    - Until you do, other actions show "upgrade required".
@@ -32,39 +41,41 @@ Teams, team types, staff fields, team membership, shift and meeting types, layou
 
 ## File manifest
 
-All files in `src/` belong in **one** Apps Script project bound to the spreadsheet. "Depends on" lists the files whose functions a file calls (all files share one global scope).
+All files in `src/` belong in **one** Apps Script project bound to the spreadsheet. "Depends on" lists the files whose functions a file calls (all files share one global scope). The *1.1.2* column marks the files to replace when updating from 1.1.1.
 
-| File | 1.1.1 | Responsibility | Depends on |
+| File | 1.1.2 | Responsibility | Depends on |
 |---|---|---|---|
 | `appsscript.json` | | Manifest: V8, OAuth scopes, Drive advanced service v3 | — |
-| `Schema.gs` | changed | Sheet schemas, field catalogs, enums, layout constants | — |
+| `Schema.gs` | changed | Sheet schemas, field catalogs, enums, layout constants; version and compatible versions | — |
 | `Utils.gs` | | Errors/reports, pure helpers, lock, logging, API wrapper | Schema |
 | `SheetStore.gs` | | Header-driven table read/write; preserves unknown columns | Utils |
 | `ConfigService.gs` | changed | `_CONFIG` defaults and validation, upgrade check, Slack config keys | SheetStore |
-| `Setup.gs` | changed | Idempotent initialize/repair/**upgrade**, `setupNow`, connection ping | all services |
+| `Setup.gs` | changed | Idempotent initialize/repair/upgrade, `setupNow`, connection ping | all services |
 | `TeamTypeService.gs` | | Team types, operating hours, field normalization | SheetStore, ImportMapping, TeamService |
-| `TeamService.gs` | changed | Teams, wizard validation, **meeting settings, shared directories**, create/update/delete | TeamType, Staff, Membership, Schedule, Dashboard |
-| `StaffFieldService.gs` | changed | Custom staff fields: permanent keys, **display order, confirmed delete** | TeamService, StaffService |
-| `MembershipService.gs` | **new** | Shared directories, explicit `_TEAM_MEMBERSHIP`, backfill, sidebar membership API | TeamService, StaffService |
-| `StaffService.gs` | changed | Staff sheets (union of fields for shared sheets), matching, membership-aware index | TeamService, StaffFieldService, Membership, Schedule |
-| `ScheduleService.gs` | changed | Views, **meeting/conflict classification, working-hours rule**, headcount | TeamService, StaffService, AuditService |
-| `DashboardService.gs` | changed | All-teams dashboard | ScheduleService, AuditService |
+| `TeamService.gs` | | Teams, wizard validation, meeting settings, shared directories, create/update/delete | TeamType, Staff, Membership, Schedule, Dashboard |
+| `StaffFieldService.gs` | | Custom staff fields: permanent keys, display order, confirmed delete | TeamService, StaffService |
+| `MembershipService.gs` | | Shared directories, explicit `_TEAM_MEMBERSHIP`, backfill, sidebar membership API | TeamService, StaffService |
+| `StaffService.gs` | | Staff sheets (union of fields for shared sheets), matching, membership-aware index | TeamService, StaffFieldService, Membership, Schedule |
+| `ScheduleService.gs` | changed | Views, meeting/conflict classification, working-hours rule, headcount, **Schedule Viewer API, meeting shading** | TeamService, StaffService, AuditService |
+| `DashboardService.gs` | | All-teams dashboard | ScheduleService, AuditService |
 | `QuinyxParser.gs` | | File decoding, CSV/XLSX, Daily Schedule adapter, date/time parsing | ImportMapping |
 | `ImportMappingService.gs` | | Mapping profiles, auto-mapping | SheetStore, ConfigService |
-| `ImportService.gs` | changed | Import planner: **meetings, directory routing with manual decisions, routing table**; commit, undo | all of the above |
-| `SlackPayloadService.gs` | **new** | Payload generation (retrieve → blocks → serialize), dashboard URL generator, validation | Schedule, Staff, Membership, Config |
+| `ImportService.gs` | changed | Import planner: meetings, directory routing with manual decisions, routing table; commit, undo | all of the above |
+| `SlackPayloadService.gs` | changed | Payload generation (retrieve → blocks → serialize), dashboard URL generator, validation, **open payload sheet** | Schedule, Staff, Membership, Config |
 | `ValidationService.gs` | changed | Structure and data validation (conflicts exclude meetings in shifts) | read services |
 | `AuditService.gs` | | Import log, journal, history API | SheetStore |
-| `Main.gs` | changed | Menu (incl. **Slack Workflow Automation**), `onEdit`, `checkInstall` | all |
-| `Tests.gs` | changed | 89 unit tests and 22 integration tests | all |
-| `Styles.html`, `ClientCore.html` | | Shared CSS and client helpers | — |
-| `SetupDialog.html`, `ReportDialog.html`, `Navigator.html`, `HistoryDialog.html`, `TeamTypeDialog.html`, `SettingsDialog.html` | | Unchanged in 1.1.1 | — |
-| `TeamDialog.html` | changed | Team wizard incl. **dedicated/shared staff directory, meetings, routing** | TeamService |
-| `TeamManager.html` | changed | Team list | TeamService |
-| `StaffFieldsDialog.html` | changed | Custom fields incl. display order and delete | StaffFieldService |
-| `StaffSidebar.html` | changed | Staff directory incl. **team membership** | StaffService, Membership |
-| `ImportDialog.html`, `ImportPreview.html` | changed | Import wizard incl. **meeting counts and routing table** | ImportService |
-| `SlackDialog.html` | **new** | Generate, Payload configuration, Dashboard URL (with live preview) | SlackPayloadService |
+| `Main.gs` | changed | Menu, **standard dialog sizes**, `onEdit`, `checkInstall` | all |
+| `Tests.gs` | changed | 91 unit tests and 23 integration tests | all |
+| `Styles.html` | changed | **Design system:** tokens and components for every page | — |
+| `ClientCore.html` | changed | **Client helpers and components:** calls, loading, alerts, badges, empty states, stepper, tabs, confirmation, field errors | — |
+| `SetupDialog.html`, `ReportDialog.html`, `HistoryDialog.html`, `TeamTypeDialog.html`, `SettingsDialog.html`, `TeamManager.html`, `StaffFieldsDialog.html` | changed | Setup, reports and help, import history, team types, settings, team list, custom fields | their services |
+| `TeamDialog.html` | changed | Six-step team wizard (create and edit) | TeamService |
+| `StaffSidebar.html` | changed | Staff directory sidebar incl. team membership | StaffService, Membership |
+| `Navigator.html` | changed | **Schedule Viewer** sidebar (date navigation, filters, summary) | ScheduleService |
+| `ImportDialog.html`, `ImportPreview.html` | changed | Import wizard, preview and confirmation | ImportService |
+| `SlackDialog.html` | changed | Generate, Payload configuration, Dashboard URL | SlackPayloadService |
+
+Unchanged in 1.1.2: `appsscript.json` and the `.gs` files with an empty *1.1.2* cell. Every HTML file changed.
 
 Test files outside the Apps Script project:
 
@@ -72,7 +83,8 @@ Test files outside the Apps Script project:
 |---|---|
 | `tests/run-unit-tests.js` | Unit tests plus a static check that no code creates triggers |
 | `tests/run-integration-tests.js` + `tests/mock-gas.js` | Integration tests against an in-memory Sheets mock |
-| `tests/run-migration-test.js` | Upgrade from v1.0 and from v1.1.0, each run twice |
+| `tests/run-migration-test.js` | Upgrade from v1.0 and from v1.1.0 (each run twice), and 1.1.1 → 1.1.2 without migration |
+| `tests/run-ui-checks.js` | Static checks of every HTML page: handlers, server calls, element IDs, labels, buttons, script syntax |
 
 ## Installation (new spreadsheet)
 
@@ -85,10 +97,11 @@ Test files outside the Apps Script project:
 3. **Enable Drive (for XLSX):** under *Services (+)*, add **Drive API v3** with identifier `Drive`.
 4. **Check the files:** save, run **`checkInstall`**, then reload the spreadsheet.
 5. **Initialize:** choose *Schedule Manager → Setup & Configuration → Setup / Configure Spreadsheet → Initialize* and authorize. If the dialog reports that it cannot reach the script, see its message (usually several Google accounts are signed in), or run **`setupNow`** in the editor.
-6. **Create teams:** choose *Create New Team*. On the **Staff** step, pick a dedicated sheet or share an existing one. On the **Import** step, choose the shift types and, optionally, meeting import with the meeting types.
+6. **Create teams:** choose *Create New Team*. On the **Staff directory** step, pick a dedicated sheet or share an existing one. On the **Quinyx import** step choose the shift types, and on the **Meetings** step optionally turn on meeting import with the meeting types.
 7. **Add staff and any custom fields:** use *View Staff Directory* and *Configure Staff Fields*.
-8. **Import:** choose *Schedule Import → Import Quinyx Export*, then check the preview counts and the routing table before applying.
-9. **Set up Slack payloads:**
+8. **Import:** choose *Schedule Import → Import Quinyx Export*, then check the preview counts, the routing table and the confirmation summary before applying.
+9. **View schedules:** choose *Schedule Management → Schedule Viewer* to move between dates, filter and refresh.
+10. **Set up Slack payloads:**
    1. *Slack Workflow Automation → Configure Dashboard URL*: enter the template, test it with the preview, and save.
    2. *Configure Payload Generation*: choose teams, dates, blocks and mode.
    3. *Generate Payloads*: preview, then generate.
@@ -97,9 +110,11 @@ Test files outside the Apps Script project:
 
 | Test | Command | Result at hand-off |
 |---|---|---|
-| Unit tests | `node tests/run-unit-tests.js` (or `runUnitTests` in the editor) | **89/89 passed**, no-trigger check passed |
-| Integration (Sheets mock) | `node tests/run-integration-tests.js` | **22/22 passed** |
-| Upgrade 1.0 → 1.1.1 and 1.1.0 → 1.1.1 (mock) | `node tests/run-migration-test.js` | **25/25 checks passed** |
+| Unit tests | `node tests/run-unit-tests.js` (or `runUnitTests` in the editor) | **91/91 passed**, no-trigger check passed |
+| Integration (Sheets mock) | `node tests/run-integration-tests.js` | **23/23 passed** |
+| Upgrade 1.0 → 1.1.2 and 1.1.0 → 1.1.2; 1.1.1 → 1.1.2 without migration (mock) | `node tests/run-migration-test.js` | **31/31 checks passed** |
+| UI static checks | `node tests/run-ui-checks.js` | **1068 checks passed** (15 HTML files) |
+| UI in a real Google Sheets dialog | manual checklist in docs/VERIFICATION.md §UI | **not yet done** |
 | Integration in real Google Sheets | `runIntegrationTests` in a **copy**, with `_CONFIG TEST_MODE = TRUE` | **not yet run** |
 
 The mock enforces out-of-range errors, loss of leading zeros in non-text cells, and date cells read back as Dates. It is still not Google Sheets, so run the real-Sheets tests in a copy before production use.

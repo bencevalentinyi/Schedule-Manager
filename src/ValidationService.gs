@@ -20,7 +20,7 @@ function validateStructure_() {
 
   var cfg = getConfig_();
   if (!cfgBool_(cfg, 'INITIALIZED')) rep.fatal.push('The system is not marked as initialized. Run Setup / Configure Spreadsheet.');
-  if (cfg.SYSTEM_VERSION !== APP.VERSION) rep.warnings.push('Stored system version ' + cfg.SYSTEM_VERSION + ' differs from the code version ' + APP.VERSION + '. Run Setup / Configure Spreadsheet to upgrade the schema.');
+  if (versionNeedsUpgrade_(cfg.SYSTEM_VERSION)) rep.warnings.push('Stored system version ' + cfg.SYSTEM_VERSION + ' differs from the code version ' + APP.VERSION + '. Run Setup / Configure Spreadsheet to upgrade the schema.');
   var check = {};
   CONFIG_DEFAULTS.forEach(function (d) { if (d[3] !== 'system') check[d[0]] = cfg[d[0]]; });
   var cfgRep = validateConfigUpdates_(check);

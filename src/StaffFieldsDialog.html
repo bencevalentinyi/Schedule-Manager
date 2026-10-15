@@ -1,50 +1,63 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
 </head>
 <body>
-  <h1>Configure Staff Fields</h1>
-  <p class="muted">Additional staff columns created by you — for example external identifiers (Converse ID, CRM ID, Telephony ID…) or other custom fields. None are created by default. Each field has a permanent key, so renaming it never loses values. Identifier values are stored as text (leading zeros are kept) and must be unique within a team.</p>
-  <div id="status"></div>
-  <div class="row" style="align-items:flex-start">
-    <div style="flex:0 0 250px">
-      <div class="scroll" style="max-height:400px" id="list"></div>
-      <p><button class="btn small" onclick="edit(null)">+ Add field</button></p>
-    </div>
-    <div style="flex:1 1 420px" id="editor" class="hidden">
-      <div class="row">
-        <div><label for="name">Display name *</label><input type="text" id="name" maxlength="50"></div>
-        <div><label for="type">Field type</label><select id="type"></select></div>
+  <header class="app-header">
+    <h1>Configure Staff Fields</h1>
+    <p class="subtitle">Extra staff columns you create, such as CRM, telephony or other identifiers. None exist by default. Each field has a permanent key, so renaming it never loses values.</p>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div class="split">
+      <div>
+        <div class="list" id="list" role="listbox" aria-label="Staff fields"></div>
+        <button type="button" class="btn sm mt-2" onclick="edit(null)">+ Add field</button>
+        <p class="hint mt-2">Default columns (Employee ID, Employee Name, Active, Role, Notes) are built in and not listed here.</p>
       </div>
-      <p class="small muted" id="keyInfo"></p>
-      <div class="row">
-        <div><label for="desc">Description</label><input type="text" id="desc" maxlength="300"></div>
-        <div style="flex:0 0 140px"><label for="order">Display order</label><input type="number" id="order" min="0" max="9999"></div>
-      </div>
-      <label class="inline"><input type="checkbox" id="visible"> Show in staff sheets</label>
-      <label class="inline"><input type="checkbox" id="required"> Required when adding staff</label>
-      <label class="inline" id="matchBox"><input type="checkbox" id="matchable"> May be used as an import match key (only teams that explicitly choose it)</label>
-      <p><button class="btn primary" onclick="save()">Save field</button></p>
-      <div id="teamsBox" class="card hidden">
-        <h3>Teams using this field</h3>
-        <div class="checks" id="teams"></div>
-        <p class="small muted">Removing a field from a team hides its column; the values stay in the sheet.</p>
-        <p><button class="btn" onclick="saveTeams()">Save team selection</button></p>
-      </div>
-      <div id="deleteBox" class="card hidden">
-        <h3>Delete this field</h3>
-        <p class="small muted">Prefer hiding (untick "Show in staff sheets"). Deleting removes the field from all teams. By default the column and its values stay in the staff sheets as an ordinary column.</p>
-        <label class="inline"><input type="checkbox" id="delValues" onchange="show('delConfirmBox', this.checked)"> Also permanently delete the stored values</label>
-        <div id="delConfirmBox" class="hidden">
-          <label for="delConfirm">Type the field name to confirm permanent deletion</label><input type="text" id="delConfirm">
+      <div>
+        <div id="placeholder"></div>
+        <div id="editor" class="hidden">
+          <div class="panel-head"><h2 id="edTitle">Field</h2><span id="edKey"></span></div>
+          <div class="row">
+            <div class="field"><label class="label" for="name">Display name<span class="req" aria-hidden="true">*</span></label><input type="text" id="name" maxlength="50" required>
+              <p class="hint">Shown as the column header. Renaming changes only the header text; values stay.</p></div>
+            <div class="field"><label class="label" for="type">Field type</label><select id="type" onchange="typeChanged()"></select></div>
+          </div>
+          <div class="row">
+            <div class="field"><label class="label" for="desc">Description<span class="optional">optional</span></label><input type="text" id="desc" maxlength="300"></div>
+            <div class="field" style="max-width:180px"><label class="label" for="order">Display order</label><input type="number" id="order" min="0" max="9999">
+              <p class="hint">Lower numbers appear first.</p></div>
+          </div>
+          <fieldset>
+            <legend>Behavior</legend>
+            <label class="check"><input type="checkbox" id="visible" class="switch"> <span>Show in staff sheets <span class="hint">Turning this off hides the column. Values are kept.</span></span></label>
+            <label class="check"><input type="checkbox" id="required" class="switch"> <span>Required when adding staff</span></label>
+            <label class="check" id="matchBox"><input type="checkbox" id="matchable" class="switch"> <span>May be used as an import match key <span class="hint">Only teams that explicitly choose it in their import settings.</span></span></label>
+          </fieldset>
+          <div class="cluster"><button type="button" class="btn primary" onclick="save()">Save field</button></div>
+
+          <div id="teamsBox" class="panel mt-4 hidden">
+            <div class="panel-head"><h3>Staff directories using this field</h3></div>
+            <p class="hint mt-0">Tick the teams whose staff sheet shows this column. Unticking hides the column for that team; values stay in the sheet.</p>
+            <div class="check-grid mt-2" id="teams"></div>
+            <div class="cluster mt-2"><button type="button" class="btn" onclick="saveTeams()">Save team selection</button></div>
+          </div>
+
+          <div id="deleteBox" class="panel mt-3 hidden">
+            <div class="panel-head"><h3>Delete this field</h3></div>
+            <p class="hint mt-0">Prefer hiding it (turn off "Show in staff sheets"). Deleting removes the field from every team. By default the column and its values stay in the staff sheets as an ordinary column.</p>
+            <button type="button" class="btn danger mt-2" onclick="askDelete()">Delete field…</button>
+            <div id="delConfirm" class="hidden"></div>
+          </div>
         </div>
-        <p><button class="btn danger" onclick="delField()">Delete field</button></p>
       </div>
     </div>
-  </div>
-  <div class="footer"><span class="spacer"></span><button class="btn" onclick="closeDialog()">Close</button></div>
+  </main>
+  <footer class="app-footer"><span class="spacer"></span><button type="button" class="btn" onclick="closeDialog()">Close</button></footer>
 
   <?!= include('ClientCore') ?>
   <script>
@@ -54,63 +67,93 @@
     function load(selectKey) {
       call('Loading…', 'apiStaffFieldsBootstrap').then(function (d) {
         data = d;
-        $('type').innerHTML = options(Object.keys(d.types).map(function (k) { return { k: k, l: d.types[k] }; }), 'k', 'l');
+        $('type').innerHTML = options(kv(d.types), 'k', 'l');
         $('list').innerHTML = d.fields.map(function (f, i) {
           var users = d.teams.filter(function (t) { return t.staffFields.indexOf('field:' + f.fieldKey) >= 0; }).length;
-          return '<div class="list-item" data-i="' + i + '" onclick="edit(' + i + ')"><b>' + esc(f.displayName) + '</b> ' +
-            (f.visible ? '' : '<span class="badge warn">hidden</span>') +
-            '<div class="small muted">' + esc(f.fieldKey) + ' · ' + (f.fieldType === 'IDENTIFIER' ? 'identifier' : 'text') + ' · ' + users + ' team(s)</div></div>';
-        }).join('') || '<p class="muted" style="padding:8px">No fields yet.</p>';
+          return '<button type="button" class="list-item" role="option" aria-selected="false" data-i="' + i + '" onclick="edit(' + i + ')"><span class="name">' + esc(f.displayName) +
+            (f.visible ? '' : ' ' + badge('warn', 'Hidden')) + (f.required ? ' ' + badge('', 'Required') : '') + '</span>' +
+            '<span class="meta">' + (f.fieldType === 'IDENTIFIER' ? 'Identifier' : 'Text') + ' · order ' + esc(f.displayOrder) + ' · ' + users + ' team(s)</span></button>';
+        }).join('') || emptyHtml('＋', 'No custom fields', 'Click "+ Add field" to create one.');
+        if (!current) $('placeholder').innerHTML = d.fields.length
+          ? '<div class="empty"><div class="empty-icon" aria-hidden="true">☰</div><p class="empty-title">Select a field</p><p>Choose a field on the left to rename, hide, reorder or delete it.</p></div>'
+          : emptyHtml('＋', 'No custom fields yet', 'Add a field when a team needs an extra column, for example an external identifier used in dashboard URLs.',
+            '<button type="button" class="btn primary" onclick="edit(null)">Add the first field</button>');
         var i = selectKey ? d.fields.map(function (f) { return f.fieldKey; }).indexOf(selectKey) : -1;
         if (i >= 0) edit(i);
       });
     }
 
+    function typeChanged() { show('matchBox', $('type').value === 'IDENTIFIER'); }
+
     function edit(i) {
       current = i === null ? null : data.fields[i];
-      document.querySelectorAll('.list-item').forEach(function (el) { el.classList.toggle('sel', Number(el.dataset.i) === i); });
+      document.querySelectorAll('.list-item').forEach(function (el) { el.setAttribute('aria-selected', Number(el.dataset.i) === i ? 'true' : 'false'); });
+      clearFieldErrors();
       var f = current || { displayName: '', fieldType: 'IDENTIFIER', description: '', visible: true, required: false, matchable: true };
+      $('edTitle').textContent = current ? current.displayName : 'New field';
+      $('edKey').innerHTML = current ? badge('', 'Key: ' + current.fieldKey, 'Permanent key; teams and sheet columns refer to it') : badge('info', 'Key assigned on save');
       $('name').value = f.displayName; $('type').value = f.fieldType; $('desc').value = f.description;
       $('order').value = current ? current.displayOrder : (data.fields.length + 1) * 10;
-      show('deleteBox', !!current); $('delValues').checked = false; show('delConfirmBox', false); $('delConfirm').value = '';
       $('visible').checked = f.visible; $('required').checked = f.required; $('matchable').checked = f.matchable;
-      $('keyInfo').textContent = current ? 'Permanent key: ' + current.fieldKey + ' (referenced by teams and linked to the staff sheet columns).' : 'A permanent key is assigned when you save.';
-      $('type').onchange = function () { show('matchBox', $('type').value === 'IDENTIFIER'); };
-      show('matchBox', f.fieldType === 'IDENTIFIER');
+      typeChanged();
       if (current) {
         $('teams').innerHTML = data.teams.map(function (t) {
           var on = t.staffFields.indexOf('field:' + current.fieldKey) >= 0;
-          return '<label class="inline"><input type="checkbox" data-team="' + esc(t.teamId) + '"' + (on ? ' checked' : '') + '> ' + esc(t.teamName) + '</label>';
-        }).join('') || '<p class="muted">No teams yet.</p>';
+          return '<label class="check"><input type="checkbox" data-team="' + esc(t.teamId) + '"' + (on ? ' checked' : '') + '> ' + esc(t.teamName) + '</label>';
+        }).join('') || '<p class="hint">No teams yet.</p>';
       }
-      show('teamsBox', !!current);
-      show('editor', true);
+      show('teamsBox', !!current); show('deleteBox', !!current);
+      closeConfirm('delConfirm');
+      show('placeholder', false); show('editor', true);
       showStatus('', '');
+      if (!current) $('name').focus();
     }
 
     function save() {
+      clearFieldErrors();
+      if (!$('name').value.trim()) { fieldError('name', 'Enter a display name.'); $('name').focus(); return; }
       var input = { fieldKey: current ? current.fieldKey : '', displayName: $('name').value, fieldType: $('type').value,
         description: $('desc').value, visible: $('visible').checked, required: $('required').checked, matchable: $('matchable').checked,
         displayOrder: Number($('order').value || 0) };
       call('Saving and updating staff sheets…', 'apiSaveStaffField', input).then(function (r) {
-        showStatus('ok', (r.created ? 'Created ' : 'Saved ') + esc(r.field.displayName) + (r.renamed ? ' — staff sheet headers were renamed; values were kept.' : '.') +
-          (r.problems.length ? '<br>' + r.problems.map(esc).join('<br>') : ''));
+        showStatus('ok', (r.renamed ? 'Staff sheet headers were renamed; values were kept.' : '') + (r.problems.length ? '<ul>' + r.problems.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : ''),
+          (r.created ? 'Created ' : 'Saved ') + r.field.displayName);
+        current = null;
         load(r.field.fieldKey);
       });
     }
 
+    function askDelete() {
+      var name = current.displayName;
+      var box = $('delConfirm');
+      box.innerHTML = '<div class="confirm-panel" role="group" aria-labelledby="delT"><h3 id="delT">Delete "' + esc(name) + '"?</h3>' +
+        '<p class="small">The field is removed from all teams. Its columns stay in the staff sheets as ordinary columns, with their values, unless you choose otherwise below.</p>' +
+        '<label class="check"><input type="checkbox" id="delValues" onchange="delValuesChanged()"> <span>Also permanently clear the stored values <span class="hint">Cannot be undone.</span></span></label>' +
+        '<div class="field mt-2 hidden" id="delTypeBox"><label class="label" for="delTyped">Type <b>' + esc(name) + '</b> to confirm</label><input type="text" id="delTyped" autocomplete="off" oninput="delValuesChanged()"></div>' +
+        '<div class="actions"><button type="button" class="btn" onclick="closeConfirm(\'delConfirm\')">Cancel</button>' +
+        '<button type="button" class="btn danger-solid" id="delYes" onclick="delField()">Delete field</button></div></div>';
+      show(box, true);
+      $('delYes').focus();
+    }
+    function delValuesChanged() {
+      var on = $('delValues').checked;
+      show('delTypeBox', on);
+      $('delYes').disabled = on && $('delTyped').value.trim() !== current.displayName.trim();
+      $('delYes').textContent = on ? 'Delete field and values' : 'Delete field';
+    }
     function delField() {
-      call('Deleting field…', 'apiDeleteStaffField', current.fieldKey, $('delValues').checked, $('delConfirm').value).then(function (r) {
-        showStatus('ok', 'Deleted "' + esc(r.deleted) + '". ' + (r.valuesDeleted ? 'Stored values were cleared in ' + r.columnsCleared + ' sheet(s).' : 'Its columns and values remain in the staff sheets as ordinary columns.'));
-        show('editor', false); load();
+      call('Deleting field…', 'apiDeleteStaffField', current.fieldKey, $('delValues').checked, $('delTyped').value).then(function (r) {
+        showStatus('ok', r.valuesDeleted ? 'Stored values were cleared in ' + r.columnsCleared + ' sheet(s).' : 'Its columns and values remain in the staff sheets as ordinary columns.', 'Deleted "' + r.deleted + '"');
+        current = null; show('editor', false); show('placeholder', true); load();
       });
     }
 
     function saveTeams() {
-      var ids = Array.prototype.filter.call(document.querySelectorAll('[data-team]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.team; });
+      var ids = checkedData('team');
       call('Updating teams…', 'apiSetStaffFieldTeams', current.fieldKey, ids).then(function (r) {
-        showStatus('ok', r.changedTeams.length ? 'Updated: ' + esc(r.changedTeams.join(', ')) + '.' : 'No changes.');
-        load(current.fieldKey);
+        showStatus('ok', '', r.changedTeams.length ? 'Updated: ' + r.changedTeams.join(', ') + '.' : 'No changes.');
+        var key = current.fieldKey; current = null;
+        load(key);
       });
     }
     load();

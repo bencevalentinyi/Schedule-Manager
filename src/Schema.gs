@@ -10,9 +10,17 @@
 
 var APP = Object.freeze({
   NAME: 'Schedule Manager',
-  VERSION: '1.1.1',
-  MENU: 'Schedule Manager'
+  VERSION: '1.1.2',
+  MENU: 'Schedule Manager',
+  // Stored versions whose sheets and configuration need no migration for this code
+  // (1.1.2 changed only the user interface). Setup still records the new version.
+  COMPATIBLE_VERSIONS: Object.freeze(['1.1.1'])
 });
+
+/** True when a spreadsheet stored with this version must run Setup → Upgrade first. */
+function versionNeedsUpgrade_(stored) {
+  return stored !== APP.VERSION && APP.COMPATIBLE_VERSIONS.indexOf(stored) < 0;
+}
 
 /** Builds a column definition. Options: text (plain-text cell format), json, datetime, number. */
 function col_(key, label, opts) {

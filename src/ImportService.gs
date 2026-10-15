@@ -1214,7 +1214,8 @@ function apiImportBootstrap(previewOnly) {
         var imp = t.settings.import;
         return { teamId: t.teamId, teamName: t.teamName, status: t.status, active: t.active, importProfileId: t.importProfileId,
           scheduleType: imp.scheduleType, shiftTypeMode: imp.shiftTypeMode, shiftTypes: imp.shiftTypes,
-          knownShiftTypes: imp.knownShiftTypes, duplicateStrategy: imp.duplicateStrategy };
+          knownShiftTypes: imp.knownShiftTypes, duplicateStrategy: imp.duplicateStrategy,
+          importMeetings: !!imp.importMeetings, meetingTypes: imp.meetingTypes || [] }; // v1.1.2: labels meeting types in the wizard
       }),
       currentTeamId: current ? current.team.teamId : '',
       profiles: listProfiles_().map(function (p) {

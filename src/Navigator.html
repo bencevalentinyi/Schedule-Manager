@@ -1,48 +1,156 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
+  <style>
+    .date-nav { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; }
+    .facts { grid-template-columns: 1fr 1fr; }
+    .stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .stat { padding: 6px 8px; } .stat b { font-size: 15px; }
+  </style>
 </head>
-<body>
-  <div id="status"></div>
-  <label for="team">Team</label>
-  <select id="team"></select>
-  <div id="dateBox">
-    <label for="date">Date</label>
-    <input type="date" id="date">
-    <p><button class="btn small" onclick="shift(-1)">◀ Previous day</button> <button class="btn small" onclick="$('date').value = BOOTDATA.today">Today</button> <button class="btn small" onclick="shift(1)">Next day ▶</button></p>
-  </div>
-  <div class="footer">
-    <button class="btn" onclick="closeDialog()">Cancel</button>
+<body class="sidebar">
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div id="noTeams" class="hidden"></div>
+
+    <div id="viewer">
+      <div class="field">
+        <label class="label" for="team">Team</label>
+        <select id="team" onchange="render('')"></select>
+      </div>
+      <div class="field">
+        <label class="label" for="date">Date</label>
+        <div class="date-nav">
+          <button type="button" class="btn icon" onclick="step(-1)" aria-label="Previous day" title="Previous day">◀</button>
+          <input type="date" id="date" onchange="render($('date').value)">
+          <button type="button" class="btn icon" onclick="step(1)" aria-label="Next day" title="Next day">▶</button>
+        </div>
+        <div class="cluster mt-2">
+          <button type="button" class="btn sm" onclick="goToday()">Today</button>
+          <span class="small muted" id="weekday"></span>
+        </div>
+      </div>
+
+      <section class="summary-box" aria-labelledby="hdrTitle" id="headerBox">
+        <h2 class="mt-0 mb-0" id="hdrTitle" style="font-size:14px">—</h2>
+        <p class="small muted mb-0" id="hdrDate"></p>
+        <dl class="facts mt-2 mb-0">
+          <div><dt>Operating hours</dt><dd id="hdrHours">—</dd></div>
+          <div><dt>Last import</dt><dd id="hdrImport">—</dd></div>
+        </dl>
+      </section>
+
+      <div class="stats" id="stats" aria-label="Schedule summary"></div>
+
+      <h3>Filters</h3>
+      <div class="field">
+        <label class="label" for="emp">Employee</label>
+        <div class="search"><input type="search" id="emp" list="empList" placeholder="Search by name or ID" autocomplete="off"
+          onchange="applyEmployee()" onkeydown="if (event.key === 'Enter') { event.preventDefault(); applyEmployee(); }"></div>
+        <datalist id="empList"></datalist>
+        <p class="hint">Type part of a name and pick from the list. Clear the box to show everyone.</p>
+      </div>
+      <div class="field">
+        <label class="label" for="activity">Shift type / activity</label>
+        <select id="activity" onchange="applyFilters()"></select>
+      </div>
+      <div class="field">
+        <label class="label" for="statusFilter">Status</label>
+        <select id="statusFilter" onchange="applyFilters()"></select>
+      </div>
+      <button type="button" class="btn ghost sm" onclick="clearFilters()">Clear filters</button>
+
+      <h3>Legend</h3>
+      <div class="legend">
+        <span class="badge shift">Shift</span><span class="badge meeting">Meeting (in shift)</span><span class="badge meeting">Meeting (outside shift)</span>
+      </div>
+      <p class="hint">Meetings are separate rows, shaded violet, and are counted apart from shifts. Grey italic rows come from the previous or next day, or lie outside the operating hours. The Status / Flags column explains each row.</p>
+    </div>
+  </main>
+  <footer class="app-footer" id="footer">
+    <button type="button" class="btn" onclick="refresh()">Refresh</button>
     <span class="spacer"></span>
-    <button class="btn hidden" id="staffBtn" onclick="openStaff()">Open staff sheet</button>
-    <button class="btn primary" onclick="openSchedule()">Open schedule</button>
-  </div>
+    <button type="button" class="btn" onclick="openStaff()">Staff directory</button>
+  </footer>
+
   <?!= include('ClientCore') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var BOOTDATA = null;
+    var boot = null, last = null;
+
     function init() {
-      show('dateBox', BOOT.mode === 'date');
-      show('staffBtn', BOOT.mode === 'team');
-      call('Loading…', 'apiNavigatorBootstrap').then(function (d) {
-        BOOTDATA = d;
-        if (!d.teams.length) { showStatus('warn', 'No ready teams yet. Create a team first.'); return; }
+      call('Loading teams…', 'apiNavigatorBootstrap').then(function (d) {
+        boot = d;
+        if (!d.teams.length) {
+          show('viewer', false); show('footer', false); show('noTeams', true);
+          $('noTeams').innerHTML = emptyHtml('▦', 'No teams yet', 'Create a team under Schedule Manager → Setup &amp; Configuration → Create New Team. Its daily schedule then appears here.');
+          return;
+        }
         $('team').innerHTML = options(d.teams, 'teamId', 'teamName', d.currentTeamId || d.teams[0].teamId);
         $('date').value = d.today;
+        render(BOOT.focus === 'today' ? d.today : '').then(function () { if (BOOT.focus === 'date') $('date').focus(); });
       });
     }
-    function shift(k) {
-      var d = new Date(($('date').value || BOOTDATA.today) + 'T12:00:00Z');
+
+    function filtersFromForm() {
+      return { employee: $('emp').dataset.value || '(All)', activity: $('activity').value || '(All)', status: $('statusFilter').value || '(All)' };
+    }
+
+    /** Renders the sheet. date '' keeps the sheet's date; filters undefined keeps the sheet's filters. */
+    function render(date, filters) {
+      showStatus('', '');
+      return call('Loading schedule…', 'apiViewerRender', $('team').value, date || '', filters || null).then(paint, function () {});
+    }
+    function paint(r) {
+      last = r;
+      $('date').value = r.date;
+      $('weekday').textContent = r.weekday;
+      $('hdrTitle').textContent = r.teamName;
+      $('hdrDate').textContent = r.weekday + ', ' + r.date;
+      $('hdrHours').innerHTML = esc(r.operatingModeLabel) + '<div class="small muted">' + esc(r.hoursLabel) + '</div>';
+      var st = r.importStatus;
+      $('hdrImport').innerHTML = r.lastImport ? esc(r.lastImport) + '<div>' + badge(st === 'COMMITTED' ? 'ok' : (st === 'FAILED' || st === 'COMMITTING' ? 'bad' : 'warn'), st) + '</div>'
+        : '<span class="muted">Never imported</span>';
+      var S = r.summary;
+      $('stats').innerHTML = stat('Shifts', S.shifts) + stat('Meetings', S.meetings, S.meetings ? 'meeting' : '') + stat('Staff', S.staff) +
+        stat('Working hrs', S.workingHours) + stat('Overlaps', S.overlaps, S.overlaps ? 'bad' : '') + stat('Unknown', S.unknown, S.unknown ? 'warn' : '');
+      $('empList').innerHTML = r.employeeOptions.map(function (o) { return '<option value="' + esc(o) + '">'; }).join('');
+      var e = r.filters.employee;
+      $('emp').value = e === '(All)' ? '' : e; $('emp').dataset.value = e;
+      $('activity').innerHTML = options(['(All)'].concat(r.activityOptions), null, null, r.filters.activity);
+      $('statusFilter').innerHTML = options(r.statusOptions, null, null, r.filters.status);
+      fieldError('emp', '');
+      var filtered = r.shown !== r.shifts;
+      if (!r.shifts) showStatus('info', 'Import a Quinyx export (Schedule Import → Import Quinyx Export) or pick another date.', 'No shifts or meetings on this date');
+      else if (filtered) showStatus('info', 'Showing ' + r.shown + ' of ' + r.shifts + ' rows. <button type="button" class="btn sm" onclick="clearFilters()">Clear filters</button>', 'Filters are active');
+    }
+
+    function step(k) {
+      var d = new Date(($('date').value || boot.today) + 'T12:00:00Z');
       d.setUTCDate(d.getUTCDate() + k);
-      $('date').value = d.toISOString().substr(0, 10);
+      render(d.toISOString().substr(0, 10));
     }
-    function openSchedule() {
-      var date = BOOT.mode === 'team' ? '' : (BOOT.mode === 'today' ? BOOTDATA.today : $('date').value);
-      call('Rendering schedule…', 'apiOpenSchedule', $('team').value, date).then(closeDialog);
+    function goToday() { render(boot.today); }
+    function refresh() { render($('date').value); }
+
+    function applyEmployee() {
+      var q = $('emp').value.trim();
+      if (!q) { $('emp').dataset.value = '(All)'; return applyFilters(); }
+      var opts = last ? last.employeeOptions : [];
+      if (opts.indexOf(q) >= 0) { $('emp').dataset.value = q; return applyFilters(); }
+      var hits = opts.filter(function (o) { return o.toLowerCase().indexOf(q.toLowerCase()) >= 0; });
+      if (hits.length === 1) { $('emp').value = hits[0]; $('emp').dataset.value = hits[0]; return applyFilters(); }
+      fieldError('emp', hits.length ? hits.length + ' employees match "' + q + '". Pick one from the list.' : 'Nobody on this date matches "' + q + '".');
     }
-    function openStaff() { call('Opening…', 'apiOpenTeamSheet', $('team').value, 'staff').then(closeDialog); }
+    function applyFilters() { render($('date').value, filtersFromForm()); }
+    function clearFilters() {
+      $('emp').value = ''; $('emp').dataset.value = '(All)';
+      render($('date').value, { employee: '(All)', activity: '(All)', status: '(All)' });
+    }
+    function openStaff() { call('Opening staff directory…', 'apiOpenTeamSheet', $('team').value, 'staff'); }
     init();
   </script>
 </body>

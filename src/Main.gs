@@ -24,10 +24,11 @@ function onOpen() {
       .addItem('Import History', 'menuImportHistory')
       .addItem('Undo Last Import', 'menuUndoLastImport'))
     .addSubMenu(ui.createMenu('Schedule Management')
+      .addItem('Schedule Viewer (date, filters, refresh)', 'menuViewTeamSchedule')
       .addItem("Open Today's Schedule", 'menuOpenToday')
       .addItem('Select Schedule Date', 'menuSelectDate')
       .addItem('Refresh Schedule Data', 'menuRefresh')
-      .addItem('View Team Schedule', 'menuViewTeamSchedule')
+      .addSeparator()
       .addItem('View Staff Directory', 'menuViewStaff'))
     .addSubMenu(ui.createMenu('Slack Workflow Automation')
       .addItem('Generate Payloads', 'menuSlackGenerate')
@@ -120,28 +121,47 @@ function menuRun_(name, fn, needsInit) {
 }
 
 /**
+ * Standard dialog sizes [width, height] (v1.1.2). Every page has a fixed
+ * header and footer and scrolls internally, so these sizes fit all content.
+ */
+var DIALOG_SIZE = {
+  SMALL: [520, 420],    // short reports, confirmations
+  MEDIUM: [780, 620],   // forms and configuration
+  LARGE: [960, 700]     // wizards and wide tables
+};
+
+/**
  * Opens an HTML template as a modal dialog or sidebar.
  * @param {string} file template name
- * @param {Object} data passed to the page as BOOT (JSON)
+ * @param {Object} data passed to the page as BOOT (JSON); data.title is also the page heading
+ * @param {number[]|number} size DIALOG_SIZE entry (or a width, followed by height)
  */
-function showHtml_(file, title, data, width, height, sidebar) {
+function showHtml_(file, title, data, size, height, sidebar) {
   var t = HtmlService.createTemplateFromFile(file);
-  t.bootJson = jsonForHtml_(data || {});
+  data = data || {};
+  if (data.title === undefined) data.title = title;
+  t.bootJson = jsonForHtml_(data);
   var out = t.evaluate().setTitle(title);
   if (sidebar) {
     SpreadsheetApp.getUi().showSidebar(out);
   } else {
-    out.setWidth(width || 720).setHeight(height || 560);
-    SpreadsheetApp.getUi().showModalDialog(out, title);
+    var dims = Array.isArray(size) ? size : [size || DIALOG_SIZE.MEDIUM[0], height || DIALOG_SIZE.MEDIUM[1]];
+    out.setWidth(dims[0]).setHeight(dims[1]);
+    // The page shows its own title and subtitle; the frame shows the application name.
+    SpreadsheetApp.getUi().showModalDialog(out, APP.NAME);
   }
 }
 
 function showReport_(title, report, intro) {
-  showHtml_('ReportDialog', title, { title: title, intro: intro || '', report: report }, 680, 520);
+  showHtml_('ReportDialog', title, { title: title, intro: intro || '', report: report }, DIALOG_SIZE.MEDIUM);
 }
 
 function showTeamDialog_(teamId) {
-  showHtml_('TeamDialog', teamId ? 'Edit Team' : 'Create New Team', { teamId: teamId || '' }, 780, 640);
+  showHtml_('TeamDialog', teamId ? 'Edit Team' : 'Create New Team', { teamId: teamId || '' }, DIALOG_SIZE.LARGE);
+}
+
+function showScheduleViewer_(focus) {
+  showHtml_('Navigator', 'Schedule Viewer', { focus: focus || '' }, 0, 0, true);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -151,7 +171,7 @@ function showTeamDialog_(teamId) {
 function menuSetup() {
   menuRun_('menuSetup', function () {
     // The state is passed in directly so the dialog renders even if google.script.run is blocked.
-    showHtml_('SetupDialog', 'Setup / Configure Spreadsheet', { state: getSetupState_() }, 700, 600);
+    showHtml_('SetupDialog', 'Setup / Configure Spreadsheet', { state: getSetupState_() }, DIALOG_SIZE.MEDIUM);
   }, false);
 }
 
@@ -160,23 +180,23 @@ function menuCreateTeam() {
 }
 
 function menuManageTeams() {
-  menuRun_('menuManageTeams', function () { showHtml_('TeamManager', 'Manage Existing Teams', {}, 820, 580); });
+  menuRun_('menuManageTeams', function () { showHtml_('TeamManager', 'Manage Existing Teams', {}, DIALOG_SIZE.LARGE); });
 }
 
 function menuTeamTypes() {
-  menuRun_('menuTeamTypes', function () { showHtml_('TeamTypeDialog', 'Configure Team Types', {}, 820, 640); });
+  menuRun_('menuTeamTypes', function () { showHtml_('TeamTypeDialog', 'Configure Team Types', {}, DIALOG_SIZE.LARGE); });
 }
 
 function menuStaffFields() {
-  menuRun_('menuStaffFields', function () { showHtml_('StaffFieldsDialog', 'Configure Staff Fields', {}, 820, 600); });
+  menuRun_('menuStaffFields', function () { showHtml_('StaffFieldsDialog', 'Configure Staff Fields', {}, DIALOG_SIZE.LARGE); });
 }
 
 function menuImportSettings() {
-  menuRun_('menuImportSettings', function () { showHtml_('SettingsDialog', 'Configure Import Settings', { tab: 'import' }, 820, 640); });
+  menuRun_('menuImportSettings', function () { showHtml_('SettingsDialog', 'Configure Import Settings', { tab: 'import' }, DIALOG_SIZE.LARGE); });
 }
 
 function menuDisplaySettings() {
-  menuRun_('menuDisplaySettings', function () { showHtml_('SettingsDialog', 'Configure Display Settings', { tab: 'display' }, 820, 640); });
+  menuRun_('menuDisplaySettings', function () { showHtml_('SettingsDialog', 'Configure Display Settings', { tab: 'display' }, DIALOG_SIZE.LARGE); });
 }
 
 function menuValidateStructure() {
@@ -191,18 +211,18 @@ function menuValidateStructure() {
 
 function menuImport() {
   menuRun_('menuImport', function () {
-    showHtml_('ImportDialog', 'Import Quinyx Export', { previewOnly: false }, 900, 680);
+    showHtml_('ImportDialog', 'Import Quinyx Export', { previewOnly: false }, DIALOG_SIZE.LARGE);
   });
 }
 
 function menuPreviewImport() {
   menuRun_('menuPreviewImport', function () {
-    showHtml_('ImportDialog', 'Preview Import (no changes are written)', { previewOnly: true }, 900, 680);
+    showHtml_('ImportDialog', 'Preview Import (no changes are written)', { previewOnly: true }, DIALOG_SIZE.LARGE);
   });
 }
 
 function menuImportHistory() {
-  menuRun_('menuImportHistory', function () { showHtml_('HistoryDialog', 'Import History', {}, 920, 600); });
+  menuRun_('menuImportHistory', function () { showHtml_('HistoryDialog', 'Import History', {}, DIALOG_SIZE.LARGE); });
 }
 
 function menuUndoLastImport() {
@@ -234,7 +254,7 @@ function menuOpenToday() {
     var team = current ? current.team : (ready.length === 1 ? ready[0] : null);
     if (!team) {
       if (!ready.length) fail_('NO_TEAMS', 'There are no teams yet. Use Setup & Configuration → Create New Team.');
-      showHtml_('Navigator', "Open Today's Schedule", { mode: 'today' }, 440, 300);
+      showScheduleViewer_('today');
       return;
     }
     renderTeamView_(team, { date: todayIso_(cfg.TIMEZONE) });
@@ -243,7 +263,7 @@ function menuOpenToday() {
 }
 
 function menuSelectDate() {
-  menuRun_('menuSelectDate', function () { showHtml_('Navigator', 'Select Schedule Date', { mode: 'date' }, 440, 320); });
+  menuRun_('menuSelectDate', function () { showScheduleViewer_('date'); });
 }
 
 function menuRefresh() {
@@ -262,7 +282,7 @@ function menuRefresh() {
 }
 
 function menuViewTeamSchedule() {
-  menuRun_('menuViewTeamSchedule', function () { showHtml_('Navigator', 'View Team Schedule', { mode: 'team' }, 440, 300); });
+  menuRun_('menuViewTeamSchedule', function () { showScheduleViewer_('team'); });
 }
 
 function menuViewStaff() {
@@ -274,15 +294,15 @@ function menuViewStaff() {
 /* ------------------------------------------------------------------------ */
 
 function menuSlackGenerate() {
-  menuRun_('menuSlackGenerate', function () { showHtml_('SlackDialog', 'Generate Slack Payloads', { tab: 'generate' }, 920, 680); });
+  menuRun_('menuSlackGenerate', function () { showHtml_('SlackDialog', 'Generate Slack Payloads', { tab: 'generate' }, DIALOG_SIZE.LARGE); });
 }
 
 function menuSlackConfig() {
-  menuRun_('menuSlackConfig', function () { showHtml_('SlackDialog', 'Configure Payload Generation', { tab: 'config' }, 920, 680); });
+  menuRun_('menuSlackConfig', function () { showHtml_('SlackDialog', 'Configure Payload Generation', { tab: 'config' }, DIALOG_SIZE.LARGE); });
 }
 
 function menuSlackUrl() {
-  menuRun_('menuSlackUrl', function () { showHtml_('SlackDialog', 'Configure Dashboard URL', { tab: 'url' }, 920, 680); });
+  menuRun_('menuSlackUrl', function () { showHtml_('SlackDialog', 'Configure Dashboard URL', { tab: 'url' }, DIALOG_SIZE.LARGE); });
 }
 
 function menuSlackView() {
@@ -334,6 +354,6 @@ function menuOpenConfig() {
 
 function menuHelp() {
   menuRun_('menuHelp', function () {
-    showHtml_('ReportDialog', 'About / Help', { title: APP.NAME + ' ' + APP.VERSION, help: true }, 720, 600);
+    showHtml_('ReportDialog', 'About / Help', { title: APP.NAME + ' ' + APP.VERSION, help: true }, DIALOG_SIZE.MEDIUM);
   }, false);
 }

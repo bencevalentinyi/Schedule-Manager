@@ -444,17 +444,29 @@ function layoutScheduleSheet_(sh, team) {
   var lastL = columnLetter_(fields.length);
   var rules = [];
   var flagsIdx = fields.indexOf('flags');
+  var catIdx = fields.indexOf('activityCategory');
+  // v1.1.2: meeting rows are shaded so they stand apart from shifts. The row also says
+  // "Meeting (in shift)" / "Meeting (outside shift)" in Flags or "Meeting" in Category.
+  var meetingFormula = flagsIdx >= 0 ? '=LEFT($' + columnLetter_(flagsIdx + 1) + r0 + ',7)="Meeting"'
+    : (catIdx >= 0 ? '=$' + columnLetter_(catIdx + 1) + r0 + '="Meeting"' : '');
   if (flagsIdx >= 0) {
     var F = '$' + columnLetter_(flagsIdx + 1) + r0;
     var flagRange = sh.getRange(r0, flagsIdx + 1, dataRows, 1);
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR(ISNUMBER(SEARCH("Overlap",' + F + ')),ISNUMBER(SEARCH("Unknown",' + F + ')))')
       .setBackground(cfg.ERROR_COLOR).setFontColor('#a50e0e').setRanges([flagRange]).build());
+    // A meeting without other flags is not a warning.
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND(LEFT(' + F + ',7)="Meeting",ISERROR(SEARCH(",",' + F + ')))')
+      .setBackground('#efe6fa').setFontColor('#66399b').setRanges([flagRange]).build());
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND(' + F + '<>"",' + F + '<>"OK")')
       .setBackground(cfg.WARN_COLOR).setRanges([flagRange]).build());
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=' + F + '="OK"')
       .setFontColor('#188038').setRanges([flagRange]).build());
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR(ISNUMBER(SEARCH("From previous day",' + F + ')),ISNUMBER(SEARCH("Starts next day",' + F + ')),ISNUMBER(SEARCH("Outside operating",' + F + ')))')
       .setFontColor('#80868b').setItalic(true).setRanges([tableRange]).build());
+  }
+  if (meetingFormula) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(meetingFormula)
+      .setBackground('#f6f1fc').setRanges([tableRange]).build());
   }
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied('=AND(COUNTA($A' + r0 + ':$' + lastL + r0 + ')>0,ISEVEN(ROW()))')
@@ -510,7 +522,12 @@ function renderDailyView_(team, opts) {
     }
   }
   dateIso = dateIso || cellToIsoDate_(head[VIEW.DATE_COL - 1], tz) || todayIso_(cfg.TIMEZONE);
-  var filters = opts.resetFilters ? {} : {
+  var filters;
+  if (opts.filters) {
+    // Set by the Schedule Viewer sidebar; written back to the filter cells below.
+    filters = { employee: str_(opts.filters.employee), activity: str_(opts.filters.activity), status: str_(opts.filters.status) };
+    if (filters.status && STATUS_FILTER_OPTIONS.indexOf(filters.status) < 0) filters.status = ALL_OPTION;
+  } else filters = opts.resetFilters ? {} : {
     employee: str_(head[VIEW.EMPLOYEE_COL - 1]),
     activity: str_(head[VIEW.ACTIVITY_COL - 1]),
     status: str_(head[VIEW.STATUS_COL - 1])
@@ -552,8 +569,8 @@ function renderDailyView_(team, opts) {
   sh.getRange(VIEW.INFO_ROW, 7).setValue(lastImport ? lastImport.status : '—');
   sh.getRange(VIEW.INFO_ROW, 9).setValue(win.label);
   sh.getRange(VIEW.FILTER_ROW, VIEW.DATE_COL).setValue(serialFromIsoDate_(dateIso));
-  sh.getRange(VIEW.FILTER_ROW, VIEW.WEEKDAY_COL).setValue(
-    Utilities.formatDate(new Date(Date.UTC(+dateIso.substr(0, 4), +dateIso.substr(5, 2) - 1, +dateIso.substr(8, 2), 12)), 'UTC', 'EEEE'));
+  var weekday = Utilities.formatDate(new Date(Date.UTC(+dateIso.substr(0, 4), +dateIso.substr(5, 2) - 1, +dateIso.substr(8, 2), 12)), 'UTC', 'EEEE');
+  sh.getRange(VIEW.FILTER_ROW, VIEW.WEEKDAY_COL).setValue(weekday);
   sh.getRange(VIEW.FILTER_ROW, VIEW.EMPLOYEE_COL).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList([ALL_OPTION].concat(employeeOptions).slice(0, 500), true).setAllowInvalid(true).build())
     .setValue(filters.employee || ALL_OPTION);
@@ -576,9 +593,16 @@ function renderDailyView_(team, opts) {
     '   |   Unknown employees: ' + countFlag('Unknown employee') +
     (visible.length !== rows.length ? '   |   Showing ' + visible.length + ' of ' + rows.length + ' (filtered)' : '');
   sh.getRange(VIEW.SUMMARY_ROW, 1).setValue(summary);
-  var msg = '';
-  if (!staffIdx) msg = 'Staff sheet could not be read — employee matching is unavailable. Run Maintenance → Repair Formatting.';
-  sh.getRange(VIEW.MESSAGE_ROW, 1).setValue(msg);
+  // Row 5 shows a problem when there is one, otherwise a short legend (text, so meaning never depends on color alone).
+  var msgCell = sh.getRange(VIEW.MESSAGE_ROW, 1);
+  if (!staffIdx) {
+    msgCell.setValue('Staff sheet could not be read — employee matching is unavailable. Run Maintenance → Repair Formatting.')
+      .setFontColor('#845000').setFontStyle('italic');
+  } else {
+    msgCell.setValue('Legend: "Meeting (…)" rows are meetings (shaded violet) and are separate from shifts · grey italic = previous/next day or outside operating hours · ' +
+      'red flag = overlap or unknown employee. Change the date in B3 or the filters in row 3, or use Schedule Management → Schedule Viewer.')
+      .setFontColor('#737c88').setFontStyle('normal');
+  }
 
   // --- table ---
   var cfgHdr = cfg.HEADER_COLOR, cfgHdrFont = cfg.HEADER_FONT_COLOR;
@@ -613,7 +637,18 @@ function renderDailyView_(team, opts) {
         .setNumberFormats(hc.map(function () { return ['@', '0']; }));
     }
   }
-  return { teamId: team.teamId, date: dateIso, shifts: rows.length, shown: visible.length };
+  return {
+    teamId: team.teamId, teamName: team.teamName, date: dateIso, weekday: weekday, shifts: rows.length, shown: visible.length,
+    // v1.1.2: summary for the Schedule Viewer sidebar (same numbers as row 4)
+    summary: {
+      shifts: own.length - meetingCount, meetings: meetingCount, staff: people.length, workingHours: formatMinutesAsDuration_(netTotal),
+      overlaps: countFlag('Overlap'), unknown: countFlag('Unknown employee'), carried: rows.length - own.length
+    },
+    hoursMode: display.operatingHoursMode || 'STANDARD', hoursLabel: win.label,
+    lastImport: lastImport ? formatTimestamp_(lastImport.timestamp, tz) : '', importStatus: lastImport ? lastImport.status : '',
+    filters: { employee: filters.employee || ALL_OPTION, activity: filters.activity || ALL_OPTION, status: filters.status || ALL_OPTION },
+    employeeOptions: employeeOptions, activityOptions: activityOptions, statusOptions: STATUS_FILTER_OPTIONS
+  };
 }
 
 /** Renders a team view, swallowing and logging failures (used after imports). */
@@ -674,6 +709,32 @@ function apiOpenSchedule(teamId, dateIso) {
     if (dateIso && !isIsoDate_(dateIso)) fail_('VALIDATION', 'Choose a valid date.');
     var r = renderTeamView_(team, dateIso ? { date: dateIso } : { useDefaultDate: true });
     resolveTeamSheet_(team, 'schedule').activate();
+    return r;
+  });
+}
+
+/**
+ * Schedule Viewer sidebar (v1.1.2): renders a team's daily sheet for a date with
+ * the given filters, activates it and returns the header facts and summary.
+ * One call per user action; filters are stored in the sheet's filter cells as before.
+ * @param {string} teamId
+ * @param {string} dateIso '' applies the team's "when the schedule is opened" setting
+ *   (Keep → the date shown in the sheet), as opening a team always did
+ * @param {Object|null} filters {employee, activity, status} or null to keep the sheet's filters
+ */
+function apiViewerRender(teamId, dateIso, filters) {
+  return apiCall_('apiViewerRender', function () {
+    requireInitialized_();
+    var team = requireTeam_(teamId);
+    if (team.status !== TEAM_STATUS.READY) fail_('TEAM_NOT_READY', 'Team "' + team.teamName + '" is ' + team.status + '. Run Manage Existing Teams → Rebuild sheets.');
+    if (dateIso && !isIsoDate_(dateIso)) fail_('VALIDATION', 'Choose a valid date.');
+    var opts = {};
+    if (dateIso) opts.date = dateIso; else opts.useDefaultDate = true;
+    if (filters) opts.filters = filters;
+    var r = renderTeamView_(team, opts);
+    var sh = resolveTeamSheet_(team, 'schedule');
+    if (getSs_().getActiveSheet().getSheetId() !== sh.getSheetId()) sh.activate();
+    r.operatingModeLabel = OPERATING_HOURS_MODES[r.hoursMode] || r.hoursMode;
     return r;
   });
 }

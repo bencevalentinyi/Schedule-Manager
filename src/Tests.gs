@@ -834,8 +834,29 @@ function unitTestsV111_() {
   ];
 }
 
+function unitTestsV112_() {
+  return [
+    ['v1.1.2: a 1.1.1 spreadsheet needs no upgrade; older versions still do', function () {
+      assertEq_(APP.VERSION, '1.1.2');
+      assertEq_([versionNeedsUpgrade_('1.1.2'), versionNeedsUpgrade_('1.1.1')], [false, false]);
+      assertEq_([versionNeedsUpgrade_('1.1.0'), versionNeedsUpgrade_('1.0.0'), versionNeedsUpgrade_(''), versionNeedsUpgrade_(undefined)], [true, true, true, true]);
+    }],
+    ['v1.1.2: payload summary counts distinct employees (ID first, else normalized name)', function () {
+      assertEq_(payloadEmployeeCount_([{ employeeId: 'E1' }, { employeeId: 'E1' }, { employeeId: 'E2' }, { employeeId: '', employeeName: 'Ann  Lee' }, { employeeName: 'Ann Lee' }]), 3);
+      var plan = buildPayloadPlan_(payloadInput_());
+      assertEq_(payloadEmployeeCount_(plan.records), uniq_(plan.records.map(function (r) { return r.employeeId; })).length);
+    }]
+  ];
+}
+
 function runUnitTests() {
-  return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()));
+  return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_()));
+}
+
+/** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */
+function ruleFormula_(r) {
+  if (r && r.formula) return r.formula;
+  try { return r.getBooleanCondition().getCriteriaValues()[0]; } catch (e) { return ''; }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1098,6 +1119,22 @@ function runIntegrationTests() {
       var gens = uniq_(readTable_(T_SLACK_PAYLOADS).rows.filter(function (r) { return str_(r.teamId) === owner.teamId; }).map(function (r) { return str_(r.generationId); }));
       assertEq_(gens.length, 2, 'append adds a distinct generation');
       assert_(validatePayloads_().fatal.length === 0, 'stored payloads validate');
+    }],
+    ['v1.1.2: Schedule Viewer renders with filters, stores them in the sheet, and meeting rows are shaded', function () {
+      var team = getTeam_(ctx.teams.alpha.teamId);
+      var res = apiViewerRender(team.teamId, '2026-10-15', { employee: '(All)', activity: '(All)', status: 'Has warnings' });
+      assert_(res.ok, res.error && res.error.message);
+      var v = res.data;
+      assertEq_([v.date, v.filters.status, v.hoursMode, v.teamName], ['2026-10-15', 'Has warnings', team.settings.display.operatingHoursMode, team.teamName]);
+      assert_(typeof v.summary.shifts === 'number' && v.shown <= v.shifts && v.statusOptions.indexOf('Meeting') >= 0, 'summary and filter options returned');
+      var sh = resolveTeamSheet_(team, 'schedule');
+      assertEq_(sh.getRange(VIEW.FILTER_ROW, VIEW.STATUS_COL).getValue(), 'Has warnings', 'filter stored in the status cell');
+      assertEq_(apiViewerRender(team.teamId, '', { status: 'Nonsense' }).data.filters.status, '(All)', 'unknown status falls back to (All)');
+      var kept = apiViewerRender(team.teamId, '', null).data;
+      assertEq_(kept.date, '2026-10-15', 'empty date keeps the sheet date');
+      var formulas = sh.getConditionalFormatRules().map(ruleFormula_);
+      assert_(formulas.some(function (f) { return /^=LEFT\(\$[A-Z]+7,7\)="Meeting"$/.test(f); }), 'meeting row rule present: ' + formulas.join(' | '));
+      assert_(!apiViewerRender('NO_SUCH_TEAM', '', null).ok, 'unknown team is refused');
     }],
     ['18. Recover from a missing team worksheet', function () {
       var team = getTeam_(ctx.teams.beta.teamId);

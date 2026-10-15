@@ -1,108 +1,159 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
   <style>
-    details { border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; margin: 12px 0; }
-    details summary { cursor: pointer; font-weight: 600; color: var(--accent); }
-    .urlbox { font-family: monospace; word-break: break-all; background: var(--soft); padding: 8px; border-radius: 4px; border: 1px solid var(--line); }
-    .types { max-height: 140px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+    #uTemplate, #uPrefix, #uSuffix { font-family: var(--mono); font-size: 12.5px; }
+    .chip { height: 24px; padding: 0 8px; font: 500 11.5px var(--mono); }
+    .group-order { list-style: none; margin: 0; padding: 0; max-width: 420px; }
+    .group-order li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--muted-bg); }
+    .group-order li:last-child { border-bottom: 0; }
+    .group-order .check { flex: 1; }
+    .formula { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+    .formula b { color: var(--text); }
   </style>
 </head>
 <body>
-  <div class="tabs">
-    <button data-tab="generate" onclick="tab('generate')">Generate payloads</button>
-    <button data-tab="config" onclick="tab('config')">Payload configuration</button>
-    <button data-tab="url" onclick="tab('url')">Dashboard URL</button>
-  </div>
-  <div id="status"></div>
-
-  <!-- Generate -->
-  <section id="tab-generate" class="hidden">
-    <div class="card small" id="scopeInfo"></div>
-    <details><summary>Use different dates for this run only</summary>
-      <div class="row"><div><label for="ovFrom">From</label><input type="date" id="ovFrom"></div><div><label for="ovTo">To</label><input type="date" id="ovTo"></div></div>
-    </details>
-    <p><button class="btn" onclick="preview()">Preview</button></p>
-    <div id="previewBox"></div>
-    <label class="inline hidden" id="dupBox"><input type="checkbox" id="confirmDup"> Generate anyway (append another identical copy)</label>
-  </section>
-
-  <!-- Configuration -->
-  <section id="tab-config" class="hidden">
-    <label>Teams</label>
-    <div class="checks card" id="cTeams"></div>
-    <div class="row">
-      <div><label for="cDateMode">Dates</label><select id="cDateMode" onchange="dateModeChanged()"></select></div>
-      <div id="cFromBox"><label for="cFrom">Date / from</label><input type="date" id="cFrom"></div>
-      <div id="cToBox"><label for="cTo">To</label><input type="date" id="cTo"></div>
-    </div>
-    <div>
-      <label class="inline"><input type="checkbox" id="cMeetings"> Include meetings</label>
-      <label class="inline"><input type="checkbox" id="cInactive"> Exclude inactive employees</label>
-      <label class="inline"><input type="checkbox" id="cUnresolved"> Exclude unresolved employees / non-members</label>
-    </div>
-    <label>Activity types (none ticked = all)</label>
-    <div class="types" id="cTypes"></div>
-    <div class="row">
-      <div><label for="cBlocks">Number of payload blocks</label><input type="number" id="cBlocks" min="1" max="500"></div>
-      <div><label>Output mode</label>
-        <label class="inline"><input type="radio" name="cMode" value="REPLACE"> Replace (only the selected teams and dates)</label>
-        <label class="inline"><input type="radio" name="cMode" value="APPEND"> Append (new generation)</label></div>
-    </div>
-    <details><summary>Advanced: grouping, block size, templates</summary>
-      <label>Group records by (in this order)</label>
-      <div class="checks" id="cGroup"></div>
-      <div class="row">
-        <div><label for="cPerBlock">Max records per block (0 = no limit)</label><input type="number" id="cPerBlock" min="0" max="5000"></div>
-        <div><label for="cSlackField">Staff field holding Slack user IDs (optional)</label><select id="cSlackField"></select></div>
+  <header class="app-header">
+    <div class="head-row">
+      <div>
+        <h1>Slack Workflow Automation</h1>
+        <p class="subtitle">Builds payload records in the <code>_SLACK_PAYLOADS</code> sheet for a Slack Workflow to read. This tool does not send anything to Slack.</p>
       </div>
-      <label for="cDisplay">Employee display value</label><input type="text" id="cDisplay">
-      <p class="small muted" id="dispHelp"></p>
-      <label for="cLine">Line text (one line per record)</label><input type="text" id="cLine">
-      <p class="small muted" id="lineHelp"></p>
-    </details>
-    <p><button class="btn primary" onclick="saveConfig()">Save configuration</button></p>
-  </section>
+    </div>
+    <div class="tabs" role="tablist" id="tabs" aria-label="Slack sections">
+      <button type="button" role="tab" data-tab="generate" id="t-generate" aria-controls="tab-generate">Generate payloads</button>
+      <button type="button" role="tab" data-tab="config" id="t-config" aria-controls="tab-config">Payload configuration</button>
+      <button type="button" role="tab" data-tab="url" id="t-url" aria-controls="tab-url">Dashboard URL</button>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
 
-  <!-- Dashboard URL -->
-  <section id="tab-url" class="hidden">
-    <label for="uTemplate">Dashboard URL template</label>
-    <input type="text" id="uTemplate" placeholder="https://example.com/user={EMPLOYEE_ID}" oninput="schedulePreview()">
-    <p class="small muted" id="urlHelp"></p>
-    <div class="row">
-      <div><label for="uField">Staff field used as the dashboard identifier</label><select id="uField" onchange="schedulePreview()"></select></div>
-      <div><label for="uEncoding">Encoding of inserted values</label><select id="uEncoding" onchange="schedulePreview()"></select></div>
-    </div>
-    <div class="row">
-      <div><label for="uPrefix">Text before the identifier (inserted exactly)</label><input type="text" id="uPrefix" oninput="schedulePreview()"></div>
-      <div><label for="uSuffix">Text after the identifier (inserted exactly)</label><input type="text" id="uSuffix" oninput="schedulePreview()"></div>
-    </div>
-    <label for="uPolicy">When an employee has no identifier</label><select id="uPolicy"></select>
-    <h3>Test</h3>
-    <div class="row">
-      <div><label for="tId">Test identifier</label><input type="text" id="tId" value="EMP001" oninput="schedulePreview()"></div>
-      <div><label for="tName">Test name</label><input type="text" id="tName" value="Test Employee" oninput="schedulePreview()"></div>
-      <div><label for="tTeam">Test team</label><input type="text" id="tTeam" value="Customer Support" oninput="schedulePreview()"></div>
-    </div>
-    <label>Generated URL (same function as payload generation)</label>
-    <div class="urlbox" id="uResult">—</div>
-    <div id="uMessages"></div>
-    <p><button class="btn primary" onclick="saveUrl()">Save dashboard URL settings</button></p>
-  </section>
+    <!-- Generate -->
+    <section id="tab-generate" class="hidden" role="tabpanel" aria-labelledby="t-generate">
+      <div class="summary-box">
+        <div class="panel-head"><h3>Current scope</h3><button type="button" class="btn ghost sm" onclick="tab('config')">Edit configuration</button></div>
+        <dl class="facts mb-0" id="scopeInfo"></dl>
+      </div>
+      <details class="disclosure">
+        <summary>Use different dates for this run only</summary>
+        <div class="disclosure-body">
+          <div class="row mt-3">
+            <div class="field"><label class="label" for="ovFrom">From</label><input type="date" id="ovFrom" onchange="invalidatePreview()"></div>
+            <div class="field"><label class="label" for="ovTo">To<span class="optional">same day if empty</span></label><input type="date" id="ovTo" onchange="invalidatePreview()"></div>
+          </div>
+          <p class="hint mt-0">The saved configuration is not changed.</p>
+        </div>
+      </details>
+      <div class="cluster mb-0" style="margin-bottom:12px">
+        <button type="button" class="btn" id="previewBtn" onclick="preview()">Preview</button>
+        <span class="hint mt-0">Generation always starts from a preview, and is refused if the data changes in between.</span>
+      </div>
+      <div id="previewBox"></div>
+      <label class="check hidden" id="dupBox"><input type="checkbox" id="confirmDup"> <span>Generate anyway <span class="hint">Appends another identical copy as a new generation.</span></span></label>
+      <div id="resultBox"></div>
+    </section>
 
-  <div class="footer">
-    <button class="btn" onclick="closeDialog()">Close</button>
+    <!-- Configuration -->
+    <section id="tab-config" class="hidden" role="tabpanel" aria-labelledby="t-config">
+      <h2 class="mt-0">Scope</h2>
+      <fieldset>
+        <legend>Teams</legend>
+        <div class="check-grid panel subtle mb-0" id="cTeams"></div>
+      </fieldset>
+      <div class="row">
+        <div class="field"><label class="label" for="cDateMode">Schedule dates</label><select id="cDateMode" onchange="dateModeChanged()"></select></div>
+        <div class="field" id="cFromBox"><label class="label" for="cFrom" id="cFromLabel">Date</label><input type="date" id="cFrom"></div>
+        <div class="field" id="cToBox"><label class="label" for="cTo">To</label><input type="date" id="cTo"></div>
+      </div>
+
+      <h2>Content</h2>
+      <label class="check"><input type="checkbox" id="cMeetings" class="switch"> <span>Include meetings <span class="hint">Every meeting becomes its own record, separate from shifts.</span></span></label>
+      <fieldset class="mt-2">
+        <legend>Employee eligibility</legend>
+        <label class="check"><input type="checkbox" id="cInactive" class="switch"> Exclude inactive employees</label>
+        <label class="check"><input type="checkbox" id="cUnresolved" class="switch"> <span>Exclude unresolved employees and non-members <span class="hint">People not in the staff directory, or not active members of the team.</span></span></label>
+      </fieldset>
+      <div class="field">
+        <span class="label" id="cTypesLabel">Activity types <span class="optional">none ticked = all types</span></span>
+        <div class="check-list" id="cTypes" role="group" aria-labelledby="cTypesLabel"></div>
+      </div>
+
+      <h2>Output</h2>
+      <fieldset>
+        <legend>When generating</legend>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="cMode" value="REPLACE"><span><span class="title">Replace</span><span class="hint">Removes earlier records of the selected teams and dates, then writes the new ones.</span></span></label>
+          <label class="choice"><input type="radio" name="cMode" value="APPEND"><span><span class="title">Append</span><span class="hint">Adds a new generation and keeps earlier records.</span></span></label>
+        </div>
+      </fieldset>
+      <div class="row">
+        <div class="field"><label class="label" for="cBlocks">Number of payload blocks</label><input type="number" id="cBlocks" min="1" max="500">
+          <p class="hint">Records are never dropped to fit: if they need more blocks, generation is refused.</p></div>
+        <div class="field"><label class="label" for="cPerBlock">Max records per block</label><input type="number" id="cPerBlock" min="0" max="5000">
+          <p class="hint">0 = no limit (groups are spread over the blocks).</p></div>
+      </div>
+      <div class="field">
+        <span class="label" id="cGroupLabel">Group records by <span class="optional">in this order</span></span>
+        <ul class="group-order" id="cGroup" aria-labelledby="cGroupLabel"></ul>
+      </div>
+
+      <details class="disclosure">
+        <summary>Advanced: display text and Slack user IDs</summary>
+        <div class="disclosure-body">
+          <div class="field mt-3"><label class="label" for="cDisplay">Employee display value</label><input type="text" id="cDisplay" spellcheck="false"><p class="hint" id="dispHelp"></p></div>
+          <div class="field"><label class="label" for="cLine">Line text <span class="optional">one line per record</span></label><input type="text" id="cLine" spellcheck="false"><p class="hint" id="lineHelp"></p></div>
+          <div class="field"><label class="label" for="cSlackField">Staff field holding Slack user IDs<span class="optional">optional</span></label><select id="cSlackField"></select></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- Dashboard URL -->
+    <section id="tab-url" class="hidden" role="tabpanel" aria-labelledby="t-url">
+      <div class="field">
+        <label class="label" for="uTemplate">Dashboard URL template</label>
+        <input type="text" id="uTemplate" placeholder="https://dashboard.example.com/agent?id={EMPLOYEE_ID}" oninput="schedulePreview()" spellcheck="false" autocomplete="off">
+        <div class="cluster mt-2" id="chips" aria-label="Insert a placeholder"></div>
+        <p class="hint">Click a placeholder to insert it at the cursor. Everything else in the template is kept exactly as typed. Leave the template empty to generate records without URLs.</p>
+      </div>
+      <div class="row">
+        <div class="field"><label class="label" for="uField">Identifier field (replaces {EMPLOYEE_ID})</label><select id="uField" onchange="schedulePreview()"></select></div>
+        <div class="field"><label class="label" for="uEncoding">Encoding of inserted values</label><select id="uEncoding" onchange="schedulePreview()"></select></div>
+      </div>
+      <div class="row">
+        <div class="field"><label class="label" for="uPrefix">Text before the identifier</label><input type="text" id="uPrefix" oninput="schedulePreview()" spellcheck="false"></div>
+        <div class="field"><label class="label" for="uSuffix">Text after the identifier</label><input type="text" id="uSuffix" oninput="schedulePreview()" spellcheck="false"></div>
+      </div>
+      <p class="formula mt-0" id="formula"></p>
+      <div class="field"><label class="label" for="uPolicy">When an employee has no identifier</label><select id="uPolicy"></select></div>
+
+      <div class="panel subtle mt-3">
+        <div class="panel-head"><h3>Test</h3><span id="uBadge"></span></div>
+        <div class="row tight">
+          <div class="field"><label class="label" for="tId">Test identifier</label><input type="text" id="tId" value="EMP001" oninput="schedulePreview()"></div>
+          <div class="field"><label class="label" for="tName">Test name</label><input type="text" id="tName" value="Test Employee" oninput="schedulePreview()"></div>
+          <div class="field"><label class="label" for="tTeam">Test team</label><input type="text" id="tTeam" value="Customer Support" oninput="schedulePreview()"></div>
+        </div>
+        <span class="label">Generated URL <span class="optional">same function as payload generation; the identifier is highlighted</span></span>
+        <div class="code-box" id="uResult" aria-live="polite">—</div>
+        <div id="uMessages" class="mt-2"></div>
+      </div>
+    </section>
+  </main>
+  <footer class="app-footer">
+    <button type="button" class="btn" onclick="closeDialog()">Close</button>
     <span class="spacer"></span>
-    <button class="btn primary hidden" id="genBtn" onclick="generate()" disabled>Generate payloads</button>
-  </div>
+    <span class="foot-note" id="footNote"></span>
+    <button type="button" class="btn primary" id="footBtn" onclick="footAction()">Generate payloads</button>
+  </footer>
 
   <?!= include('ClientCore') ?>
-  <?!= include('ImportPreview') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var data = null, lastPreview = null, previewTimer = null;
+    var data = null, lastPreview = null, previewTimer = null, currentTab = 'generate', groupOrder = [];
 
     function init() {
       call('Loading…', 'apiSlackBootstrap').then(function (d) {
@@ -110,110 +161,154 @@
         fillConfig(d.payloadConfig);
         fillUrl(d.urlConfig);
         renderScope();
+        initTabs('tabs', tab);
         tab(BOOT.tab || 'generate');
       });
     }
-    function radio(n) { var el = document.querySelector('input[name=' + n + ']:checked'); return el ? el.value : ''; }
     function tab(name) {
-      document.querySelectorAll('.tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === name); });
-      ['generate', 'config', 'url'].forEach(function (t) { show('tab-' + t, t === name); });
-      show('genBtn', name === 'generate');
+      currentTab = name;
+      selectTab('tabs', name);
       showStatus('', '');
+      var foot = { generate: 'Generate payloads', config: 'Save configuration', url: 'Save dashboard URL settings' };
+      $('footBtn').textContent = foot[name];
+      updateFoot();
       if (name === 'url') previewUrl();
     }
-    function kv(map) { return Object.keys(map).map(function (k) { return { k: k, l: map[k] }; }); }
+    function updateFoot() {
+      if (currentTab === 'generate') {
+        $('footBtn').disabled = !(lastPreview && lastPreview.canGenerate);
+        $('footNote').textContent = lastPreview ? '' : 'Preview first';
+      } else { $('footBtn').disabled = false; $('footNote').textContent = ''; }
+    }
+    function footAction() { if (currentTab === 'generate') generate(); else if (currentTab === 'config') saveConfig(); else saveUrl(); }
 
     /* ---------- configuration ---------- */
     function fillConfig(c) {
       $('cTeams').innerHTML = data.teams.map(function (t) {
-        return '<label class="inline"><input type="checkbox" data-team="' + esc(t.teamId) + '"' + (c.teamIds.indexOf(t.teamId) >= 0 ? ' checked' : '') + '> ' + esc(t.teamName) + '</label>';
-      }).join('') || '<span class="muted">No teams yet.</span>';
+        return '<label class="check"><input type="checkbox" data-team="' + esc(t.teamId) + '"' + (c.teamIds.indexOf(t.teamId) >= 0 ? ' checked' : '') + '> ' + esc(t.teamName) +
+          (t.status === 'READY' ? '' : ' ' + badge('warn', t.status)) + '</label>';
+      }).join('') || '<p class="hint mt-0">No teams yet. Create a team first.</p>';
       $('cDateMode').innerHTML = options(kv(data.dateModes), 'k', 'l', c.dateMode);
       $('cFrom').value = c.dateFrom || data.today; $('cTo').value = c.dateTo || data.today;
       $('cMeetings').checked = c.includeMeetings; $('cInactive').checked = c.excludeInactive; $('cUnresolved').checked = c.excludeUnresolved;
       $('cTypes').innerHTML = data.knownActivityTypes.map(function (t) {
-        return '<label class="inline" style="display:flex"><input type="checkbox" data-type="' + esc(t) + '"' + (c.activityTypes.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>';
-      }).join('') || '<span class="muted">No activity types known yet (they are learned from imports). All types are included.</span>';
+        return '<label class="check"><input type="checkbox" data-type="' + esc(t) + '"' + (c.activityTypes.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>';
+      }).join('') || emptyHtml('≡', 'No activity types known yet', 'They are learned from imports. Until then, all types are included.');
       $('cBlocks').value = c.blockCount; $('cPerBlock').value = c.recordsPerBlock;
-      var order = c.groupBy.concat(Object.keys(data.groupFields).filter(function (g) { return c.groupBy.indexOf(g) < 0; }));
-      $('cGroup').innerHTML = order.map(function (g) {
-        return '<label class="inline"><input type="checkbox" data-group="' + g + '"' + (c.groupBy.indexOf(g) >= 0 ? ' checked' : '') + '> ' + esc(data.groupFields[g]) + '</label>';
-      }).join('');
-      document.querySelector('input[name=cMode][value="' + c.outputMode + '"]').checked = true;
+      groupOrder = c.groupBy.concat(Object.keys(data.groupFields).filter(function (g) { return c.groupBy.indexOf(g) < 0; }));
+      renderGroups(c.groupBy);
+      setRadio('cMode', c.outputMode);
       $('cDisplay').value = c.displayTemplate; $('cLine').value = c.lineTemplate;
       $('cSlackField').innerHTML = '<option value="">(none)</option>' + options(data.identifierFields, 'key', 'label', c.slackUserIdField);
-      $('dispHelp').textContent = 'Placeholders: ' + data.displayPlaceholders.map(function (p) { return '{' + p + '}'; }).join(' ') +
+      $('dispHelp').innerHTML = 'Placeholders: ' + data.displayPlaceholders.map(function (p) { return '<code>{' + esc(p) + '}</code>'; }).join(' ') +
         '. "@{EMPLOYEE_NAME}" produces a display string such as "@Bence Valentinyi" — it is not a Slack mention (a real mention needs a Slack user ID).';
-      $('lineHelp').textContent = 'Placeholders: ' + data.linePlaceholders.map(function (p) { return '{' + p + '}'; }).join(' ');
+      $('lineHelp').innerHTML = 'Placeholders: ' + data.linePlaceholders.map(function (p) { return '<code>{' + esc(p) + '}</code>'; }).join(' ');
       dateModeChanged();
+    }
+    function renderGroups(checked) {
+      $('cGroup').innerHTML = groupOrder.map(function (g, i) {
+        return '<li><label class="check"><input type="checkbox" data-group="' + g + '"' + (checked.indexOf(g) >= 0 ? ' checked' : '') + '> ' + esc(data.groupFields[g]) + '</label>' +
+          '<button type="button" class="btn icon sm" onclick="moveGroup(' + i + ',-1)"' + (i === 0 ? ' disabled' : '') + ' aria-label="Move ' + esc(data.groupFields[g]) + ' up">▲</button>' +
+          '<button type="button" class="btn icon sm" onclick="moveGroup(' + i + ',1)"' + (i === groupOrder.length - 1 ? ' disabled' : '') + ' aria-label="Move ' + esc(data.groupFields[g]) + ' down">▼</button></li>';
+      }).join('');
+    }
+    function moveGroup(i, d) {
+      var checked = checkedData('group');
+      var j = i + d;
+      var t = groupOrder[i]; groupOrder[i] = groupOrder[j]; groupOrder[j] = t;
+      renderGroups(checked);
     }
     function dateModeChanged() {
       var m = $('cDateMode').value;
       show('cFromBox', m === 'DATE' || m === 'RANGE'); show('cToBox', m === 'RANGE');
+      $('cFromLabel').textContent = m === 'RANGE' ? 'From' : 'Date';
     }
     function collectConfig() {
-      var checked = function (attr) { return Array.prototype.filter.call(document.querySelectorAll('[data-' + attr + ']'), function (c) { return c.checked; }).map(function (c) { return c.dataset[attr]; }); };
+      var checkedGroups = checkedData('group');
       return {
-        teamIds: checked('team'), dateMode: $('cDateMode').value, dateFrom: $('cFrom').value, dateTo: $('cTo').value,
-        activityTypes: checked('type'), includeMeetings: $('cMeetings').checked, excludeInactive: $('cInactive').checked,
+        teamIds: checkedData('team'), dateMode: $('cDateMode').value, dateFrom: $('cFrom').value, dateTo: $('cTo').value,
+        activityTypes: checkedData('type'), includeMeetings: $('cMeetings').checked, excludeInactive: $('cInactive').checked,
         excludeUnresolved: $('cUnresolved').checked, blockCount: Number($('cBlocks').value || 1), recordsPerBlock: Number($('cPerBlock').value || 0),
-        groupBy: checked('group'), outputMode: radio('cMode'), displayTemplate: $('cDisplay').value, lineTemplate: $('cLine').value,
+        groupBy: groupOrder.filter(function (g) { return checkedGroups.indexOf(g) >= 0; }), outputMode: radio('cMode'), displayTemplate: $('cDisplay').value, lineTemplate: $('cLine').value,
         slackUserIdField: $('cSlackField').value
       };
     }
     function saveConfig() {
-      call('Saving…', 'apiSlackSaveConfig', collectConfig()).then(function (c) {
-        data.payloadConfig = c; renderScope(); lastPreview = null; $('previewBox').innerHTML = ''; $('genBtn').disabled = true;
-        showStatus('ok', 'Payload configuration saved.');
+      clearFieldErrors();
+      var c = collectConfig();
+      if (!c.teamIds.length) { showStatus('fatal', 'Tick at least one team.', 'No team selected'); return; }
+      if (c.dateMode === 'RANGE' && c.dateTo && c.dateFrom && c.dateTo < c.dateFrom) { fieldError('cTo', 'The end date must be on or after the start date.'); return; }
+      if (!(c.blockCount >= 1)) { fieldError('cBlocks', 'Enter at least 1.'); return; }
+      call('Saving…', 'apiSlackSaveConfig', c).then(function (saved) {
+        data.payloadConfig = saved; renderScope(); invalidatePreview();
+        showStatus('ok', 'Preview again on the Generate tab before generating.', 'Payload configuration saved');
       });
     }
     function renderScope() {
       var c = data.payloadConfig;
       var names = data.teams.filter(function (t) { return c.teamIds.indexOf(t.teamId) >= 0; }).map(function (t) { return t.teamName; });
       var dates = c.dateMode === 'RANGE' ? c.dateFrom + ' → ' + c.dateTo : c.dateMode === 'DATE' ? c.dateFrom : data.dateModes[c.dateMode];
-      $('scopeInfo').innerHTML = '<b>Teams:</b> ' + esc(names.join(', ') || 'none — set them in Payload configuration') + ' · <b>Dates:</b> ' + esc(dates) +
-        ' · <b>Blocks:</b> ' + c.blockCount + ' · <b>Mode:</b> ' + esc(c.outputMode) + ' · <b>Meetings:</b> ' + (c.includeMeetings ? 'included' : 'excluded');
+      var f = function (k, v) { return '<div><dt>' + esc(k) + '</dt><dd>' + v + '</dd></div>'; };
+      $('scopeInfo').innerHTML = f('Teams', names.length ? esc(names.join(', ')) : badge('warn', 'None — set in Payload configuration')) + f('Dates', esc(dates)) +
+        f('Blocks', esc(c.blockCount) + (c.recordsPerBlock ? ' × max ' + esc(c.recordsPerBlock) : '')) + f('Mode', esc(c.outputMode === 'APPEND' ? 'Append' : 'Replace')) +
+        f('Meetings', c.includeMeetings ? badge('meeting', 'Included') : 'Excluded') + f('Activity types', esc(c.activityTypes.length ? c.activityTypes.join(', ') : 'All'));
     }
 
     /* ---------- generate ---------- */
     function override() {
       return $('ovFrom').value ? { dateFrom: $('ovFrom').value, dateTo: $('ovTo').value || $('ovFrom').value } : null;
     }
+    function invalidatePreview() {
+      lastPreview = null; $('previewBox').innerHTML = ''; show('dupBox', false); updateFoot();
+    }
     function renderPreviewResult(p) {
       lastPreview = p;
+      $('resultBox').innerHTML = '';
       var S = p.summary;
-      var html = '<div class="card small"><b>Generation ' + esc(p.generationId) + '</b> (preview) · dates ' + esc(p.range.from) + (p.range.to !== p.range.from ? ' → ' + esc(p.range.to) : '') + '</div>' +
-        '<div class="stats">' + stat('Teams', S.teams.length) + stat('Records considered', S.considered) + stat('Payload records', S.generated, 'good') +
-        stat('Blocks', S.blocks) + stat('Unknown employees', S.unknownEmployees, S.unknownEmployees ? 'warn' : '') +
-        stat('Not team members', S.ambiguousTeam, S.ambiguousTeam ? 'warn' : '') + stat('Missing dashboard IDs', S.missingIds, S.missingIds ? 'warn' : '') +
-        stat('Invalid URLs', S.invalidUrls, S.invalidUrls ? 'bad' : '') + stat('Skipped', S.skipped) + '</div>' +
-        (S.skipped ? '<p class="small muted">Skipped: ' + S.skippedMeetings + ' meetings, ' + S.skippedActivity + ' other activity types, ' + S.skippedInactive +
-          ' inactive, ' + S.skippedUnresolved + ' unresolved/non-members, ' + S.skippedMissingId + ' missing identifiers.</p>' : '') +
+      var html = '<div class="panel-head mt-3"><h3>Preview</h3>' + badge('info', p.generationId) + '<span class="small muted">' + esc(p.range.from) + (p.range.to !== p.range.from ? ' → ' + esc(p.range.to) : '') + '</span></div>' +
+        (p.canGenerate ? alertHtml('success', 'Ready to generate', S.generated + ' record(s) in ' + S.blocks + ' block(s). Click <b>Generate payloads</b> to write them.')
+          : (S.generated ? '' : alertHtml('info', 'Nothing to generate', 'No schedule records match this scope. Check the teams, dates and filters in Payload configuration, or import the schedule first.'))) +
+        '<div class="stats">' + stat('Records', S.generated, 'good') + stat('Blocks', S.blocks) + stat('Teams', S.teams.length) + stat('Employees', p.employees) +
+        stat('Missing identifiers', S.missingIds, S.missingIds ? 'warn' : '') + stat('Invalid URLs', S.invalidUrls, S.invalidUrls ? 'bad' : '') +
+        stat('Unresolved employees', S.unknownEmployees, S.unknownEmployees ? 'warn' : '') + stat('Not team members', S.ambiguousTeam, S.ambiguousTeam ? 'warn' : '') +
+        stat('Skipped', S.skipped) + '</div>' +
+        (S.skipped ? '<p class="hint mt-0">Skipped: ' + S.skippedMeetings + ' meetings, ' + S.skippedActivity + ' other activity types, ' + S.skippedInactive +
+          ' inactive, ' + S.skippedUnresolved + ' unresolved/non-members, ' + S.skippedMissingId + ' missing identifiers (of ' + S.considered + ' considered).</p>' : '') +
         renderReport(p.report);
       if (p.sample.length) {
-        html += '<h3>First records</h3><div class="scroll"><table class="grid"><tr><th>Block</th><th>Date</th><th>Employee</th><th>Team</th><th>Activity</th><th>Start</th><th>End</th><th>Dashboard ID</th><th>URL</th><th>Status</th></tr>' +
+        var statusKind = function (s) { return s === 'OK' ? 'ok' : (s === 'INVALID_URL' ? 'bad' : 'warn'); };
+        html += '<details class="disclosure"><summary>First records ' + badge('', String(p.sample.length)) + '</summary><div class="disclosure-body"><div class="table-wrap mt-3"><table class="table"><thead><tr>' +
+          ['Block', 'Date', 'Employee', 'Team', 'Activity', 'Start', 'End', 'Dashboard ID', 'URL', 'Status'].map(function (h) { return '<th scope="col">' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
           p.sample.map(function (r) {
-            return '<tr><td>' + r.block + '</td><td>' + esc(r.date) + '</td><td>' + esc(r.display) + '</td><td>' + esc(r.team) + '</td><td>' + esc(r.activity) + '</td><td>' + esc(r.start) +
-              '</td><td>' + esc(r.end) + '</td><td>' + esc(r.dashboardId) + '</td><td class="small" style="word-break:break-all">' + esc(r.url) + '</td><td class="small" title="' + esc(r.message) + '">' + esc(r.status) + '</td></tr>';
-          }).join('') + '</table></div>';
+            return '<tr><td class="num">' + r.block + '</td><td class="nowrap">' + esc(r.date) + '</td><td>' + esc(r.display) + '</td><td>' + esc(r.team) + '</td><td>' + esc(r.activity) + '</td><td>' + esc(r.start) +
+              '</td><td>' + esc(r.end) + '</td><td>' + esc(r.dashboardId) + '</td><td class="small break" style="min-width:180px">' + esc(r.url) + '</td><td title="' + esc(r.message) + '">' + badge(statusKind(r.status), r.status) + '</td></tr>';
+          }).join('') + '</tbody></table></div></div></details>';
       }
       $('previewBox').innerHTML = html;
       show('dupBox', p.duplicate && p.outputMode === 'APPEND');
-      $('genBtn').disabled = !p.canGenerate;
+      updateFoot();
     }
     function preview() {
-      call('Building preview…', 'apiSlackPreview', override()).then(renderPreviewResult);
+      call('Building the preview…', 'apiSlackPreview', override()).then(renderPreviewResult);
     }
     function generate() {
       if (!lastPreview) return;
-      $('genBtn').disabled = true;
+      $('footBtn').disabled = true;
       call('Generating payloads…', 'apiSlackGenerate', override(), lastPreview.token, $('confirmDup').checked).then(function (r) {
-        if (r.status === 'CHANGED') { renderPreviewResult(r.preview); showStatus('warn', esc(r.message)); return; }
-        lastPreview = null;
-        showStatus('ok', 'Generated ' + r.written + ' payload record(s) as ' + esc(r.generationId) + (r.removed ? ' (replaced ' + r.removed + ' earlier record(s) in the same scope)' : '') +
-          '. Open them with Slack Workflow Automation → View Generated Payloads.');
-      }, function () { $('genBtn').disabled = !(lastPreview && lastPreview.canGenerate); });
+        if (r.status === 'CHANGED') { renderPreviewResult(r.preview); showStatus('warn', esc(r.message), 'The data changed since the preview'); return; }
+        var S = r.summary;
+        invalidatePreview();
+        $('resultBox').innerHTML = alertHtml('success', 'Payload records written to _SLACK_PAYLOADS',
+          'Generation ' + esc(r.generationId) + (r.removed ? ' replaced ' + r.removed + ' earlier record(s) in the same teams and dates.' : '.') +
+          ' Nothing was sent to Slack: your Slack Workflow reads these records.') +
+          '<div class="stats">' + stat('Records written', r.written, 'good') + stat('Blocks', S.blocks) + stat('Teams', S.teams.length) + stat('Employees', r.employees) +
+          stat('Missing identifiers', S.missingIds, S.missingIds ? 'warn' : '') + stat('Invalid URLs', S.invalidUrls, S.invalidUrls ? 'bad' : '') +
+          stat('Unresolved employees', S.unknownEmployees, S.unknownEmployees ? 'warn' : '') + '</div>' + renderReport({ fatal: [], warnings: r.report.warnings, info: [] }) +
+          '<div class="cluster"><button type="button" class="btn primary" onclick="openPayloads()">Open generated payloads</button></div>';
+        $('resultBox').scrollIntoView({ block: 'nearest' });
+      }, function () { updateFoot(); });
     }
+    function openPayloads() { call('Opening _SLACK_PAYLOADS…', 'apiSlackOpenPayloadSheet').then(closeDialog); }
 
     /* ---------- dashboard URL ---------- */
     function fillUrl(c) {
@@ -221,29 +316,56 @@
       $('uField').innerHTML = options(data.identifierFields, 'key', 'label', c.identifierField);
       $('uEncoding').innerHTML = options(kv(data.encodings), 'k', 'l', c.encoding);
       $('uPolicy').innerHTML = options(kv(data.policies), 'k', 'l', c.missingPolicy);
-      $('urlHelp').textContent = 'Supported placeholders: ' + data.urlPlaceholders.map(function (p) { return '{' + p + '}'; }).join(' ') +
-        '. {EMPLOYEE_ID} is replaced by: text before + identifier from the selected field + text after. Everything else in the template is kept exactly as typed.';
+      $('chips').innerHTML = data.urlPlaceholders.map(function (p) {
+        return '<button type="button" class="btn sm chip" onclick="insertPlaceholder(\'' + esc(p) + '\')">{' + esc(p) + '}</button>';
+      }).join('');
+      if (!data.identifierFields.some(function (f) { return f.key === c.identifierField; })) {
+        fieldError('uField', 'The saved identifier field no longer exists. Choose another field.');
+      }
+    }
+    function insertPlaceholder(p) {
+      var el = $('uTemplate'), token = '{' + p + '}';
+      var s = el.selectionStart === undefined || el.selectionStart === null ? el.value.length : el.selectionStart;
+      var e = el.selectionEnd === undefined || el.selectionEnd === null ? s : el.selectionEnd;
+      el.value = el.value.slice(0, s) + token + el.value.slice(e);
+      el.focus(); el.setSelectionRange(s + token.length, s + token.length);
+      schedulePreview();
     }
     function collectUrl() {
       return { template: $('uTemplate').value, identifierField: $('uField').value, prefix: $('uPrefix').value, suffix: $('uSuffix').value,
         encoding: $('uEncoding').value, missingPolicy: $('uPolicy').value };
     }
     function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(previewUrl, 400); }
+    /** Marks the inserted identifier segment (text before + encoded value + text after) in the URL. */
+    function markedUrl(url, c) {
+      var id = $('tId').value;
+      var seg = c.prefix + (c.encoding === 'COMPONENT' ? encodeURIComponent(id) : id) + c.suffix;
+      var i = seg && id ? url.indexOf(seg) : -1;
+      return i < 0 ? esc(url) : esc(url.slice(0, i)) + '<mark title="Inserted for {EMPLOYEE_ID}">' + esc(seg) + '</mark>' + esc(url.slice(i + seg.length));
+    }
     function previewUrl() {
       if (!data) return;
-      api('apiSlackPreviewUrl', collectUrl(), { identifier: $('tId').value, employeeName: $('tName').value, teamId: 'TEAM_001', teamName: $('tTeam').value,
+      var c = collectUrl();
+      $('formula').innerHTML = '{EMPLOYEE_ID} = <b>' + esc(c.prefix || '∅') + '</b> + <b>' + esc(($('uField').selectedOptions[0] || {}).text || 'identifier') + '</b>' +
+        (c.encoding === 'COMPONENT' ? ' (encoded)' : ' (as stored)') + ' + <b>' + esc(c.suffix || '∅') + '</b>';
+      fieldError('uTemplate', c.template && c.template.indexOf('{EMPLOYEE_ID}') < 0 ? 'The template has no {EMPLOYEE_ID}: every employee would get the same URL.' : '');
+      api('apiSlackPreviewUrl', c, { identifier: $('tId').value, employeeName: $('tName').value, teamId: 'TEAM_001', teamName: $('tTeam').value,
         date: data.today, startTime: '08:00', endTime: '16:00' }).then(function (r) {
         var res = r.result;
-        $('uResult').textContent = res.status === 'DISABLED' ? '(no template — URLs are not generated)' : (res.attemptedUrl || res.url || '(empty)');
-        var cls = res.status === 'OK' ? 'ok' : res.status === 'WARNING' ? 'warn' : res.status === 'DISABLED' ? 'info' : 'fatal';
-        $('uMessages').innerHTML = '<div class="msg ' + cls + '"><b>' + esc(res.status) + '</b>' + (res.messages.length ? '<ul>' + res.messages.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>' : '') + '</div>' +
-          renderReport({ fatal: r.report.fatal, warnings: [], info: [] });
-      }, function (e) { $('uMessages').innerHTML = '<div class="msg fatal">' + esc(e.message) + '</div>'; });
+        var url = res.attemptedUrl || res.url || '';
+        $('uResult').innerHTML = res.status === 'DISABLED' ? '<span class="muted">(no template — records are generated without URLs)</span>' : (url ? markedUrl(url, c) : '<span class="muted">(empty)</span>');
+        var kind = { OK: 'ok', WARNING: 'warn', DISABLED: 'info', MISSING_ID: 'warn', INVALID: 'bad' }[res.status] || 'bad';
+        var label = { OK: 'Valid URL', WARNING: 'Valid with warnings', DISABLED: 'URLs off', MISSING_ID: 'No test identifier', INVALID: 'Invalid URL' }[res.status] || res.status;
+        $('uBadge').innerHTML = badge(kind, label);
+        $('uMessages').innerHTML = (res.messages.length ? alertHtml(kind === 'bad' ? 'error' : 'warning', '', '', res.messages) : '') +
+          (r.report.fatal.length ? alertHtml('error', 'Cannot be saved yet', '', r.report.fatal) : '');
+      }, function (e) { $('uMessages').innerHTML = alertHtml('error', 'Preview failed', esc(e.message)); });
     }
     function saveUrl() {
       call('Saving…', 'apiSlackSaveUrlConfig', collectUrl()).then(function (r) {
-        data.urlConfig = r.config; lastPreview = null; $('genBtn').disabled = true;
-        showStatus('ok', 'Dashboard URL settings saved.' + (r.report.warnings.length ? ' ' + esc(r.report.warnings.join(' ')) : ''));
+        data.urlConfig = r.config; invalidatePreview(); fieldError('uField', '');
+        showStatus('ok', r.report.warnings.length ? '<ul>' + r.report.warnings.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul>' : 'Preview again on the Generate tab before generating.',
+          'Dashboard URL settings saved');
       });
     }
     init();

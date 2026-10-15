@@ -1,59 +1,70 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
+  <style> #help ol, #help ul { padding-left: 20px; margin: 0 0 8px; } #help li { margin: 3px 0; } </style>
 </head>
 <body>
-  <h1 id="title"></h1>
-  <p class="muted" id="intro"></p>
-  <div id="summary"></div>
-  <div id="body"></div>
+  <header class="app-header">
+    <h1 id="title"></h1>
+    <p class="subtitle" id="intro"></p>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div id="summary"></div>
+    <div id="body"></div>
 
-  <div id="help" class="hidden">
-    <p>Schedule Manager imports Quinyx schedule exports into Google Sheets, stores every shift once in <code>_SCHEDULE_DATA</code>, and renders a daily view and a staff directory per team.</p>
-    <h2>Typical workflow</h2>
-    <ol>
-      <li><b>Setup &amp; Configuration → Setup / Configure Spreadsheet</b> — creates the internal sheets (run once; safe to repeat).</li>
-      <li><b>Create New Team</b> — the wizard creates "<i>Team</i> - Daily" and "<i>Team</i> - Staff" sheets.</li>
-      <li>Fill the staff sheet (or use <b>Schedule Management → View Staff Directory</b>). Employee ID is the matching key.</li>
-      <li><b>Schedule Import → Import Quinyx Export</b> — upload the "Daily Schedule" export (or another CSV/XLSX), confirm the schedule date and layout, choose the shift types, review the preview, apply.</li>
-      <li>On a daily sheet, change the date in cell B3 or the filters in row 3; the view refreshes automatically.</li>
-    </ol>
-    <h2>Key rules</h2>
-    <ul>
-      <li>Nothing is written until you confirm the preview. Every import can be undone (<b>Undo Last Import</b>, repeatable newest-first).</li>
-      <li>Duplicates are detected with the Quinyx shift ID if mapped, otherwise with team + employee + start + end + activity.</li>
-      <li>"Replace" only affects the imported team(s) inside the imported date range, and marks shifts REMOVED instead of deleting them.</li>
-      <li>Employees are matched by Employee ID (or an identifier field a team explicitly chooses). Without an ID, only a unique exact name match is used, and it is flagged.</li>
-      <li>Only the shift types selected for a team are imported. A team without a selection must choose one before its first import.</li>
-      <li>Operating hours (standard, 24/7 or custom across midnight) control which shifts the daily view includes and the headcount range.</li>
-      <li>Daily sheets are views: edits there are overwritten on refresh. Change data by importing.</li>
-      <li>Internal "_" sheets are protected with a warning only. Hiding or protecting sheets is not security.</li>
-    </ul>
-    <h2>Troubleshooting</h2>
-    <ul>
-      <li>Something missing or renamed: <b>Maintenance → Rebuild Missing Sheets</b>, then <b>Validate Spreadsheet Structure</b>.</li>
-      <li>Formatting broken: <b>Maintenance → Repair Formatting</b>.</li>
-      <li>Ambiguous dates (03/04/2026): choose DMY or MDY in the import mapping step and save the profile.</li>
-      <li>XLSX upload error: enable the Drive advanced service (Apps Script editor → Services → Drive API), or export CSV.</li>
-      <li>Technical errors are logged in the Apps Script editor under Executions.</li>
-    </ul>
-  </div>
-
-  <div class="footer"><span class="spacer"></span><button class="btn primary" onclick="closeDialog()">Close</button></div>
+    <div id="help" class="hidden">
+      <p>Schedule Manager imports Quinyx schedule exports into Google Sheets, stores every shift and meeting once in <code>_SCHEDULE_DATA</code>, renders a daily view and a staff directory per team, and generates Slack Workflow payload records.</p>
+      <h2>Typical workflow</h2>
+      <ol>
+        <li><b>Setup &amp; Configuration → Setup / Configure Spreadsheet</b> creates the internal sheets (run once; safe to repeat).</li>
+        <li><b>Create New Team</b>: the wizard creates the team's daily sheet and a dedicated staff sheet, or shares an existing one.</li>
+        <li>Fill the staff directory (<b>Schedule Management → View Staff Directory</b>). Employee ID is the matching key.</li>
+        <li><b>Schedule Import → Import Quinyx Export</b>: upload the "Daily Schedule" export, confirm the date and layout, choose the shift types, review the preview, apply.</li>
+        <li><b>Schedule Management → Schedule Viewer</b>: move between dates, filter, and refresh. You can also change the date in cell B3 or the filters in row 3 of a daily sheet.</li>
+        <li><b>Slack Workflow Automation</b>: configure the dashboard URL and payload settings, then preview and generate. Records are written to <code>_SLACK_PAYLOADS</code>; nothing is sent to Slack by this tool.</li>
+      </ol>
+      <h2>Key rules</h2>
+      <ul>
+        <li>Nothing is written until you confirm the preview. Every import can be undone (<b>Undo Last Import</b>, newest first).</li>
+        <li>Duplicates are detected with the Quinyx shift ID when mapped, otherwise with team + employee + start + end + activity (+ shift type).</li>
+        <li>"Replace" only affects the imported team(s) and date(s), and marks shifts REMOVED instead of deleting them.</li>
+        <li>Meetings are separate assignments. A meeting inside a shift is not a conflict and does not add working hours.</li>
+        <li>Only the shift types selected for a team are imported. A team without a selection must choose before its first import.</li>
+        <li>Operating hours (standard, 24/7, or custom across midnight) control which shifts the daily view includes and the headcount range.</li>
+        <li>In a shared staff directory, team membership is explicit. Sharing never makes everyone a member of every team.</li>
+        <li>Daily sheets are views: edits there are overwritten on refresh. Change data by importing.</li>
+        <li>Internal "_" sheets are protected with a warning only. Hiding or protecting sheets is not security.</li>
+      </ul>
+      <h2>Troubleshooting</h2>
+      <ul>
+        <li>A sheet is missing or renamed: <b>Maintenance → Rebuild Missing Sheets</b>, then <b>Validate Spreadsheet Structure</b>.</li>
+        <li>Formatting looks wrong, or meetings are not shaded: <b>Maintenance → Repair Formatting</b>.</li>
+        <li>Ambiguous dates (03/04/2026): choose DMY or MDY in the import layout step and save it to the profile.</li>
+        <li>XLSX upload error: enable the Drive advanced service (Apps Script editor → Services → Drive API), or export CSV.</li>
+        <li>Dialog buttons do nothing: you are probably signed into several Google accounts. Use a window signed into only this account.</li>
+        <li>Technical errors are logged in the Apps Script editor under Executions.</li>
+      </ul>
+    </div>
+  </main>
+  <footer class="app-footer"><span class="spacer"></span><button type="button" class="btn primary" onclick="closeDialog()">Close</button></footer>
   <?!= include('ClientCore') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
     $('title').textContent = BOOT.title || '';
     $('intro').textContent = BOOT.intro || '';
+    show('intro', !!BOOT.intro);
     if (BOOT.help) {
       show('help', true);
     } else if (BOOT.report) {
       var r = BOOT.report;
       var ok = !r.fatal.length && !r.warnings.length;
-      $('summary').innerHTML = ok ? '<div class="msg ok"><b>No problems found.</b></div>'
-        : '<div class="msg ' + (r.fatal.length ? 'fatal' : 'warn') + '"><b>' + r.fatal.length + ' error(s), ' + r.warnings.length + ' warning(s).</b></div>';
+      $('summary').innerHTML = ok ? alertHtml('success', 'No problems found', r.info && r.info.length ? '' : 'Everything checked out.')
+        : '<div class="stats">' + stat('Errors', r.fatal.length, r.fatal.length ? 'bad' : '') + stat('Warnings', r.warnings.length, r.warnings.length ? 'warn' : '') +
+          stat('Information', (r.info || []).length) + '</div>';
       $('body').innerHTML = renderReport(r);
     }
   </script>

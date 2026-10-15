@@ -434,9 +434,16 @@ function writePayloads_(plan) {
   return { removed: removed, written: newRows.length };
 }
 
+/** Number of distinct employees among the payload records. */
+function payloadEmployeeCount_(records) {
+  return uniq_(records.map(function (r) { return str_(r.employeeId) || normName_(r.employeeName); })).length;
+}
+
 function summaryForClient_(plan) {
   return {
     generationId: plan.generationId, token: plan.token, summary: plan.summary, report: plan.report,
+    employees: payloadEmployeeCount_(plan.records), // v1.1.2
+    teamNames: uniq_(plan.records.map(function (r) { return r.teamName; })),
     canGenerate: !plan.report.fatal.length && plan.records.length > 0, outputMode: plan.cfg.outputMode,
     range: plan.range, duplicate: plan.report.warnings.some(function (w) { return /^Identical payloads/.test(w); }),
     sample: plan.records.slice(0, 60).map(function (r) {
@@ -564,8 +571,20 @@ function apiSlackGenerate(override, token, confirmDuplicate) {
         fail_('DUPLICATE', 'Identical payloads were already generated. Tick "Generate anyway" to append another copy, or use Replace mode.');
       }
       var w = writePayloads_(plan);
-      return { status: 'GENERATED', generationId: plan.generationId, written: w.written, removed: w.removed, summary: plan.summary, report: plan.report };
+      return { status: 'GENERATED', generationId: plan.generationId, written: w.written, removed: w.removed, summary: plan.summary, report: plan.report,
+        employees: payloadEmployeeCount_(plan.records), outputMode: plan.cfg.outputMode, range: plan.range };
     }, 60000);
+  });
+}
+
+/** Shows and activates the _SLACK_PAYLOADS sheet (v1.1.2, "Open generated payloads"). */
+function apiSlackOpenPayloadSheet() {
+  return apiCall_('apiSlackOpenPayloadSheet', function () {
+    requireInitialized_();
+    var sh = requireSheet_(T_SLACK_PAYLOADS.sheet, 'Run Setup / Configure Spreadsheet → Upgrade.');
+    if (sh.isSheetHidden()) sh.showSheet();
+    sh.activate();
+    return { sheet: sh.getName() };
   });
 }
 

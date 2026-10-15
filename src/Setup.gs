@@ -35,6 +35,7 @@ function getSetupState_() {
     healthy: healthy,
     version: version,
     codeVersion: APP.VERSION,
+    needsUpgrade: initialized && versionNeedsUpgrade_(version),
     teamCount: teams,
     sheets: sheets,
     otherSheets: ss.getSheets().map(function (s) { return s.getName(); })
@@ -82,7 +83,9 @@ function initializeSystem_() {
   // Record the version last, so an interrupted upgrade is simply run again.
   if (getConfig_().SYSTEM_VERSION !== APP.VERSION) {
     setConfigValues_({ SYSTEM_VERSION: APP.VERSION });
-    actions.push('Upgraded the system from version ' + (fromVersion || '1.0.0') + ' to ' + APP.VERSION + '.');
+    actions.push(APP.COMPATIBLE_VERSIONS.indexOf(fromVersion) >= 0
+      ? 'Recorded version ' + APP.VERSION + ' (from ' + fromVersion + '; no data or configuration changes were needed).'
+      : 'Upgraded the system from version ' + (fromVersion || '1.0.0') + ' to ' + APP.VERSION + '.');
   }
 
   formatSystemSheets_();

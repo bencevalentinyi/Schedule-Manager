@@ -95,7 +95,7 @@ function requireInitialized_() {
     fail_('NOT_INITIALIZED', 'The spreadsheet has not been initialized yet. Run Schedule Manager → Setup & Configuration → Setup / Configure Spreadsheet first.');
   }
   var stored = getConfig_().SYSTEM_VERSION;
-  if (stored !== APP.VERSION) {
+  if (versionNeedsUpgrade_(stored)) {
     fail_('NEEDS_UPGRADE', 'The code was updated to version ' + APP.VERSION + ' but this spreadsheet is still on version ' + (stored || '1.0.0') +
       '. Run Schedule Manager → Setup & Configuration → Setup / Configure Spreadsheet and click "Upgrade". The upgrade only adds missing columns and settings; no data is removed.');
   }

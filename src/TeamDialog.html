@@ -1,165 +1,235 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
   <style>
-    details { border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; margin: 12px 0; }
-    details summary { cursor: pointer; font-weight: 600; color: var(--accent); }
-    .types { max-height: 170px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+    .stepper.jump li { cursor: pointer; border-radius: 4px; }
+    .stepper.jump li:hover .lbl { text-decoration: underline; }
+    #hoursTimes { max-width: 420px; }
   </style>
 </head>
 <body>
-  <h1 id="title">Create New Team</h1>
-  <div class="steps" id="steps"></div>
-  <div id="status"></div>
+  <header class="app-header">
+    <h1 id="title">Create New Team</h1>
+    <p class="subtitle" id="subtitle">Set up a team in six short steps. Nothing is created until you confirm on the last step.</p>
+    <ol class="stepper" id="steps" aria-label="Progress"></ol>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
 
-  <!-- 1. General -->
-  <section data-step="0">
-    <h2>General settings</h2>
-    <label for="teamName">Team name *</label>
-    <input type="text" id="teamName" maxlength="60" placeholder="e.g. Customer Support">
-    <p class="small muted">A stable Team ID (TEAM_001, …) is generated automatically; the name can be changed later.</p>
-    <label class="inline"><input type="checkbox" id="active" checked> Active</label>
-    <label>Team type</label>
-    <label class="inline"><input type="radio" name="typeMode" value="EXISTING" checked onchange="typeModeChanged()"> Existing type</label>
-    <label class="inline"><input type="radio" name="typeMode" value="NEW" onchange="typeModeChanged()"> New type</label>
-    <div id="existingType"><select id="teamTypeId" onchange="applyTypeDefaults()"></select><p class="small muted" id="typeDesc"></p></div>
-    <div id="newType" class="hidden row">
-      <div><label for="newTypeName">New type name *</label><input type="text" id="newTypeName" maxlength="60"></div>
-      <div><label for="newTypeDescription">Description</label><input type="text" id="newTypeDescription" maxlength="500"></div>
-    </div>
-    <details><summary>Description</summary><textarea id="description" maxlength="500"></textarea></details>
-  </section>
-
-  <!-- 2. Schedule -->
-  <section data-step="1" class="hidden">
-    <h2>Schedule settings</h2>
-    <label>Operating hours</label>
-    <div id="hoursModes"></div>
-    <div class="row" id="hoursTimes">
-      <div><label for="hoursStart">From</label><input type="time" id="hoursStart" value="06:00"></div>
-      <div><label for="hoursEnd">Until</label><input type="time" id="hoursEnd" value="22:00"></div>
-    </div>
-    <p class="small muted" id="hoursHint"></p>
-    <div class="row">
-      <div><label for="defaultDate">When the schedule is opened</label><select id="defaultDate"></select></div>
-      <div><label for="timeFormat">Time format</label>
-        <select id="timeFormat"><option value="">Use global setting</option><option value="HH:mm">24-hour (14:30)</option><option value="h:mm am/pm">12-hour (2:30 PM)</option></select></div>
-    </div>
-    <div>
-      <label class="inline"><input type="checkbox" id="showBreaks" checked> Show breaks</label>
-      <label class="inline"><input type="checkbox" id="showDurations" checked> Show durations and scheduled hours</label>
-      <label class="inline"><input type="checkbox" id="showHeadcount" checked> Show headcount by hour</label>
-    </div>
-    <details>
-      <summary>Advanced: columns of the daily view</summary>
-      <label class="inline"><input type="radio" name="layout" value="STANDARD" checked onchange="layoutChanged()"> Follow the team type's columns</label>
-      <label class="inline"><input type="radio" name="layout" value="CUSTOM" onchange="layoutChanged()"> Customize for this team</label>
-      <div class="checks card" id="scheduleFields"></div>
-      <label class="inline"><input type="checkbox" id="showTeamFields" checked> Show team-specific fields</label>
-      <label for="extraFields">Team-specific fields from the export</label>
-      <input type="text" id="extraFields" placeholder="Unmapped source column names, comma-separated">
-      <select id="granularity" class="hidden"></select>
-    </details>
-  </section>
-
-  <!-- 3. Staff -->
-  <section data-step="2" class="hidden">
-    <h2>Staff settings</h2>
-    <label>Staff directory</label>
-    <label class="inline"><input type="radio" name="staffMode" value="DEDICATED" checked onchange="staffModeChanged()"> Create a dedicated staff sheet for this team</label>
-    <label class="inline"><input type="radio" name="staffMode" value="SHARED" onchange="staffModeChanged()"> Use an existing staff sheet shared with other teams</label>
-    <div id="sharedBox" class="card hidden">
-      <label for="sharedSheet">Shared staff directory</label>
-      <select id="sharedSheet"></select>
-      <label class="inline"><input type="checkbox" id="addAllMembers"> Make all employees currently in this directory members of this team</label>
-      <p class="small muted">Each employee exists once in the directory. Team membership stays explicit: employees belong to this team only when marked as members (View Staff Directory). Employees of the teams already using the directory keep their membership automatically.</p>
-    </div>
-    <p class="muted">Columns of the team's staff sheet. Employee ID, Employee Name and Active are always included. Unticked columns are hidden, never deleted.</p>
-    <h3>Identifier and custom fields</h3>
-    <div class="checks card" id="registryFields"></div>
-    <div class="row" style="align-items:flex-end">
-      <div><label for="newFieldName">Add an identifier field</label><input type="text" id="newFieldName" placeholder="e.g. CRM ID" maxlength="50"></div>
-      <div style="flex:0 0 auto"><button class="btn" onclick="addField()">Add field</button></div>
-    </div>
-    <p class="small muted">Rename or hide fields for all teams under Setup &amp; Configuration → Configure Staff Fields.</p>
-    <h3>Standard fields</h3>
-    <div class="checks card" id="staffFields"></div>
-    <details><summary>Advanced: free-text custom columns</summary>
-      <input type="text" id="customStaffFields" placeholder="Comma-separated, e.g. Shift Lead, Languages">
-      <p class="small muted">Prefer identifier/custom fields above: they can be renamed safely.</p>
-    </details>
-  </section>
-
-  <!-- 4. Import -->
-  <section data-step="3" class="hidden">
-    <h2>Import settings</h2>
-    <div class="row">
-      <div><label for="scheduleType">Quinyx schedule type</label><select id="scheduleType" onchange="scheduleTypeChanged()"></select></div>
-      <div><label for="importProfileId">Import mapping profile</label><select id="importProfileId" onchange="profileChanged()"></select></div>
-    </div>
-    <p class="small muted" id="profileDesc"></p>
-    <label>Shift types to import</label>
-    <div id="shiftModes"></div>
-    <div id="shiftTypesBox">
-      <div class="types" id="shiftTypes"></div>
-      <div class="row" style="align-items:flex-end">
-        <div><label for="addType">Add a shift type manually</label><input type="text" id="addType" placeholder="Exact text as in the export"></div>
-        <div style="flex:0 0 auto"><button class="btn" onclick="addShiftType()">Add</button></div>
+    <!-- 1. General -->
+    <section data-step="0" aria-labelledby="h-general">
+      <h2 id="h-general">General information</h2>
+      <div class="field">
+        <label class="label" for="teamName">Team name<span class="req" aria-hidden="true">*</span></label>
+        <input type="text" id="teamName" maxlength="60" required autocomplete="off">
+        <p class="hint">A permanent Team ID (TEAM_001, …) is generated automatically. The name can be changed later.</p>
       </div>
-      <label for="discoverFile">Or discover shift types from an export file</label>
-      <input type="file" id="discoverFile" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" onchange="discover()">
-      <p class="small muted">Matching is exact after trimming spaces. Shift types that are not selected are never imported for this team.</p>
-    </div>
-    <div class="card">
-      <label class="inline"><input type="checkbox" id="importMeetings" onchange="show('meetingBox', this.checked)"> Import meetings</label>
-      <div id="meetingBox" class="hidden">
-        <p class="small muted">Tick the shift/activity types that are meetings. They are imported as separate assignments (category Meeting), even when they overlap a shift. Meetings inside a shift are not added to working hours. Unknown types are never treated as meetings.</p>
-        <div class="types" id="meetingTypes"></div>
+      <label class="check"><input type="checkbox" id="active" class="switch" checked> <span>Active <span class="hint">Inactive teams keep their data but are skipped by imports and payloads.</span></span></label>
+
+      <fieldset class="mt-3">
+        <legend>Team type</legend>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="typeMode" value="EXISTING" checked onchange="typeModeChanged()"><span><span class="title">Use an existing type</span><span class="hint">Reuses its columns and defaults.</span></span></label>
+          <label class="choice"><input type="radio" name="typeMode" value="NEW" onchange="typeModeChanged()"><span><span class="title">Create a new type</span><span class="hint">Saved for future teams.</span></span></label>
+        </div>
+      </fieldset>
+      <div id="existingType" class="field">
+        <label class="label" for="teamTypeId">Team type</label>
+        <select id="teamTypeId" onchange="applyTypeDefaults()"></select>
+        <p class="hint" id="typeDesc"></p>
       </div>
-      <p class="small muted">With meeting import off, rows of the meeting types below are excluded and counted in the import preview.</p>
-    </div>
-    <details>
-      <summary>Advanced: matching, routing, duplicates, file layout, team aliases</summary>
-      <label class="inline"><input type="checkbox" id="useDirectoryRouting"> Use staff directory for employee matching and team routing</label>
-      <p class="small muted">When enabled, imports using "Route by staff directory membership" send a row to this team only if the employee is an active member and the destination is unambiguous.</p>
+      <div id="newType" class="hidden row">
+        <div class="field"><label class="label" for="newTypeName">New type name<span class="req" aria-hidden="true">*</span></label><input type="text" id="newTypeName" maxlength="60"></div>
+        <div class="field"><label class="label" for="newTypeDescription">Type description<span class="optional">optional</span></label><input type="text" id="newTypeDescription" maxlength="500"></div>
+      </div>
+      <div class="field">
+        <label class="label" for="description">Team description<span class="optional">optional</span></label>
+        <textarea id="description" maxlength="500" rows="2"></textarea>
+      </div>
+    </section>
+
+    <!-- 2. Schedule -->
+    <section data-step="1" class="hidden" aria-labelledby="h-schedule">
+      <h2 id="h-schedule">Schedule settings</h2>
+      <fieldset>
+        <legend>Operating hours</legend>
+        <div class="choices" id="hoursModes"></div>
+      </fieldset>
+      <div class="row" id="hoursTimes">
+        <div class="field"><label class="label" for="hoursStart">From</label><input type="time" id="hoursStart" value="06:00"></div>
+        <div class="field"><label class="label" for="hoursEnd">Until</label><input type="time" id="hoursEnd" value="22:00"></div>
+      </div>
+      <p class="hint" id="hoursHint" style="margin-top:-6px"></p>
+      <div class="row mt-3">
+        <div class="field"><label class="label" for="defaultDate">When the schedule is opened</label><select id="defaultDate"></select></div>
+        <div class="field"><label class="label" for="timeFormat">Time format</label>
+          <select id="timeFormat"><option value="">Use the global setting</option><option value="HH:mm">24-hour (14:30)</option><option value="h:mm am/pm">12-hour (2:30 PM)</option></select></div>
+      </div>
+      <fieldset>
+        <legend>Show in the daily view</legend>
+        <label class="check"><input type="checkbox" id="showBreaks" class="switch" checked> Breaks</label>
+        <label class="check"><input type="checkbox" id="showDurations" class="switch" checked> Durations and scheduled hours</label>
+        <label class="check"><input type="checkbox" id="showHeadcount" class="switch" checked> Headcount by hour</label>
+      </fieldset>
+      <details class="disclosure">
+        <summary>Advanced: columns of the daily view <span class="hint">Most teams follow their type</span></summary>
+        <div class="disclosure-body">
+          <div class="choices mt-3">
+            <label class="choice"><input type="radio" name="layout" value="STANDARD" checked onchange="layoutChanged()"><span><span class="title">Follow the team type</span><span class="hint">Columns change when the type changes.</span></span></label>
+            <label class="choice"><input type="radio" name="layout" value="CUSTOM" onchange="layoutChanged()"><span><span class="title">Customize for this team</span><span class="hint">Start and End are always shown.</span></span></label>
+          </div>
+          <div class="check-grid panel subtle" id="scheduleFields"></div>
+          <label class="check"><input type="checkbox" id="showTeamFields" checked> Show team-specific fields from the export</label>
+          <div class="field mt-2">
+            <label class="label" for="extraFields">Team-specific fields<span class="optional">optional</span></label>
+            <input type="text" id="extraFields" placeholder="e.g. Skill, Location">
+            <p class="hint">Unmapped source column names, comma-separated. Their values are kept with each imported record.</p>
+          </div>
+          <select id="granularity" class="hidden" aria-hidden="true" tabindex="-1"></select>
+        </div>
+      </details>
+    </section>
+
+    <!-- 3. Staff directory -->
+    <section data-step="2" class="hidden" aria-labelledby="h-staff">
+      <h2 id="h-staff">Staff directory</h2>
+      <fieldset>
+        <legend>Where this team's employees are kept</legend>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="staffMode" value="DEDICATED" checked onchange="staffModeChanged()"><span><span class="title">Dedicated staff sheet</span><span class="hint">A new sheet only for this team.</span></span></label>
+          <label class="choice"><input type="radio" name="staffMode" value="SHARED" onchange="staffModeChanged()"><span><span class="title">Shared staff sheet</span><span class="hint">Use another team's existing sheet.</span></span></label>
+        </div>
+      </fieldset>
+      <div id="sharedBox" class="hidden">
+        <div class="field">
+          <label class="label" for="sharedSheet">Shared staff directory</label>
+          <select id="sharedSheet"></select>
+        </div>
+        <div id="sharedInfo"></div>
+        <label class="check"><input type="checkbox" id="addAllMembers"> <span>Make every employee currently in this directory a member of this team <span class="hint">Leave unticked to choose members one by one in View Staff Directory.</span></span></label>
+      </div>
+
+      <h3>Columns in the staff sheet</h3>
+      <p class="hint" style="margin-top:-4px">Employee ID, Employee Name and Active are always included. Unticked columns are hidden in the sheet, never deleted.</p>
+      <div class="panel subtle mt-2">
+        <div class="eyebrow">Standard fields</div>
+        <div class="check-grid" id="staffFields"></div>
+      </div>
+      <div class="panel subtle">
+        <div class="eyebrow">Custom fields</div>
+        <div class="check-grid" id="registryFields"></div>
+        <div class="input-group mt-2">
+          <label class="sr-only" for="newFieldName">New custom field name</label>
+          <input type="text" id="newFieldName" placeholder="New field name, e.g. CRM ID" maxlength="50" onkeydown="if (event.key === 'Enter') { event.preventDefault(); addField(); }">
+          <button type="button" class="btn" onclick="addField()">Add field</button>
+        </div>
+        <p class="hint">New fields are identifier fields (text, unique per team) and are added to the field list for every team. Rename, reorder or delete them under Configure Staff Fields.</p>
+      </div>
+      <details class="disclosure">
+        <summary>Advanced: free-text columns (legacy)</summary>
+        <div class="disclosure-body">
+          <div class="field mt-3">
+            <label class="label" for="customStaffFields">Free-text columns</label>
+            <input type="text" id="customStaffFields" placeholder="Comma-separated, e.g. Shift Lead, Languages">
+            <p class="hint">Prefer custom fields above: they have a permanent key and can be renamed without losing values.</p>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- 4. Quinyx import -->
+    <section data-step="3" class="hidden" aria-labelledby="h-import">
+      <h2 id="h-import">Quinyx import</h2>
       <div class="row">
-        <div><label for="matchField">Match the export's employee ID against</label><select id="matchField"></select></div>
-        <div><label for="nameMatch">When the export has only names</label><select id="nameMatch"></select></div>
+        <div class="field"><label class="label" for="scheduleType">Quinyx export type</label><select id="scheduleType" onchange="scheduleTypeChanged()"></select></div>
+        <div class="field"><label class="label" for="importProfileId">Import mapping profile</label><select id="importProfileId" onchange="profileChanged()"></select><p class="hint" id="profileDesc"></p></div>
       </div>
-      <label for="duplicateStrategy">Default handling of existing shifts</label><select id="duplicateStrategy"></select>
-      <div id="layoutBox" class="row">
-        <div><label for="layoutHeaderRow">Header row (0 = none)</label><input type="number" id="layoutHeaderRow" min="0" max="50"></div>
-        <div><label for="layoutFirstDataRow">First data row</label><input type="number" id="layoutFirstDataRow" min="1" max="60"></div>
+      <fieldset>
+        <legend>Shift types to import</legend>
+        <div class="choices" id="shiftModes"></div>
+      </fieldset>
+      <div id="shiftTypesBox">
+        <div class="check-list" id="shiftTypes" role="group" aria-label="Shift types"></div>
+        <div class="row end mt-2">
+          <div class="field">
+            <label class="label" for="addType">Add a shift type</label>
+            <div class="input-group"><input type="text" id="addType" placeholder="Exact text as in the export" onkeydown="if (event.key === 'Enter') { event.preventDefault(); addShiftType(); }">
+              <button type="button" class="btn" onclick="addShiftType()">Add</button></div>
+          </div>
+          <div class="field">
+            <label class="label" for="discoverFile">Or read them from an export file</label>
+            <input type="file" id="discoverFile" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" onchange="discover()">
+          </div>
+        </div>
+        <p class="hint">Matching is exact after trimming spaces. Shift types that are not selected are never imported for this team.</p>
       </div>
-      <p class="small muted" id="layoutHint"></p>
-      <label for="importAliases">Import aliases (values in an export's team column that mean this team)</label>
-      <textarea id="importAliases"></textarea>
-    </details>
-  </section>
+      <details class="disclosure">
+        <summary>Advanced: matching, routing, duplicates, file layout, aliases</summary>
+        <div class="disclosure-body">
+          <label class="check mt-3"><input type="checkbox" id="useDirectoryRouting" class="switch"> <span>Use staff directory for employee matching and team routing
+            <span class="hint">With the import option "Route by staff directory membership", a row goes to this team only if the employee is an active member and the destination is unambiguous.</span></span></label>
+          <div class="row mt-3">
+            <div class="field"><label class="label" for="matchField">Match the export's employee ID against</label><select id="matchField"></select></div>
+            <div class="field"><label class="label" for="nameMatch">When the export has only names</label><select id="nameMatch"></select></div>
+          </div>
+          <div class="field"><label class="label" for="duplicateStrategy">Default handling of existing shifts</label><select id="duplicateStrategy"></select></div>
+          <div id="layoutBox" class="row">
+            <div class="field"><label class="label" for="layoutHeaderRow">Header row (0 = none)</label><input type="number" id="layoutHeaderRow" min="0" max="50"></div>
+            <div class="field"><label class="label" for="layoutFirstDataRow">First data row</label><input type="number" id="layoutFirstDataRow" min="1" max="60"></div>
+          </div>
+          <p class="hint" id="layoutHint" style="margin-top:-6px"></p>
+          <div class="field mt-3">
+            <label class="label" for="importAliases">Import aliases<span class="optional">optional</span></label>
+            <textarea id="importAliases" rows="2"></textarea>
+            <p class="hint">Values in an export's team column that mean this team, comma-separated.</p>
+          </div>
+        </div>
+      </details>
+    </section>
 
-  <!-- 5. Confirm -->
-  <section data-step="4" class="hidden">
-    <h2>Review and confirm</h2>
-    <div id="preview"></div>
-  </section>
+    <!-- 5. Meetings -->
+    <section data-step="4" class="hidden" aria-labelledby="h-meetings">
+      <h2 id="h-meetings">Meetings</h2>
+      <label class="check"><input type="checkbox" id="importMeetings" class="switch" onchange="meetingsChanged()"> <span><b>Import meetings</b>
+        <span class="hint">Meetings become separate assignments (category Meeting), even when they overlap a shift. A meeting inside a shift does not add working hours.</span></span></label>
+      <div id="meetingBox" class="hidden mt-3">
+        <div class="field">
+          <span class="label" id="mtLabel">Which shift / activity types are meetings?</span>
+          <div class="check-list" id="meetingTypes" role="group" aria-labelledby="mtLabel"></div>
+          <p class="hint">Only the ticked types are treated as meetings. Unknown types are never treated as meetings. Add more types on the Quinyx import step.</p>
+        </div>
+      </div>
+      <div id="meetingOffInfo"></div>
+    </section>
 
-  <section id="done" class="hidden"></section>
+    <!-- 6. Review -->
+    <section data-step="5" class="hidden" aria-labelledby="h-review">
+      <h2 id="h-review">Review and confirm</h2>
+      <div id="preview"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Checking the configuration…</div></div>
+    </section>
 
-  <div class="footer" id="footer">
-    <button class="btn" onclick="closeDialog()">Cancel</button>
+    <section id="done" class="hidden" aria-live="polite"></section>
+  </main>
+  <footer class="app-footer" id="footer">
+    <button type="button" class="btn" onclick="closeDialog()">Cancel</button>
     <span class="spacer"></span>
-    <button class="btn" id="backBtn" onclick="go(step - 1)">Back</button>
-    <button class="btn primary" id="nextBtn" onclick="next()">Next</button>
-    <button class="btn primary hidden" id="saveBtn" onclick="save()">Create team</button>
-  </div>
+    <button type="button" class="btn" id="backBtn" onclick="go(step - 1)">Back</button>
+    <button type="button" class="btn hidden" id="reviewBtn" onclick="jump(5)">Review changes</button>
+    <button type="button" class="btn primary" id="nextBtn" onclick="next()">Next</button>
+    <button type="button" class="btn primary hidden" id="saveBtn" onclick="save()">Create team</button>
+  </footer>
 
   <?!= include('ClientCore') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var STEP_NAMES = ['General', 'Schedule', 'Staff', 'Import', 'Confirm'];
+    var STEP_NAMES = ['General', 'Schedule', 'Staff directory', 'Quinyx import', 'Meetings', 'Review'];
+    var REVIEW = 5;
     var step = 0, data = null, editTeam = null, scheduleOrder = [], staffOrder = [], knownTypes = [], layoutLoaded = null;
+    var HOUR_HINTS = { STANDARD: 'Same-day hours, e.g. 06:00–22:00', '24_7': 'Full day, 00:00–24:00', CUSTOM: 'Any hours; may cross midnight' };
+    var SHIFT_MODE_HINTS = { NOT_CONFIGURED: 'The first import asks you to choose.', SELECTED: 'Only the ticked types below.', ALL: 'Every shift type in the file.' };
 
     function init() {
       call('Loading…', 'apiTeamDialogBootstrap', BOOT.teamId || '').then(function (d) {
@@ -168,15 +238,14 @@
         knownTypes = d.knownShiftTypes.slice();
         $('granularity').innerHTML = options(d.views, 'key', 'label', 'DAILY');
         $('teamTypeId').innerHTML = options(d.types.filter(function (t) { return t.enabled || (editTeam && t.typeId === editTeam.teamTypeId); }), 'typeId', 'typeName');
-        $('hoursModes').innerHTML = radios('hoursMode', d.operatingModes, 'hoursModeChanged()');
-        $('defaultDate').innerHTML = options(Object.keys(d.defaultDateModes).map(function (k) { return { k: k, l: d.defaultDateModes[k] }; }), 'k', 'l');
-        $('scheduleType').innerHTML = options(Object.keys(d.importFormats).map(function (k) { return { k: k, l: d.importFormats[k] }; }), 'k', 'l');
-        $('shiftModes').innerHTML = radios('shiftMode', d.shiftTypeModes, 'shiftModeChanged()');
+        $('hoursModes').innerHTML = choiceCards('hoursMode', d.operatingModes, HOUR_HINTS, 'hoursModeChanged()');
+        $('defaultDate').innerHTML = options(kv(d.defaultDateModes), 'k', 'l');
+        $('scheduleType').innerHTML = options(kv(d.importFormats), 'k', 'l');
+        $('shiftModes').innerHTML = choiceCards('shiftMode', d.shiftTypeModes, SHIFT_MODE_HINTS, 'shiftModeChanged()');
         $('nameMatch').innerHTML = options(Object.keys(d.nameMatchStrategies).map(function (k) {
           return { k: k, l: k ? d.nameMatchStrategies[k] : d.nameMatchStrategies[k] + ' (' + d.globalNameMatch + ')' };
         }), 'k', 'l');
-        $('duplicateStrategy').innerHTML = '<option value="">Use the global default (' + esc(d.globalStrategy) + ')</option>' +
-          options(Object.keys(d.strategies).map(function (k) { return { k: k, l: d.strategies[k] }; }), 'k', 'l');
+        $('duplicateStrategy').innerHTML = '<option value="">Use the global default (' + esc(d.globalStrategy) + ')</option>' + options(kv(d.strategies), 'k', 'l');
         $('sharedSheet').innerHTML = d.staffDirectories.length ? options(d.staffDirectories.map(function (s) {
           return { k: s.sheetId, l: s.sheetName + ' — used by ' + s.teams.map(function (t) { return t.teamName; }).join(', ') };
         }), 'k', 'l') : '<option value="">(no staff directories to share yet)</option>';
@@ -186,21 +255,23 @@
       });
     }
 
-    function radios(name, map, onchange) {
+    function choiceCards(name, map, hints, onchange) {
       return Object.keys(map).map(function (k) {
-        return '<label class="inline"><input type="radio" name="' + name + '" value="' + esc(k) + '" onchange="' + onchange + '"> ' + esc(map[k]) + '</label>';
+        return '<label class="choice"><input type="radio" name="' + name + '" value="' + esc(k) + '" onchange="' + onchange + '"><span><span class="title">' + esc(map[k]) + '</span>' +
+          (hints && hints[k] ? '<span class="hint">' + esc(hints[k]) + '</span>' : '') + '</span></label>';
       }).join('');
     }
     function typeById(id) { return data.types.filter(function (t) { return t.typeId === id; })[0]; }
-    function radio(name) { var el = document.querySelector('input[name=' + name + ']:checked'); return el ? el.value : ''; }
-    function setRadio(name, v) { var el = document.querySelector('input[name=' + name + '][value="' + v + '"]'); if (el) el.checked = true; }
     function profileById(id) { return data.profiles.filter(function (p) { return p.profileId === id; })[0]; }
+    function checkItem(attr, value, label, checked, extra) {
+      return '<label class="check"><input type="checkbox" data-' + attr + '="' + esc(value) + '"' + (checked ? ' checked' : '') + (extra || '') + '> <span>' + label + '</span></label>';
+    }
 
     /* ---------- schedule ---------- */
     function renderFieldChecks(selected) {
       scheduleOrder = selected.slice();
       $('scheduleFields').innerHTML = Object.keys(data.displayFields).map(function (k) {
-        return '<label class="inline"><input type="checkbox" data-field="' + k + '"' + (selected.indexOf(k) >= 0 || k === 'start' || k === 'end' ? ' checked' : '') + '> ' + esc(data.displayFields[k].label) + '</label>';
+        return checkItem('field', k, esc(data.displayFields[k].label), selected.indexOf(k) >= 0 || k === 'start' || k === 'end');
       }).join('');
       layoutChanged();
     }
@@ -218,9 +289,9 @@
     function hoursModeChanged() {
       var m = radio('hoursMode');
       show('hoursTimes', m !== '24_7');
-      $('hoursHint').textContent = m === '24_7' ? 'The view and headcount cover 00:00–24:00; shifts crossing midnight are shown on both days.'
-        : m === 'CUSTOM' ? 'An end time earlier than the start time means the hours continue past midnight (e.g. 18:00–06:00). Use 23:59 for "until midnight".'
-        : 'Same-day hours (e.g. 06:00–22:00). Shifts outside these hours are still shown, flagged "Outside operating hours".';
+      $('hoursHint').textContent = m === '24_7' ? 'The view and headcount cover the full day (00:00–24:00). Shifts crossing midnight are shown on both days.'
+        : m === 'CUSTOM' ? 'An end time earlier than the start time means the hours continue past midnight (for example 18:00–06:00). Use 23:59 for "until midnight".'
+        : 'Same-day hours. Shifts outside these hours are still shown, flagged "Outside operating hours".';
     }
     function layoutChanged() {
       var custom = radio('layout') === 'CUSTOM';
@@ -237,13 +308,12 @@
     function renderStaffChecks(selected) {
       staffOrder = selected.slice();
       $('registryFields').innerHTML = data.staffRegistry.map(function (f) {
-        var k = 'field:' + f.fieldKey;
-        return '<label class="inline"><input type="checkbox" data-staff="' + k + '"' + (selected.indexOf(k) >= 0 ? ' checked' : '') + ' onchange="renderMatchOptions()"> ' +
-          esc(f.displayName) + (f.fieldType === 'IDENTIFIER' ? ' <span class="badge">ID</span>' : '') + (f.visible ? '' : ' <span class="badge warn">hidden</span>') + '</label>';
-      }).join('') || '<span class="muted">No fields defined yet.</span>';
+        return checkItem('staff', 'field:' + f.fieldKey, esc(f.displayName) + (f.fieldType === 'IDENTIFIER' ? ' ' + badge('', 'ID', 'Identifier: unique text per team') : '') +
+          (f.visible ? '' : ' ' + badge('warn', 'hidden')), selected.indexOf('field:' + f.fieldKey) >= 0, ' onchange="renderMatchOptions()"');
+      }).join('') || '<p class="hint mt-0">No custom fields yet. Add one below if this team needs an extra column, such as a CRM or telephony ID.</p>';
       $('staffFields').innerHTML = Object.keys(data.staffFieldDefs).map(function (k) {
         var req = data.staffFieldDefs[k].required;
-        return '<label class="inline"><input type="checkbox" data-staff="' + k + '"' + (selected.indexOf(k) >= 0 || req ? ' checked' : '') + (req ? ' disabled' : '') + '> ' + esc(data.staffFieldDefs[k].label) + '</label>';
+        return checkItem('staff', k, esc(data.staffFieldDefs[k].label) + (req ? ' <span class="hint" style="display:inline">(always)</span>' : ''), selected.indexOf(k) >= 0 || req, req ? ' disabled' : '');
       }).join('');
       $('customStaffFields').value = selected.filter(function (f) { return f.indexOf('custom:') === 0; }).map(function (f) { return f.substr(7); }).join(', ');
       renderMatchOptions();
@@ -262,15 +332,23 @@
     }
     function addField() {
       var name = $('newFieldName').value.trim();
-      if (!name) return;
+      if (!name) { fieldError('newFieldName', 'Enter a field name.'); return; }
+      fieldError('newFieldName', '');
       var keep = selectedStaff();
       call('Adding field…', 'apiSaveStaffField', { displayName: name, fieldType: 'IDENTIFIER', visible: true, matchable: true }).then(function (r) {
         data.staffRegistry.push(r.field);
         keep.push('field:' + r.field.fieldKey);
         renderStaffChecks(keep);
         $('newFieldName').value = '';
-        showStatus('ok', 'Added "' + esc(r.field.displayName) + '" (key ' + esc(r.field.fieldKey) + ').');
+        showStatus('ok', 'Added "' + esc(r.field.displayName) + '" (key ' + esc(r.field.fieldKey) + ') and ticked it for this team.', 'Field added');
       });
+    }
+    function staffModeChanged() {
+      var shared = radio('staffMode') === 'SHARED';
+      show('sharedBox', shared);
+      $('sharedInfo').innerHTML = shared ? (data.staffDirectories.length
+        ? alertHtml('info', 'Staff records are shared; membership and schedules are not', 'Each employee exists once in the directory. Team membership stays explicit: employees belong to this team only when they are marked as members, and schedules remain team-specific. Employees of the teams already using the directory keep their membership.')
+        : alertHtml('warning', 'No staff directory to share yet', 'Another team must exist first. Choose a dedicated staff sheet instead.')) : '';
     }
 
     /* ---------- import ---------- */
@@ -282,7 +360,7 @@
       $('meetingTypes').innerHTML = '';
       renderShiftTypes(imp.shiftTypes || []);
       $('importMeetings').checked = !!imp.importMeetings;
-      show('meetingBox', !!imp.importMeetings);
+      meetingsChanged();
       $('useDirectoryRouting').checked = !!imp.useStaffDirectoryRouting;
       $('nameMatch').value = imp.nameMatch || '';
       $('duplicateStrategy').value = imp.duplicateStrategy || '';
@@ -291,30 +369,29 @@
       scheduleTypeChanged(true);
     }
     function uniqList(a) { var o = []; a.forEach(function (x) { if (x && o.indexOf(x) < 0) o.push(x); }); return o.sort(); }
-    function renderShiftTypes(selected) {
-      $('shiftTypes').innerHTML = knownTypes.length ? knownTypes.map(function (t) {
-        return '<label class="inline" style="display:flex"><input type="checkbox" data-st="' + esc(t) + '"' + (selected.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>';
-      }).join('') : '<span class="muted">No shift types known yet. Add them manually or discover them from an export file.</span>';
-      if (document.querySelector('[data-mt]')) meetingSel = selectedMeetingTypes(); // keep ticks when the list is re-rendered
-      $('meetingTypes').innerHTML = knownTypes.length ? knownTypes.map(function (t) {
-        return '<label class="inline" style="display:flex"><input type="checkbox" data-mt="' + esc(t) + '"' + (meetingSel.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>';
-      }).join('') : '<span class="muted">No types known yet. Add or discover them under "Shift types to import" first.</span>';
-    }
     var meetingSel = [];
-    function selectedMeetingTypes() {
-      return Array.prototype.filter.call(document.querySelectorAll('[data-mt]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mt; });
+    function renderShiftTypes(selected) {
+      if (document.querySelector('[data-mt]')) meetingSel = selectedMeetingTypes(); // keep ticks when the lists are re-rendered
+      $('shiftTypes').innerHTML = knownTypes.length ? knownTypes.map(function (t) {
+        var isMeeting = meetingSel.indexOf(t) >= 0;
+        return '<label class="check"><input type="checkbox" data-st="' + esc(t) + '"' + (selected.indexOf(t) >= 0 ? ' checked' : '') + '> <span>' + esc(t) + '</span>' +
+          (isMeeting ? '<span class="meta">' + badge('meeting', 'Meeting type') + '</span>' : '') + '</label>';
+      }).join('') : emptyHtml('≡', 'No shift types known yet', 'Add them by name below, or read them from an export file.');
+      $('meetingTypes').innerHTML = knownTypes.length ? knownTypes.map(function (t) {
+        return '<label class="check"><input type="checkbox" data-mt="' + esc(t) + '"' + (meetingSel.indexOf(t) >= 0 ? ' checked' : '') + ' onchange="meetingSel = selectedMeetingTypes()"> <span>' + esc(t) + '</span></label>';
+      }).join('') : emptyHtml('≡', 'No types known yet', 'Add or discover shift types on the Quinyx import step first.');
     }
-    function staffModeChanged() {
-      var shared = radio('staffMode') === 'SHARED';
-      show('sharedBox', shared);
-      if (shared && !data.staffDirectories.length) showStatus('warn', 'There is no staff directory to share yet: another team must exist first.');
-    }
-    function selectedShiftTypes() {
-      return Array.prototype.filter.call(document.querySelectorAll('[data-st]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.st; });
+    function selectedMeetingTypes() { return checkedData('mt'); }
+    function selectedShiftTypes() { return checkedData('st'); }
+    function meetingsChanged() {
+      var on = $('importMeetings').checked;
+      show('meetingBox', on);
+      $('meetingOffInfo').innerHTML = on ? '' : alertHtml('info', 'Meeting import is off', 'Rows of the meeting types are excluded and counted as "Meetings excluded" in the import preview. Shifts are not affected.');
     }
     function addShiftType() {
       var t = $('addType').value.trim().replace(/\s+/g, ' ');
-      if (!t) return;
+      if (!t) { fieldError('addType', 'Enter the shift type exactly as it appears in the export.'); return; }
+      fieldError('addType', '');
       var sel = selectedShiftTypes(); sel.push(t);
       knownTypes = uniqList(knownTypes.concat([t]));
       renderShiftTypes(sel);
@@ -336,12 +413,12 @@
           var sel = selectedShiftTypes();
           knownTypes = uniqList(knownTypes.concat(found));
           renderShiftTypes(sel);
-          showStatus(found.length ? 'ok' : 'warn', found.length ? 'Found ' + found.length + ' shift type(s): ' +
-            r.shiftTypes.map(function (t) { return esc(t.type || '(blank)') + ' (' + t.rows + ')'; }).join(', ') + '. Tick the ones this team should import.'
-            : 'No shift types were found in this file.' + reportList(r.report));
+          if (found.length) showStatus('ok', r.shiftTypes.map(function (t) { return esc(t.type || '(blank)') + ' (' + t.rows + ')'; }).join(', ') + '. Tick the ones this team should import.', 'Found ' + found.length + ' shift type(s)');
+          else showStatus('warn', 'Check the export type and profile, then try again.' + reportList(r.report), 'No shift types were found in this file');
           $('discoverFile').value = '';
-        });
+        }, function () { $('discoverFile').value = ''; });
       };
+      reader.onerror = function () { busy(false); showStatus('fatal', 'Try again, or add the shift types by name.', 'The browser could not read the file'); };
       reader.readAsDataURL(f);
     }
     function scheduleTypeChanged(keepProfile) {
@@ -360,7 +437,7 @@
       show('layoutBox', !!daily);
       layoutLoaded = daily ? { headerRow: p.dailyLayout.headerRow, firstDataRow: p.dailyLayout.firstDataRow } : null;
       if (daily) { $('layoutHeaderRow').value = layoutLoaded.headerRow; $('layoutFirstDataRow').value = layoutLoaded.firstDataRow; }
-      $('layoutHint').textContent = daily ? 'Rows of the "' + p.profileName + '" profile. They apply to every team that uses this profile. Default assumption (unverified): labels in row 2, data from row 3.' : '';
+      $('layoutHint').textContent = daily ? 'Rows of the "' + p.profileName + '" profile. They apply to every team that uses this profile. Default assumption (not yet verified): labels in row 2, data from row 3.' : '';
     }
 
     /* ---------- defaults / prefill ---------- */
@@ -377,7 +454,8 @@
       }
     }
     function fillFromTeam(t) {
-      $('title').textContent = 'Edit Team: ' + t.teamName + ' (' + t.teamId + ')';
+      $('title').textContent = 'Edit Team: ' + t.teamName;
+      $('subtitle').textContent = t.teamId + ' · Open any step to change it, then review and save. Schedules and staff are kept.';
       $('saveBtn').textContent = 'Save changes';
       $('teamName').value = t.teamName; $('description').value = t.description; $('active').checked = t.active;
       $('teamTypeId').value = t.teamTypeId;
@@ -436,13 +514,29 @@
       return form;
     }
 
+    /** Client-side checks for immediate feedback; the server validates again on review and save. */
     function validateStep(s) {
+      clearFieldErrors();
       var f = collect();
-      if (s === 0 && !f.teamName.trim()) return 'Enter a team name.';
-      if (s === 0 && f.typeMode === 'NEW' && !f.newTypeName.trim()) return 'Enter a name for the new team type.';
-      if (s === 0 && f.typeMode === 'EXISTING' && !f.teamTypeId) return 'Select a team type.';
-      if (s === 1 && f.display.operatingHoursMode !== '24_7' && (!/^\d{1,2}:\d{2}$/.test(f.display.operatingHoursStart) || !/^\d{1,2}:\d{2}$/.test(f.display.operatingHoursEnd))) return 'Enter the operating hours as HH:mm.';
-      if (s === 3 && f.import.shiftTypeMode === 'SELECTED' && !f.import.shiftTypes.length) return 'Select at least one shift type, or choose "Import all shift types".';
+      var hm = /^\d{1,2}:\d{2}$/;
+      if (s === 0) {
+        if (!f.teamName.trim()) return fieldError('teamName', 'Enter a team name.') || 'teamName';
+        if (f.typeMode === 'NEW' && !f.newTypeName.trim()) return fieldError('newTypeName', 'Enter a name for the new team type.') || 'newTypeName';
+        if (f.typeMode === 'EXISTING' && !f.teamTypeId) return fieldError('teamTypeId', 'Select a team type.') || 'teamTypeId';
+      }
+      if (s === 1 && f.display.operatingHoursMode !== '24_7') {
+        if (!hm.test(f.display.operatingHoursStart)) return fieldError('hoursStart', 'Enter a time as HH:mm.') || 'hoursStart';
+        if (!hm.test(f.display.operatingHoursEnd)) return fieldError('hoursEnd', 'Enter a time as HH:mm.') || 'hoursEnd';
+      }
+      if (s === 2 && f.staffMode === 'SHARED' && !f.sharedStaffSheetId) return fieldError('sharedSheet', 'There is no staff directory to share yet. Choose a dedicated sheet.') || 'sharedSheet';
+      if (s === 3 && f.import.shiftTypeMode === 'SELECTED' && !f.import.shiftTypes.length) {
+        showStatus('fatal', 'Tick at least one shift type, or choose "Import all shift types".', 'No shift type selected');
+        return 'shiftTypes';
+      }
+      if (s === 4 && f.import.importMeetings && !f.import.meetingTypes.length) {
+        showStatus('fatal', 'Tick at least one meeting type, or turn meeting import off.', 'No meeting type selected');
+        return 'meetingTypes';
+      }
       return '';
     }
 
@@ -450,55 +544,87 @@
       if (s < 0) return;
       step = s;
       document.querySelectorAll('section[data-step]').forEach(function (el) { show(el, Number(el.dataset.step) === s); });
-      $('steps').innerHTML = STEP_NAMES.map(function (n, i) { return '<div class="' + (i === s ? 'on' : (i < s ? 'done' : '')) + '">' + (i + 1) + '. ' + n + '</div>'; }).join('');
+      renderStepper('steps', STEP_NAMES, s);
+      if (editTeam) {
+        $('steps').classList.add('jump');
+        Array.prototype.forEach.call($('steps').children, function (li, i) {
+          li.setAttribute('role', 'button'); li.tabIndex = 0;
+          li.onclick = function () { jump(i); };
+          li.onkeydown = function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); jump(i); } };
+        });
+      }
       $('backBtn').disabled = s === 0;
-      show('nextBtn', s < 4); show('saveBtn', s === 4);
+      show('nextBtn', s < REVIEW); show('saveBtn', s === REVIEW);
+      show('reviewBtn', !!editTeam && s < REVIEW);
+      $('nextBtn').textContent = s === REVIEW - 1 ? 'Review' : 'Next';
       showStatus('', '');
-      if (s === 4) preview();
+      $('main').scrollTop = 0;
+      if (s === 3) renderShiftTypes(selectedShiftTypes()); // refresh the "Meeting type" badges
+      if (s === REVIEW) preview(); else focusFirst(document.querySelector('section[data-step="' + s + '"]'));
     }
     function next() {
       var err = validateStep(step);
-      if (err) { showStatus('fatal', esc(err)); return; }
+      if (err) { if ($(err)) $(err).focus(); return; }
       go(step + 1);
+    }
+    /** Edit mode: open any step; the current step is checked first when moving forward. */
+    function jump(s) {
+      if (s > step) { var err = validateStep(step); if (err) { if ($(err)) $(err).focus(); return; } }
+      go(s);
     }
 
     function preview() {
       $('saveBtn').disabled = true;
+      $('preview').innerHTML = '<div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Checking the configuration…</div>';
       call('Checking configuration…', 'apiPreviewTeam', collect(), editTeam ? editTeam.teamId : '').then(function (p) {
-        var v = p.value;
+        var v = p.value, imp = v.import;
+        var shared = v.staffMode === 'SHARED';
+        var staffDir = shared ? 'Shared: ' + esc(v.sharedStaffSheetName || p.plan.staffSheet) + '<div class="hint">' + (v.addAllMembers ? 'All current employees become members of this team.' : 'Membership is explicit — mark members in View Staff Directory.') + '</div>'
+          : 'Dedicated: ' + esc(p.plan.staffSheet);
+        var shiftTypes = imp.shiftTypeMode === 'SELECTED' ? esc(imp.shiftTypes.join(', ')) : esc(data.shiftTypeModes[imp.shiftTypeMode] || imp.shiftTypeMode);
+        var matchLabel = imp.matchField === 'employeeId' ? 'Employee ID' : ((data.staffRegistry.filter(function (f) { return 'field:' + f.fieldKey === imp.matchField; })[0] || {}).displayName || imp.matchField);
+        var sheets = editTeam ? 'Schedule: ' + esc(p.plan.scheduleSheet) + '<br>Staff: ' + esc(p.plan.staffSheet)
+          : 'Creates <b>' + esc(p.plan.scheduleSheet) + '</b>' + (shared ? ' and uses the existing staff sheet <b>' + esc(p.plan.staffSheet) + '</b>' : ' and <b>' + esc(p.plan.staffSheet) + '</b>');
         var rows = [
-          ['Team name', v.teamName], ['Team type', v.typeMode === 'NEW' ? v.newTypeName + ' (new)' : v.typeName],
-          ['Active', v.active ? 'Yes' : 'No'],
-          ['Schedule sheet', p.plan.scheduleSheet],
-          ['Staff directory', v.staffMode === 'SHARED' ? 'Shared: ' + (v.sharedStaffSheetName || p.plan.staffSheet) + (v.addAllMembers ? ' (all current employees become members)' : ' (explicit membership)') : 'Dedicated: ' + p.plan.staffSheet],
-          ['Operating hours', p.hoursLabel],
-          ['Opens on', data.defaultDateModes[v.display.defaultDate]],
-          ['Schedule columns', p.scheduleLabels.join(', ') + (v.extraFields.length ? ' + ' + v.extraFields.join(', ') : '')],
-          ['Staff columns', p.staffLabels.join(', ')],
-          ['Import', p.profileName + ' · ' + p.importLabel],
-          ['Import aliases', v.importAliases || '—']
+          ['Team name', esc(v.teamName) + (v.active ? '' : ' ' + badge('warn', 'inactive'))],
+          ['Team type', esc(v.typeMode === 'NEW' ? v.newTypeName + ' (new type)' : v.typeName)],
+          ['Schedule display', esc(p.hoursLabel) + '<div class="hint">Opens: ' + esc(data.defaultDateModes[v.display.defaultDate]) + '</div>'],
+          ['Schedule columns', esc(p.scheduleLabels.join(', ') + (v.extraFields.length ? ' + ' + v.extraFields.join(', ') : ''))],
+          ['Staff directory', staffDir],
+          ['Staff columns', esc(p.staffLabels.join(', '))],
+          ['Quinyx import', esc(data.importFormats[imp.scheduleType] || imp.scheduleType) + ' · profile ' + esc(p.profileName)],
+          ['Shift types', shiftTypes],
+          ['Meeting import', imp.importMeetings ? badge('meeting', 'On') + ' ' + esc(imp.meetingTypes.join(', ')) : badge('', 'Off') + ' <span class="hint" style="display:inline">meeting rows are excluded and counted</span>'],
+          ['Employee matching', esc(matchLabel) + (imp.useStaffDirectoryRouting ? ' · staff-directory routing on' : '')],
+          ['Duplicate handling', esc(imp.duplicateStrategy ? data.strategies[imp.duplicateStrategy] || imp.duplicateStrategy : 'Global default (' + data.globalStrategy + ')')],
+          ['Import aliases', esc(v.importAliases || '—')],
+          [editTeam ? 'Sheets' : 'Sheets to create', sheets]
         ];
-        if (p.plan.renames && p.plan.renames.length) rows.push(['Sheet renames', p.plan.renames.join('; ')]);
-        $('preview').innerHTML = '<table class="grid">' + rows.map(function (r) { return '<tr><th style="width:150px">' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</table>' + renderReport(p.report);
-        $('saveBtn').disabled = p.report.fatal.length > 0;
-      });
+        if (p.plan.renames && p.plan.renames.length) rows.push(['Sheet renames', esc(p.plan.renames.join('; '))]);
+        var ok = !p.report.fatal.length;
+        $('preview').innerHTML = (ok ? alertHtml('success', editTeam ? 'Ready to save' : 'Ready to create', 'Check the summary, then click <b>' + esc($('saveBtn').textContent) + '</b>.') : '') +
+          renderReport(p.report) + '<div class="panel">' + kvTable(rows) + '</div>';
+        $('saveBtn').disabled = !ok;
+      }, function () { $('preview').innerHTML = ''; });
     }
 
     function save() {
       var fn = editTeam ? 'apiUpdateTeam' : 'apiCreateTeam';
       var args = editTeam ? [fn, editTeam.teamId, collect()] : [fn, collect()];
-      busy(true, editTeam ? 'Saving…' : 'Creating team and worksheets…');
+      $('saveBtn').disabled = true;
+      busy(true, editTeam ? 'Saving…' : 'Creating the team and its sheets…');
       api.apply(null, args).then(function (r) {
         busy(false);
         document.querySelectorAll('section[data-step]').forEach(function (el) { show(el, false); });
         $('steps').innerHTML = '';
-        $('done').innerHTML = '<div class="msg ok"><b>' + (editTeam ? 'Saved' : 'Team created') + ': ' + esc(r.teamName) + ' (' + esc(r.teamId) + ')</b><ul>' +
-          '<li>Schedule sheet: ' + esc(r.scheduleSheet) + '</li><li>Staff sheet: ' + esc(r.staffSheet) + '</li>' +
-          (r.warnings || []).map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul></div>' +
-          '<p>Next: add staff in <b>Schedule Management → View Staff Directory</b>, then use <b>Schedule Import → Import Quinyx Export</b>.</p>';
+        showStatus('', '');
+        $('done').innerHTML = alertHtml('success', (editTeam ? 'Saved ' : 'Team created: ') + r.teamName + ' (' + r.teamId + ')', '',
+          ['Schedule sheet: ' + r.scheduleSheet, 'Staff sheet: ' + r.staffSheet].concat(r.warnings || [])) +
+          '<h3>Next steps</h3><ol class="small"><li>Add staff: Schedule Management → View Staff Directory.</li><li>Import a schedule: Schedule Import → Import Quinyx Export.</li></ol>';
         show('done', true);
-        $('footer').innerHTML = '<span class="spacer"></span><button class="btn primary" onclick="closeDialog()">Close</button>';
-      }, function (e) { busy(false); showError(e); });
+        $('footer').innerHTML = '<span class="spacer"></span><button type="button" class="btn primary" onclick="closeDialog()">Close</button>';
+        focusFirst('done');
+      }, function (e) { busy(false); $('saveBtn').disabled = false; showError(e); });
     }
 
     init();

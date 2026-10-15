@@ -1,5 +1,86 @@
 # Verification and Test Plan
 
+## v1.1.2 acceptance criteria (UI overhaul)
+
+Results at hand-off, all executed under Node.js 20:
+
+| Code | Suite | Command | Result |
+|---|---|---|---|
+| **UI** | Static UI checks | `node tests/run-ui-checks.js` | **1068 checks passed** in 15 HTML files |
+| **U** | Unit tests | `node tests/run-unit-tests.js` | **91/91 passed**, plus the no-trigger check |
+| **I** | Integration tests (Sheets mock) | `node tests/run-integration-tests.js` | **23/23 passed** |
+| **M** | Upgrade tests | `node tests/run-migration-test.js` | **31/31 checks passed**, including 1.1.1 → 1.1.2 |
+| **S** | Manual check in real Google Sheets | checklist below | **not yet done** |
+
+The UI checker was itself tested: a scratch copy with an undefined handler, an unknown server function, a missing element ID, an unlabelled input, a button without a type, and a script syntax error. It reported each one. (Its first version missed `$('…')` references; this was fixed before the results above.)
+
+| # | Criterion | How it is verified |
+|---|---|---|
+| 1 | All user-facing interfaces reviewed | All 15 HTML files were rewritten on the shared design system. The native menu was reorganized (its styling cannot change). The daily sheet got meeting shading and a legend. — S |
+| 2 | Consistent design system | Every page includes `Styles` and `ClientCore` (UI). Page-specific CSS covers layout only, plus one highlight color in the import file preview. No page defines its own button styles. — S (visual) |
+| 3 | Consistent buttons and controls | Every static button has `type="button"` and an accessible name (UI). Variants come from `Styles.html`. — S |
+| 4 | Labels and validation | Every `<label for>` target exists, and every static input, select and textarea has a label (UI). Inline `fieldError` is used in the team wizard, import, settings, staff and Slack pages. The server still validates authoritatively. — S |
+| 5 | Loading, success, error, empty states | The `call()` overlay blocks duplicate clicks. Alerts are used for success and errors (with a next step for known error codes). Empty states cover no teams, no staff, no schedule on the date, no history, no shift types, no profiles, no fields and nothing to generate. — S |
+| 6–8 | Viewer readable; meetings distinct; 24/7 intact | The viewer API with filters, the filter cells, the meeting-shading rule and refusal of an unknown team are tested (I). No operating-hours or overnight logic was changed; the existing 24/7 and overnight tests still pass (U, I). — S |
+| 9 | Custom fields and shared directories | No staff, field or membership backend change; the v1.1.1 tests pass (U, I, M). The shared-directory explanation is shown in the wizard and the sidebar. — S |
+| 10–11 | Import workflow and accurate previews | No import planning or commit change except two additive bootstrap fields. Previews and the confirmation summary are built only from the plan returned by the server (U, I). — S |
+| 12–13 | Payloads and URL previews | No generation or URL logic change. The URL preview still calls `buildDashboardUrl_`; the highlight only marks text (U, I). — S |
+| 14 | Different window sizes | Responsive grid, `.split` collapses below 620 px, tables scroll inside their containers. — S |
+| 15 | Keyboard focus and labels | Visible focus ring; tabs with arrow keys; stepper steps and list items are buttons or focusable; labels as in 4. — S |
+| 16 | Data and configuration intact | Scenario C: teams, types, records, configuration and sheets identical after setup (M). |
+| 17 | No disconnected controls | Every inline handler calls a defined function, every server call exists, every referenced element ID exists, and every menu item and dialog page exists (UI). |
+| 18 | Maintainable and compatible | No framework, no external resources; HtmlService templates as before. Script syntax checked (UI). |
+
+### Manual checklist for v1.1.2 (real spreadsheet; do this before production use)
+
+**Setup and teams**
+
+1. Open every menu item once. Each dialog should open at its standard size with a visible header and footer, no horizontal page scroll, and the primary button bottom right.
+2. Setup: shows the connection result, the sheet table and the right button (Initialize / Upgrade / Repair). On a 1.1.1 spreadsheet it does not ask for an upgrade, and Repair records 1.1.2.
+3. Create Team: walk through all six steps.
+   - Leaving the team name empty shows an inline error.
+   - 24/7 hides the time fields.
+   - Sharing a directory shows the membership explanation.
+   - Meeting import on, with no type ticked, blocks the step.
+   - The review matches what you chose, and the team is created.
+4. Edit Team: open the dialog, click the "Meetings" step directly, change a setting, click "Review changes", then save. Other settings are unchanged.
+
+**Viewer, staff and fields**
+
+5. Schedule Viewer (sidebar):
+   - ◀ / ▶ / Today change the sheet date.
+   - Employee search with a partial name filters to one person, or explains the ambiguity.
+   - Shift-type and status filters work, and Clear filters resets them.
+   - The summary matches row 4 of the sheet.
+   - On a 24/7 team, a night shift from the previous day appears.
+   - After Maintenance → Repair Formatting, meeting rows are shaded and their Flags cell reads "Meeting (…)".
+6. Staff Directory (sidebar): search, add (required-field check), edit, mark inactive, membership on a shared directory, and Unknown….
+7. Configure Staff Fields:
+   - Add, rename (values kept), hide, change order, and choose the teams that use the field.
+   - Delete without clearing values: the column stays.
+   - Delete with clearing values requires typing the name.
+
+**Import**
+
+8. Import a Daily Schedule export end to end:
+   - File facts are shown, and an unreadable date gives an inline error.
+   - Apply layout reports the row count.
+   - Shift types show Included / Excluded / New, and meeting types are listed separately.
+   - The preview groups match the file.
+   - The confirmation summary lists the right teams, dates, types and duplicate handling.
+   - The results page opens the team.
+9. Import History: search, filter by status, and undo via the confirmation panel.
+
+**Slack, settings and accessibility**
+
+10. Slack:
+    - Dashboard URL: placeholder chips insert at the cursor, the identifier is highlighted, and an invalid template shows "Invalid URL" and cannot be saved.
+    - Configuration: re-order the grouping and save.
+    - Generate: preview, generate, then "Open generated payloads". The results say that nothing was sent to Slack.
+11. Settings: tabs work with the arrow keys; save settings; edit and delete a profile (refused while in use).
+12. Keyboard only: Tab through the team wizard and the import wizard. Focus is always visible, and every control can be reached and operated.
+13. Browser zoom at 80 % and 150 %: dialogs remain usable, with internal scrolling and the footer always visible.
+
 ## v1.1.1 acceptance criteria (the 32 test scenarios of the patch)
 
 Results at hand-off, all executed under Node.js 20:

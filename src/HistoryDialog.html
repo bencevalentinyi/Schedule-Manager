@@ -1,48 +1,90 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
 </head>
 <body>
-  <h1>Import History</h1>
-  <div id="status"></div>
-  <div class="stats" id="stats"></div>
-  <div id="undoBox"></div>
-  <div class="scroll" style="max-height:330px"><table class="grid" id="log"></table></div>
-  <p class="small muted">Full details are in the <code>_IMPORT_LOG</code> sheet. Statuses: COMMITTED (applied), UNDONE, FAILED (nothing written), COMMITTING (interrupted — undo to roll back).</p>
-  <div class="footer"><span class="spacer"></span><button class="btn" onclick="load()">Reload</button><button class="btn" onclick="closeDialog()">Close</button></div>
+  <header class="app-header">
+    <h1>Import History</h1>
+    <p class="subtitle">The latest 100 imports. Full details are in the <code>_IMPORT_LOG</code> sheet.</p>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div class="stats" id="stats"></div>
+    <div id="undoBox"></div>
+    <div id="undoConfirm" class="hidden"></div>
+    <div class="toolbar">
+      <div class="search"><label class="sr-only" for="q">Search imports</label><input type="search" id="q" placeholder="Search file, team or import ID" oninput="renderLog()"></div>
+      <label class="sr-only" for="statusFilter">Status</label>
+      <select id="statusFilter" onchange="renderLog()" style="width:auto">
+        <option value="">All statuses</option><option>COMMITTED</option><option>UNDONE</option><option>FAILED</option><option>COMMITTING</option>
+      </select>
+    </div>
+    <div id="log"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading history…</div></div>
+    <p class="hint mt-2">COMMITTED = applied · UNDONE = rolled back · FAILED = nothing was written · COMMITTING = interrupted (undo it to roll back what was written).</p>
+  </main>
+  <footer class="app-footer"><button type="button" class="btn" onclick="load()">Reload</button><span class="spacer"></span><button type="button" class="btn" onclick="closeDialog()">Close</button></footer>
   <?!= include('ClientCore') ?>
-  <?!= include('ImportPreview') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var cand = null;
+    var cand = null, entries = [];
+    var STATUS_KIND = { COMMITTED: 'ok', UNDONE: '', FAILED: 'bad', COMMITTING: 'bad' };
+
     function load() {
       call('Loading history…', 'apiImportHistory', 100).then(function (h) {
         var s = h.stats;
         $('stats').innerHTML = stat('Imports', s.total) + stat('Committed', s.committed, 'good') + stat('Undone', s.undone) + stat('Failed', s.failed, s.failed ? 'bad' : '') +
-          stat('Shifts inserted', s.inserted) + stat('Shifts updated', s.updated) + stat('Shifts removed', s.removed) + stat('Rows rejected', s.rejected);
+          stat('Shifts inserted', s.inserted) + stat('Shifts updated', s.updated) + stat('Shifts removed', s.removed) + stat('Rows rejected', s.rejected, s.rejected ? 'warn' : '');
         cand = h.undoCandidate;
-        $('undoBox').innerHTML = cand ? '<div class="card"><b>Latest undoable import:</b> ' + esc(cand.importId) + ' · ' + esc(cand.sourceFile) + ' · ' + esc(cand.timestamp) +
-          ' · ' + esc(cand.teams) + ' · +' + cand.inserted + ' / ~' + cand.updated + ' / −' + cand.removed +
-          (cand.status === 'COMMITTING' ? ' <span class="badge bad">interrupted</span>' : '') +
-          ' <button class="btn small danger" id="undoBtn" onclick="undo()">Undo this import</button></div>' : '';
-        $('log').innerHTML = '<tr><th>Time</th><th>Import ID</th><th>Source</th><th>Teams</th><th>Dates</th><th>Rows</th><th>Ins</th><th>Upd</th><th>Rem</th><th>Skip</th><th>Rej</th><th>Strategy</th><th>Status</th><th>Notes</th><th>User</th></tr>' +
-          h.entries.map(function (e) {
-            var cls = e.status === 'COMMITTED' ? 'ok' : (e.status === 'FAILED' || e.status === 'COMMITTING' ? 'bad' : 'warn');
-            return '<tr><td>' + esc(e.timestamp) + '</td><td class="small">' + esc(e.importId) + '</td><td>' + esc(e.sourceFile) + '</td><td>' + esc(e.teams) + '</td><td>' +
-              esc(e.dateFrom) + (e.dateTo && e.dateTo !== e.dateFrom ? ' → ' + esc(e.dateTo) : '') + '</td><td>' + e.rowsProcessed + '</td><td>' + e.rowsInserted + '</td><td>' + e.rowsUpdated +
-              '</td><td>' + e.rowsRemoved + '</td><td>' + e.rowsSkipped + '</td><td>' + e.rowsRejected + '</td><td>' + esc(e.strategy) + '</td><td><span class="badge ' + cls + '">' + esc(e.status) +
-              '</span></td><td class="small">' + esc(e.errorSummary) + '</td><td class="small">' + esc(e.user) + '</td></tr>';
-          }).join('');
-      });
+        closeConfirm('undoConfirm');
+        $('undoBox').innerHTML = cand ? '<div class="summary-box"><div class="panel-head"><h3>Latest undoable import</h3>' +
+          (cand.status === 'COMMITTING' ? badge('bad', 'Interrupted') : badge('ok', 'Committed')) + '</div>' +
+          '<div class="meta-line"><span><b>' + esc(cand.importId) + '</b></span><span>' + esc(cand.sourceFile) + '</span><span>' + esc(cand.timestamp) + '</span><span>' + esc(cand.teams) + '</span>' +
+          '<span>+' + cand.inserted + ' new · ' + cand.updated + ' updated · ' + cand.removed + ' removed</span></div>' +
+          '<button type="button" class="btn danger sm mt-2" onclick="askUndo()">Undo this import…</button></div>' : '';
+        entries = h.entries;
+        renderLog();
+      }, function () { $('log').innerHTML = ''; });
     }
-    function undo() {
-      var b = $('undoBtn');
-      if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to confirm undo'; return; }
-      call('Undoing import…', 'apiUndoLastImport', cand.importId).then(function (r) {
-        showStatus('ok', 'Undone ' + esc(r.importId) + ': ' + r.deleted + ' shift(s) deleted, ' + r.restored + ' restored' + (r.skipped ? ', ' + r.skipped + ' skipped (changed by a later action)' : '') + '.');
-        load();
+
+    function renderLog() {
+      if (!entries.length) {
+        $('log').innerHTML = emptyHtml('⇩', 'No imports yet', 'Use Schedule Import → Import Quinyx Export. Every applied import appears here and can be undone, newest first.');
+        return;
+      }
+      var q = $('q').value.trim().toLowerCase(), st = $('statusFilter').value;
+      var rows = entries.filter(function (e) {
+        return (!st || e.status === st) && (!q || (e.sourceFile + ' ' + e.teams + ' ' + e.importId + ' ' + e.user).toLowerCase().indexOf(q) >= 0);
+      });
+      if (!rows.length) { $('log').innerHTML = emptyHtml('⌕', 'No import matches the filter', 'Clear the search or choose "All statuses".'); return; }
+      $('log').innerHTML = '<div class="table-wrap tall"><table class="table"><thead><tr>' +
+        ['Time', 'Status', 'Source', 'Teams', 'Dates'].map(function (h) { return '<th scope="col">' + h + '</th>'; }).join('') +
+        ['Rows', 'New', 'Upd', 'Rem', 'Skip', 'Rej'].map(function (h) { return '<th scope="col" class="num">' + h + '</th>'; }).join('') +
+        '<th scope="col">Strategy</th><th scope="col">Notes</th><th scope="col">User</th></tr></thead><tbody>' +
+        rows.map(function (e) {
+          return '<tr><td class="nowrap">' + esc(e.timestamp) + '<div class="small muted">' + esc(e.importId) + '</div></td>' +
+            '<td>' + badge(STATUS_KIND[e.status] === undefined ? 'warn' : STATUS_KIND[e.status], e.status) + '</td>' +
+            '<td class="wrap">' + esc(e.sourceFile) + '</td><td>' + esc(e.teams) + '</td><td class="nowrap">' + esc(e.dateFrom) + (e.dateTo && e.dateTo !== e.dateFrom ? ' → ' + esc(e.dateTo) : '') + '</td>' +
+            '<td class="num">' + e.rowsProcessed + '</td><td class="num">' + e.rowsInserted + '</td><td class="num">' + e.rowsUpdated + '</td><td class="num">' + e.rowsRemoved +
+            '</td><td class="num">' + e.rowsSkipped + '</td><td class="num">' + e.rowsRejected + '</td><td class="small">' + esc(e.strategy) + '</td>' +
+            '<td class="small wrap" style="min-width:160px">' + esc(e.errorSummary) + '</td><td class="small">' + esc(e.user) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    function askUndo() {
+      askConfirm('undoConfirm', {
+        title: 'Undo import ' + cand.importId + '?',
+        html: 'Shifts it inserted are deleted, and shifts it updated or removed are restored to their previous values. Shifts changed by a later import are skipped and reported.' +
+          (cand.status === 'COMMITTING' ? '<br><b>This import was interrupted;</b> undo rolls back whatever it wrote.' : ''),
+        confirmLabel: 'Undo import',
+        onConfirm: function () {
+          call('Undoing import…', 'apiUndoLastImport', cand.importId).then(function (r) {
+            showStatus('ok', r.deleted + ' shift(s) deleted, ' + r.restored + ' restored' + (r.skipped ? ', ' + r.skipped + ' skipped (changed by a later action)' : '') + '.', 'Import ' + r.importId + ' was undone');
+            load();
+          });
+        }
       });
     }
     load();

@@ -432,3 +432,51 @@ The preview's routing table shows the Quinyx name, matched Employee ID, staff na
 Generation always follows a preview: the plan token must match, and runs under the document lock.
 
 **Automation.** None. No triggers are created by setup, the upgrade, or this module. A future scheduled run would need explicit administrator activation.
+
+## 10. User interface (v1.1.2)
+
+**Pages.** Every dialog and sidebar is an HtmlService template that includes two shared files:
+
+| File | Contents |
+|---|---|
+| `Styles.html` | Design tokens and all component CSS. Pages add layout-only CSS at most. |
+| `ClientCore.html` | Server calls and shared components |
+
+`ClientCore.html` provides:
+
+- **server calls:** `api()` and `call()`. `call()` shows the loading overlay, which also blocks duplicate submissions, and reports errors in `#status`;
+- **HTML builders:** `alertHtml`, `badge`, `stat`, `emptyHtml`, `stepperHtml` / `renderStepper` and `kvTable`;
+- **interaction:** `fieldError` / `clearFieldErrors`, `initTabs` / `selectTab`, `askConfirm` / `closeConfirm`, `focusFirst`, `radio`, `setRadio`, `checkedData` and `kv`.
+
+**Page frame.** Every page uses the same structure:
+
+```
+<header class="app-header">  title · subtitle · stepper or tabs
+<main class="app-body">       #status, then the content (scrolls)
+<footer class="app-footer">   Cancel/Close … primary action
+```
+
+Sidebars add `class="sidebar"` to `<body>` for tighter padding.
+
+**Dialog sizes and titles.** `showHtml_` takes one of the `DIALOG_SIZE` entries: SMALL 520×420, MEDIUM 780×620 or LARGE 960×700. The dialog frame is titled "Schedule Manager", and the page shows its own heading, passed in as `BOOT.title`.
+
+**Design tokens:**
+
+- **color:** primary, surface and background levels, text levels, borders, success, warning, error, info, meeting, focus and disabled;
+- **type scale:** title 16 px, h2 14 px, h3 13 px, body 13 px, label 12.5 px, small 12 px, badge 11.5 px;
+- **spacing:** 4, 8, 12, 16, 24 and 32 px;
+- **dialog padding:** 16 × 20 px;
+- **table cells:** 6 × 10 px.
+
+Status is always written in text (badge text, alert title or icon glyph), never shown by color alone.
+
+**Schedule Viewer.** `Navigator.html` is a sidebar. It calls:
+
+- `apiNavigatorBootstrap` to list the teams;
+- `apiViewerRender(teamId, date, filters)` for each user action.
+
+`apiViewerRender` renders the daily sheet through `renderTeamView_`, activates it, and returns the header facts, summary and filter options. The filters are still stored in the sheet's row 3 cells, so editing them in the sheet and using the sidebar stay in sync. An empty date applies the team's "when the schedule is opened" setting.
+
+**Meeting shading.** `layoutScheduleSheet_` adds a row rule that shades a row when its Flags text starts with "Meeting", or when its Category is "Meeting". The rule is applied when a sheet is created, rebuilt or repaired.
+
+**Static checks.** `tests/run-ui-checks.js` enforces the conventions that keep controls connected and labelled. Run it after every UI change.
