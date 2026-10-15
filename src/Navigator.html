@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+</head>
+<body>
+  <div id="status"></div>
+  <label for="team">Team</label>
+  <select id="team"></select>
+  <div id="dateBox">
+    <label for="date">Date</label>
+    <input type="date" id="date">
+    <p><button class="btn small" onclick="shift(-1)">◀ Previous day</button> <button class="btn small" onclick="$('date').value = BOOTDATA.today">Today</button> <button class="btn small" onclick="shift(1)">Next day ▶</button></p>
+  </div>
+  <div class="footer">
+    <button class="btn" onclick="closeDialog()">Cancel</button>
+    <span class="spacer"></span>
+    <button class="btn hidden" id="staffBtn" onclick="openStaff()">Open staff sheet</button>
+    <button class="btn primary" onclick="openSchedule()">Open schedule</button>
+  </div>
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var BOOTDATA = null;
+    function init() {
+      show('dateBox', BOOT.mode === 'date');
+      show('staffBtn', BOOT.mode === 'team');
+      call('Loading…', 'apiNavigatorBootstrap').then(function (d) {
+        BOOTDATA = d;
+        if (!d.teams.length) { showStatus('warn', 'No ready teams yet. Create a team first.'); return; }
+        $('team').innerHTML = options(d.teams, 'teamId', 'teamName', d.currentTeamId || d.teams[0].teamId);
+        $('date').value = d.today;
+      });
+    }
+    function shift(k) {
+      var d = new Date(($('date').value || BOOTDATA.today) + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + k);
+      $('date').value = d.toISOString().substr(0, 10);
+    }
+    function openSchedule() {
+      var date = BOOT.mode === 'team' ? '' : (BOOT.mode === 'today' ? BOOTDATA.today : $('date').value);
+      call('Rendering schedule…', 'apiOpenSchedule', $('team').value, date).then(closeDialog);
+    }
+    function openStaff() { call('Opening…', 'apiOpenTeamSheet', $('team').value, 'staff').then(closeDialog); }
+    init();
+  </script>
+</body>
+</html>

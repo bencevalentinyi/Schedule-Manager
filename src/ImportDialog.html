@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+  <style>
+    tr.hdr td { background: #e8f0fe; font-weight: 600; } tr.first td { border-top: 2px solid var(--accent); }
+    tr.title td { background: #fff4ce; } .rownum { color: var(--muted); text-align: right; }
+    .types { max-height: 200px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+    .lay input { width: 70px; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Import Quinyx Export</h1>
+  <div class="steps" id="steps"></div>
+  <div id="status"></div>
+
+  <!-- 1. Source -->
+  <section id="s-source">
+    <div class="row">
+      <div><label for="srcTeam">Target team</label><select id="srcTeam" onchange="srcTeamChanged()"></select></div>
+      <div><label for="format">Export type</label><select id="format" onchange="formatChanged()"></select></div>
+    </div>
+    <label class="inline"><input type="radio" name="src" value="FILE" checked onchange="srcChanged()"> Upload a file</label>
+    <label class="inline"><input type="radio" name="src" value="SHEET" onchange="srcChanged()"> Use a sheet tab in this spreadsheet (paste the export there)</label>
+    <div id="fileBox">
+      <label for="file">Export file (XLSX, XLS, ODS, CSV, TSV, TXT)</label>
+      <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods">
+      <div class="row">
+        <div><label for="encoding">Text encoding (CSV)</label>
+          <select id="encoding"><option value="AUTO">Auto-detect</option><option value="UTF-8">UTF-8</option><option value="windows-1252">Windows-1252 (Western European)</option><option value="UTF-16LE">UTF-16 LE</option></select></div>
+        <div><label for="wbSheet">Workbook sheet (XLSX, optional)</label><input type="text" id="wbSheet" placeholder="First sheet with data"></div>
+      </div>
+      <p class="small muted" id="driveNote"></p>
+    </div>
+    <div id="sheetBox" class="hidden"><label for="srcSheet">Sheet tab</label><select id="srcSheet"></select></div>
+    <label for="profile">Mapping profile</label>
+    <select id="profile"></select>
+  </section>
+
+  <!-- 2a. Daily Schedule layout -->
+  <section id="s-daily" class="hidden">
+    <div class="card small" id="dFileInfo"></div>
+    <div id="dDupFile"></div>
+    <div class="row">
+      <div><label for="scheduleDate">Schedule date *</label><input type="date" id="scheduleDate"></div>
+      <div><label for="dDateOrder">Day/month order (only for dates like 03/04/2026)</label>
+        <select id="dDateOrder"><option value="AUTO">Auto</option><option value="DMY">Day/Month/Year</option><option value="MDY">Month/Day/Year</option></select></div>
+    </div>
+    <p class="small" id="dateNote"></p>
+    <h3>Layout <span class="badge warn">default assumption — check against the preview below</span></h3>
+    <div class="row lay">
+      <div><label>Title row</label><input type="number" id="lTitleRow" min="0" max="20"></div>
+      <div><label>Title col</label><input type="text" id="lTitleCol" maxlength="3"></div>
+      <div><label>Header row</label><input type="number" id="lHeaderRow" min="0" max="50"></div>
+      <div><label>First data row</label><input type="number" id="lFirstRow" min="1" max="60"></div>
+      <div><label>Shift type</label><input type="text" id="lShiftType" maxlength="3"></div>
+      <div><label>Employee</label><input type="text" id="lName" maxlength="3"></div>
+      <div><label>Shift info</label><input type="text" id="lInfo" maxlength="3"></div>
+      <div><label>Hours</label><input type="text" id="lHours" maxlength="3"></div>
+      <div><label>Employee ID</label><input type="text" id="lEmpId" maxlength="3" placeholder="—"></div>
+    </div>
+    <label class="inline"><input type="checkbox" id="lFill"> Fill empty shift types from the row above</label>
+    <button class="btn small" onclick="reinspect()">Apply layout</button>
+    <div id="dReport"></div>
+    <h3>First rows of the file</h3>
+    <div class="scroll" style="max-height:220px"><table class="grid" id="raw"></table></div>
+    <div id="dTypes"></div>
+    <label class="inline"><input type="checkbox" id="saveLayout"> Save this layout and date order to the profile "<span id="profName"></span>"</label>
+  </section>
+
+  <!-- 2b. Generic mapping -->
+  <section id="s-mapping" class="hidden">
+    <div class="card small" id="fileInfo"></div>
+    <div id="dupFile"></div>
+    <div class="row">
+      <div style="flex:0 0 220px"><label for="headerRow">Header row</label>
+        <div style="display:flex;gap:6px"><input type="number" id="headerRow" min="1" style="width:90px"><button class="btn small" onclick="reinspect()">Apply</button></div></div>
+      <div><label for="dateOrder">Day/month order of numeric dates</label>
+        <select id="dateOrder"><option value="AUTO">Auto-detect from the data</option><option value="DMY">Day/Month/Year (15/10/2026)</option><option value="MDY">Month/Day/Year (10/15/2026)</option><option value="YMD">Year-Month-Day</option></select></div>
+      <div><label for="breakUnit">Plain-number breaks are</label>
+        <select id="breakUnit"><option value="MINUTES">minutes</option><option value="HOURS">hours</option></select></div>
+    </div>
+    <p class="small muted" id="profileReason"></p>
+    <h3>Column mapping</h3>
+    <div class="scroll" style="max-height:260px"><table class="grid" id="mapTable"></table></div>
+    <div id="mapReport"></div>
+    <div id="teamValues"></div>
+    <h3>First rows of the file</h3>
+    <div class="scroll" style="max-height:170px"><table class="grid" id="sample"></table></div>
+    <div class="card">
+      <label class="inline"><input type="checkbox" id="saveProfile" onchange="show('saveBox', this.checked)"> Save this mapping as a profile for future imports</label>
+      <div id="saveBox" class="hidden row">
+        <div><label for="profileName">Profile name</label><input type="text" id="profileName" placeholder="e.g. Quinyx shift list export"></div>
+        <div id="updateBox"><label class="inline" style="margin-top:28px"><input type="checkbox" id="updateExisting"> Update the matched profile instead of creating a new one</label></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Target -->
+  <section id="s-target" class="hidden">
+    <h3>Target team</h3>
+    <div id="teamModes"></div>
+    <label for="team">Team</label><select id="team" onchange="teamChanged()"></select>
+    <div id="stBox" class="card hidden">
+      <h3>Shift types to import for <span id="stTeam"></span></h3>
+      <label class="inline"><input type="radio" name="stMode" value="SELECTED" checked onchange="stModeChanged()"> Only the selected shift types</label>
+      <label class="inline"><input type="radio" name="stMode" value="ALL" onchange="stModeChanged()"> All shift types</label>
+      <div class="types" id="stList"></div>
+      <label class="inline"><input type="checkbox" id="stSave"> Save this selection to the team for future imports</label>
+      <p class="small muted">Matching is exact after trimming spaces. Rows of unselected shift types are excluded and counted in the preview.</p>
+    </div>
+    <h3>Existing shifts</h3>
+    <label for="strategy">When a shift already exists</label><select id="strategy"></select>
+    <p class="small muted">Replace marks the team's stored shifts for the imported date(s) — only of the selected shift types — as REMOVED when they are not in the file (Undo restores them). Other dates and other teams are never touched.</p>
+    <label class="inline"><input type="checkbox" id="allowPartial"> Import the valid rows and skip rejected rows</label>
+  </section>
+
+  <!-- 4. Preview -->
+  <section id="s-preview" class="hidden">
+    <div class="row" style="align-items:flex-end">
+      <div><label for="strategy2">When a shift already exists</label><select id="strategy2" onchange="$('strategy').value=this.value; analyze()"></select></div>
+      <div><label class="inline"><input type="checkbox" id="allowPartial2" onchange="$('allowPartial').checked=this.checked; analyze()"> Import valid rows, skip rejected rows</label></div>
+      <div style="flex:0 0 auto"><button class="btn small" onclick="go(2)">Change shift-type selection</button></div>
+    </div>
+    <div id="preview"></div>
+  </section>
+
+  <!-- 5. Result -->
+  <section id="s-result" class="hidden"></section>
+
+  <div class="footer" id="footer">
+    <button class="btn" onclick="cancel()">Cancel</button>
+    <span class="spacer"></span>
+    <button class="btn" id="backBtn" onclick="back()">Back</button>
+    <button class="btn primary" id="nextBtn" onclick="next()">Read file</button>
+    <button class="btn primary hidden" id="commitBtn" onclick="commit()">Apply import</button>
+  </div>
+
+  <?!= include('ClientCore') ?>
+  <?!= include('ImportPreview') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var NAMES = ['Source', 'Layout / mapping', 'Team & shift types', 'Preview', 'Done'];
+    var boot = null, insp = null, plan = null, cur = 0, profileId = '';
+
+    function init() {
+      if (BOOT.previewOnly) $('title').textContent = 'Preview Import (no changes are written)';
+      call('Loading…', 'apiImportBootstrap', !!BOOT.previewOnly).then(function (b) {
+        boot = b;
+        var ready = b.teams.filter(function (t) { return t.status === 'READY'; });
+        $('srcTeam').innerHTML = options(ready, 'teamId', 'teamName', b.currentTeamId, '— decide later —');
+        $('team').innerHTML = options(ready, 'teamId', 'teamName', b.currentTeamId, '— select —');
+        $('format').innerHTML = '<option value="">Detect automatically</option>' + options(Object.keys(b.importFormats).map(function (k) { return { k: k, l: b.importFormats[k] }; }), 'k', 'l');
+        $('srcSheet').innerHTML = options(b.sourceSheets, null, null, '', b.sourceSheets.length ? undefined : '(no suitable sheet tabs)');
+        var strat = Object.keys(b.strategies).map(function (k) { return { k: k, l: b.strategies[k] }; });
+        $('strategy').innerHTML = options(strat, 'k', 'l', b.defaultStrategy);
+        $('strategy2').innerHTML = options(strat, 'k', 'l', b.defaultStrategy);
+        $('teamModes').innerHTML = Object.keys(b.teamModes).map(function (k) {
+          return '<label class="inline"><input type="radio" name="teamMode" value="' + k + '"' + (k === 'AUTO' ? ' checked' : '') + ' onchange="teamChanged()"> ' + esc(b.teamModes[k]) + '</label>';
+        }).join('');
+        $('driveNote').textContent = b.driveAvailable ? 'Spreadsheet files are converted through a temporary Google Sheet in your Drive, which is deleted immediately afterwards.'
+          : 'XLSX/XLS/ODS need the Drive advanced service (not enabled in this project). CSV works without it.';
+        if (!ready.length) showStatus('warn', 'There are no ready teams yet. Create a team first (Setup & Configuration → Create New Team).');
+        srcTeamChanged();
+        go(0);
+      });
+    }
+
+    function radio(n) { var el = document.querySelector('input[name=' + n + ']:checked'); return el ? el.value : ''; }
+    function setRadio(n, v) { var el = document.querySelector('input[name=' + n + '][value="' + v + '"]'); if (el) el.checked = true; }
+    function teamById(id) { return boot.teams.filter(function (t) { return t.teamId === id; })[0]; }
+    function isDaily() { return insp && insp.format === 'QUINYX_DAILY'; }
+    function srcChanged() { var f = radio('src') === 'FILE'; show('fileBox', f); show('sheetBox', !f); }
+
+    function srcTeamChanged() {
+      var t = teamById($('srcTeam').value);
+      var fmt = $('format').value;
+      if (t && !fmt) $('format').value = t.scheduleType || '';
+      formatChanged(t ? t.importProfileId : '');
+      if (t) { $('team').value = t.teamId; if (t.duplicateStrategy) { $('strategy').value = t.duplicateStrategy; $('strategy2').value = t.duplicateStrategy; } }
+    }
+    function formatChanged(preferProfile) {
+      var fmt = $('format').value;
+      var list = boot.profiles.filter(function (p) { return !fmt || (p.format || 'TABLE') === fmt; });
+      $('profile').innerHTML = '<option value="AUTO">Auto-detect</option>' + (fmt !== 'QUINYX_DAILY' ? '<option value="NONE">None (map from column names)</option>' : '') +
+        options(list.map(function (p) { return { k: p.profileId, l: p.profileName + (p.format === 'QUINYX_DAILY' ? ' (Daily Schedule)' : '') }; }), 'k', 'l');
+      if (preferProfile && list.some(function (p) { return p.profileId === preferProfile; })) $('profile').value = preferProfile;
+    }
+
+    function go(i) {
+      cur = i;
+      show('s-source', i === 0);
+      show('s-daily', i === 1 && isDaily()); show('s-mapping', i === 1 && !isDaily());
+      show('s-target', i === 2); show('s-preview', i === 3); show('s-result', i === 4);
+      $('steps').innerHTML = NAMES.map(function (n, k) { return '<div class="' + (k === i ? 'on' : (k < i ? 'done' : '')) + '">' + (k + 1) + '. ' + n + '</div>'; }).join('');
+      $('backBtn').disabled = i === 0 || i === 4;
+      show('nextBtn', i < 3);
+      $('nextBtn').textContent = ['Read file', 'Next', 'Analyze'][i] || 'Next';
+      show('commitBtn', i === 3 && !BOOT.previewOnly);
+      if (i === 2) teamChanged();
+    }
+    function back() { if (cur > 0) { showStatus('', ''); go(cur - 1); } }
+    function next() {
+      showStatus('', '');
+      if (cur === 0) upload();
+      else if (cur === 1) {
+        var err = isDaily() ? checkDaily() : checkMapping();
+        if (err) showStatus('fatal', esc(err)); else go(2);
+      } else if (cur === 2) analyze();
+    }
+
+    /* ---------- step 1: upload ---------- */
+    function upload() {
+      var payload = { source: radio('src'), profileId: $('profile').value, format: $('format').value, previewOnly: !!BOOT.previewOnly, encoding: $('encoding').value, sheetName: '' };
+      if (payload.source === 'SHEET') {
+        payload.sheetName = $('srcSheet').value;
+        if (!payload.sheetName) { showStatus('fatal', 'Choose a sheet tab.'); return; }
+        return send(payload);
+      }
+      var f = $('file').files[0];
+      if (!f) { showStatus('fatal', 'Choose a file.'); return; }
+      if (f.size > boot.maxFileMb * 1048576) { showStatus('fatal', 'The file is larger than ' + boot.maxFileMb + ' MB.'); return; }
+      var reader = new FileReader();
+      busy(true, 'Reading file…');
+      reader.onload = function () {
+        busy(false);
+        payload.fileName = f.name; payload.mimeType = f.type; payload.sheetName = $('wbSheet').value.trim();
+        payload.base64 = String(reader.result).split(',')[1] || '';
+        send(payload);
+      };
+      reader.onerror = function () { busy(false); showStatus('fatal', 'The browser could not read the file.'); };
+      reader.readAsDataURL(f);
+    }
+    function send(payload) {
+      call('Parsing and staging the file…', 'apiImportUpload', payload).then(function (r) { setInspection(r); go(1); });
+    }
+    function fileInfoHtml(r) {
+      var m = r.meta;
+      return '<b>' + esc(m.fileName) + '</b> · ' + esc(m.format) + (m.sheetName ? ' · sheet ' + esc(m.sheetName) : '') +
+        (m.encoding ? ' · ' + esc(m.encoding) : '') + (m.delimiter ? ' · delimiter ' + esc(m.delimiter) : '') + ' · <b>' + r.totalRows + '</b> data row(s)' +
+        (m.sheetNames && m.sheetNames.length > 1 ? '<br>Workbook sheets: ' + esc(m.sheetNames.join(', ')) : '') +
+        '<br>' + esc((r.profileName ? 'Profile: ' + r.profileName + '. ' : '') + r.profileReason);
+    }
+    function dupHtml(r) {
+      var h = r.previousImport ? '<div class="msg warn">This exact file content was already imported on ' + esc(r.previousImport.timestamp) +
+        ' (' + esc(r.previousImport.importId) + '). Re-importing does not create duplicates — identical shifts are reported as unchanged.</div>' : '';
+      (r.meta.warnings || []).forEach(function (w) { h += '<div class="msg warn">' + esc(w) + '</div>'; });
+      return h;
+    }
+
+    function setInspection(r) {
+      var prevId = insp ? insp.importId : '';
+      insp = r;
+      if (r.importId === prevId && r.previousImport === undefined) r.previousImport = null;
+      profileId = r.profileId || '';
+      if (isDaily()) setDaily(r); else setGeneric(r);
+    }
+
+    /* ---------- step 2a: Daily Schedule ---------- */
+    function setDaily(r) {
+      $('dFileInfo').innerHTML = fileInfoHtml(r);
+      $('dDupFile').innerHTML = dupHtml(r);
+      $('profName').textContent = r.profileName || 'Quinyx Daily Schedule';
+      $('scheduleDate').value = r.scheduleDate || '';
+      $('dDateOrder').value = r.dateOrder === 'DMY' || r.dateOrder === 'MDY' ? r.dateOrder : 'AUTO';
+      $('dateNote').innerHTML = r.parsedDate ? 'Read <b>' + esc(r.parsedDate) + '</b> from ' + esc(r.layout.titleColumn + r.layout.titleRow) + ' ("' + esc(r.title) + '"). Change it only if it is wrong.'
+        : '<span style="color:#a50e0e">The date could not be read from ' + esc(r.layout.titleColumn + r.layout.titleRow) + ' ("' + esc(r.title) + '"): ' + esc(r.dateError) + ' Enter the schedule date.</span>';
+      var L = r.layout;
+      $('lTitleRow').value = L.titleRow; $('lTitleCol').value = L.titleColumn; $('lHeaderRow').value = L.headerRow; $('lFirstRow').value = L.firstDataRow;
+      $('lShiftType').value = L.shiftTypeColumn; $('lName').value = L.employeeNameColumn; $('lInfo').value = L.shiftInfoColumn;
+      $('lHours').value = L.hoursColumn; $('lEmpId').value = L.employeeIdColumn || ''; $('lFill').checked = !!L.fillDownShiftType;
+      $('dReport').innerHTML = renderReport(r.report);
+      var used = {}; [L.shiftTypeColumn, L.employeeNameColumn, L.shiftInfoColumn, L.hoursColumn, L.employeeIdColumn].forEach(function (c) { if (c) used[c] = true; });
+      $('raw').innerHTML = '<tr><th></th>' + r.columnLetters.map(function (c) { return '<th' + (used[c] ? ' style="background:#d2e3fc"' : '') + '>' + c + '</th>'; }).join('') + '</tr>' +
+        r.rawPreview.map(function (row) {
+          var cls = row.row === L.titleRow ? 'title' : row.row === L.headerRow ? 'hdr' : row.row === L.firstDataRow ? 'first' : '';
+          return '<tr class="' + cls + '"><td class="rownum">' + row.row + '</td>' + r.columnLetters.map(function (c, i) { return '<td>' + esc(row.cells[i] || '') + '</td>'; }).join('') + '</tr>';
+        }).join('');
+      $('dTypes').innerHTML = r.shiftTypes.length ? '<h3>Shift types found (' + r.shiftTypes.length + ')</h3><p class="small">' +
+        r.shiftTypes.map(function (t) { return esc(t.type || '(blank)') + ' <span class="muted">(' + t.rows + ')</span>'; }).join(' · ') + '</p>' : '';
+    }
+    function currentLayout() {
+      return { titleRow: Number($('lTitleRow').value), titleColumn: $('lTitleCol').value, headerRow: Number($('lHeaderRow').value),
+        firstDataRow: Number($('lFirstRow').value), shiftTypeColumn: $('lShiftType').value, employeeNameColumn: $('lName').value,
+        shiftInfoColumn: $('lInfo').value, hoursColumn: $('lHours').value, employeeIdColumn: $('lEmpId').value, fillDownShiftType: $('lFill').checked };
+    }
+    function checkDaily() {
+      if (!$('scheduleDate').value) return 'Enter or confirm the schedule date.';
+      if (insp.report.fatal.length) return 'Fix the layout problems listed above, then click "Apply layout".';
+      if (!insp.dataRows) return 'No shift rows were found. Check the first data row and click "Apply layout".';
+      return '';
+    }
+
+    /* ---------- step 2b: generic table ---------- */
+    function setGeneric(r) {
+      $('fileInfo').innerHTML = fileInfoHtml(r);
+      $('dupFile').innerHTML = dupHtml(r);
+      $('headerRow').value = r.headerRow;
+      $('dateOrder').value = r.options.dateOrder || 'AUTO';
+      $('breakUnit').value = r.options.breakUnit || 'MINUTES';
+      $('profileReason').textContent = '';
+      show('updateBox', !!r.profileId);
+      $('profileName').value = r.profileName || '';
+      var first = r.sampleRows[0] || [];
+      $('mapTable').innerHTML = '<tr><th>Internal field</th><th>Source column</th><th>First value</th></tr>' + boot.importFields.map(function (f) {
+        var sel = r.fieldMap[f.key] || '';
+        var i = r.headers.indexOf(sel);
+        return '<tr><td>' + esc(f.label) + '<div class="small muted">' + esc(f.hint) + '</div></td>' +
+          '<td><select data-field="' + f.key + '" onchange="mappingChanged()">' + headerOptions(sel) + '</select></td>' +
+          '<td class="small" data-sample="' + f.key + '">' + esc(i >= 0 ? first[i] : '') + '</td></tr>';
+      }).join('');
+      $('mapReport').innerHTML = renderReport(r.mappingReport);
+      $('sample').innerHTML = '<tr>' + r.headers.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr>' +
+        r.sampleRows.map(function (row) { return '<tr>' + row.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('');
+      var tv = r.teamValues || [];
+      $('teamValues').innerHTML = tv.length ? '<h3>Team values found in the file</h3><table class="grid"><tr><th>Value</th><th>Rows</th><th>Routed to</th></tr>' +
+        tv.map(function (t) { return '<tr><td>' + esc(t.value) + '</td><td>' + t.rows + '</td><td>' + (t.teamName ? esc(t.teamName) : '<span class="badge warn">not recognized</span>') + '</td></tr>'; }).join('') + '</table>' : '';
+    }
+    function headerOptions(sel) {
+      return '<option value="">— not mapped —</option>' + insp.headers.map(function (h) {
+        return '<option value="' + esc(h) + '"' + (h === sel ? ' selected' : '') + '>' + esc(h) + '</option>';
+      }).join('');
+    }
+    function currentFieldMap() {
+      var m = {};
+      document.querySelectorAll('[data-field]').forEach(function (s) { if (s.value) m[s.dataset.field] = s.value; });
+      return m;
+    }
+    function mappingChanged() {
+      var first = insp.sampleRows[0] || [];
+      document.querySelectorAll('[data-field]').forEach(function (s) {
+        var i = insp.headers.indexOf(s.value);
+        document.querySelector('[data-sample="' + s.dataset.field + '"]').textContent = i >= 0 ? first[i] : '';
+      });
+      var err = checkMapping();
+      $('mapReport').innerHTML = err ? '<div class="msg fatal">' + esc(err) + '</div>' : '';
+    }
+    function checkMapping() {
+      var m = currentFieldMap();
+      if (!m.employeeId && !m.employeeName && !m.firstName && !m.lastName) return 'Map an employee column (Employee ID preferred, or Employee Name).';
+      if (!m.shiftInfo && (!m.start || !m.end)) return 'Map Shift Start and Shift End, or one Shift Information column.';
+      if (m.shiftInfo && (m.start || m.end)) return 'Map either Shift Information or Shift Start/End, not both.';
+      return '';
+    }
+
+    function reinspect() {
+      var opts = isDaily()
+        ? { format: 'QUINYX_DAILY', profileId: profileId || 'AUTO', layout: currentLayout(), scheduleDate: $('scheduleDate').value, dateOrder: $('dDateOrder').value }
+        : { format: 'TABLE', headerRow: Number($('headerRow').value || 0), profileId: profileId || 'NONE' };
+      call('Re-reading the file…', 'apiImportInspect', insp.importId, opts).then(function (r) { setInspection(r); });
+    }
+
+    /* ---------- step 3: team and shift types ---------- */
+    function teamChanged() {
+      if (!insp) return;
+      var mode = radio('teamMode');
+      var t = teamById($('team').value);
+      var types = (insp.shiftTypes || []);
+      var hasTypes = isDaily() ? !!(insp.layout && insp.layout.shiftTypeColumn) : !!(insp.fieldMap && currentFieldMap().shiftType);
+      var single = mode !== 'SPLIT' && !!t;
+      show('stBox', hasTypes && single);
+      if (!(hasTypes && single)) return;
+      $('stTeam').textContent = t.teamName;
+      setRadio('stMode', t.shiftTypeMode === 'ALL' ? 'ALL' : 'SELECTED');
+      var known = t.knownShiftTypes || [];
+      var names = types.map(function (x) { return x.type; });
+      (t.shiftTypes || []).forEach(function (s) { if (names.indexOf(s) < 0) { names.push(s); types = types.concat([{ type: s, rows: 0 }]); } });
+      $('stList').innerHTML = types.length ? types.map(function (x) {
+        var sel = (t.shiftTypes || []).indexOf(x.type) >= 0;
+        var isNew = x.type && known.indexOf(x.type) < 0 && !sel;
+        return '<label class="inline" style="display:flex"><input type="checkbox" data-st="' + esc(x.type) + '"' + (sel ? ' checked' : '') + '> ' +
+          esc(x.type || '(blank)') + ' <span class="muted">&nbsp;' + x.rows + ' row(s)</span>' + (isNew ? ' <span class="badge warn">new</span>' : '') + '</label>';
+      }).join('') : '<span class="muted">No shift types are listed for this file (generic imports show them in the preview).</span>';
+      $('stSave').checked = t.shiftTypeMode === 'NOT_CONFIGURED';
+      stModeChanged();
+    }
+    function stModeChanged() { show('stList', radio('stMode') !== 'ALL'); }
+    function shiftTypeOverride() {
+      var t = teamById($('team').value);
+      if (!t || $('stBox').classList.contains('hidden')) return null;
+      var types = Array.prototype.filter.call(document.querySelectorAll('[data-st]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.st; });
+      return { teamId: t.teamId, mode: radio('stMode'), types: types };
+    }
+
+    /* ---------- step 3/4: analyze ---------- */
+    function request() {
+      var req = {
+        importId: insp.importId, format: insp.format, profileId: profileId,
+        teamMode: radio('teamMode') || 'AUTO', teamId: $('team').value,
+        strategy: $('strategy').value, allowPartial: $('allowPartial').checked,
+        shiftTypeOverride: shiftTypeOverride(), saveShiftTypes: $('stSave').checked && !$('stBox').classList.contains('hidden')
+      };
+      if (isDaily()) {
+        req.layout = currentLayout(); req.scheduleDate = $('scheduleDate').value; req.headerRow = 1;
+        req.options = { dateOrder: $('dDateOrder').value };
+        if (req.teamMode === 'AUTO') req.teamMode = req.teamId ? 'EXPLICIT' : 'AUTO';
+      } else {
+        req.headerRow = Number($('headerRow').value || insp.headerRow); req.fieldMap = currentFieldMap();
+        req.options = { dateOrder: $('dateOrder').value, breakUnit: $('breakUnit').value };
+      }
+      return req;
+    }
+    function maybeSaveProfile() {
+      if (isDaily()) {
+        if (!$('saveLayout').checked || !profileId) return Promise.resolve();
+        var o = JSON.parse(JSON.stringify(insp.options || {}));
+        o.format = 'QUINYX_DAILY'; o.dailyLayout = currentLayout(); o.dateOrder = $('dDateOrder').value;
+        return call('Saving layout to the profile…', 'apiSaveMappingProfile', { profileId: profileId, profileName: insp.profileName, description: insp.profileDescription || '', fieldMap: {}, options: o }, null)
+          .then(function () { $('saveLayout').checked = false; showStatus('ok', 'Saved the layout to profile "' + esc(insp.profileName) + '".'); });
+      }
+      if (!$('saveProfile').checked) return Promise.resolve();
+      var name = $('profileName').value.trim();
+      if (!name) return Promise.reject({ message: 'Enter a profile name or untick "Save this mapping as a profile".' });
+      var update = $('updateExisting').checked && profileId;
+      var input = { profileId: update ? profileId : '', profileName: name, description: 'Saved from import of ' + insp.meta.fileName,
+        fieldMap: currentFieldMap(), options: { format: 'TABLE', dateOrder: $('dateOrder').value, breakUnit: $('breakUnit').value, headerRow: Number($('headerRow').value || 0) } };
+      return call('Saving mapping profile…', 'apiSaveMappingProfile', input, insp.headers).then(function (p) {
+        profileId = p.profileId;
+        $('saveProfile').checked = false; show('saveBox', false);
+        showStatus('ok', 'Saved mapping profile "' + esc(p.profileName) + '".');
+      });
+    }
+    function analyze() {
+      maybeSaveProfile().then(function () {
+        return call('Validating all rows and comparing with stored schedules…', 'apiImportAnalyze', request());
+      }).then(function (p) { showPlan(p); go(3); }, function (e) { if (e && e.message) showError(e); });
+    }
+    function showPlan(p) {
+      plan = p;
+      $('strategy2').value = p.strategy; $('allowPartial2').checked = $('allowPartial').checked;
+      $('preview').innerHTML = renderPreview(p);
+      $('commitBtn').disabled = !p.canCommit;
+    }
+
+    /* ---------- step 5: commit ---------- */
+    function commit() {
+      var req = request();
+      req.token = plan.token;
+      $('commitBtn').disabled = true;
+      call('Applying import — do not close this window…', 'apiImportCommit', req).then(function (r) {
+        if (r.status === 'PLAN_CHANGED') { showPlan(r.preview); showStatus('warn', esc(r.message)); return; }
+        $('s-result').innerHTML = '<div class="msg ok"><b>Import ' + esc(r.importId) + ' applied.</b>' + (r.scheduleDate ? ' Schedule date ' + esc(r.scheduleDate) + '.' : '') + '</div><div class="stats">' +
+          stat('New shifts', r.inserted, 'good') + stat('Updated', r.updated) + stat('Removed', r.removed) + stat('Unchanged', r.unchanged) +
+          stat('Excluded (shift type)', r.excluded) + stat('Skipped', r.skipped) + stat('Rejected', r.rejected, r.rejected ? 'bad' : '') + '</div>' +
+          '<p>Teams: ' + r.teams.map(function (t) { return esc(t.teamName) + ' (' + esc(t.dateFrom) + (t.dateTo !== t.dateFrom ? ' → ' + esc(t.dateTo) : '') + ')'; }).join(', ') + '</p>' +
+          (r.warnings.length ? '<div class="msg warn"><b>Warnings</b><ul>' + r.warnings.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul></div>' : '') +
+          '<p class="small muted">Undo is available under Schedule Import → Undo Last Import.</p>' +
+          (r.teams.length ? '<p><button class="btn" onclick="openTeam(\'' + esc(r.teams[0].teamId) + '\',\'' + esc(r.dateFrom) + '\')">Open ' + esc(r.teams[0].teamName) + ' at ' + esc(r.dateFrom) + '</button></p>' : '');
+        insp = null;
+        go(4);
+        $('footer').innerHTML = '<span class="spacer"></span><button class="btn primary" onclick="closeDialog()">Close</button>';
+      }, function () { $('commitBtn').disabled = !plan.canCommit; });
+    }
+    function openTeam(teamId, date) { call('Opening…', 'apiOpenSchedule', teamId, date).then(closeDialog); }
+
+    function cancel() {
+      if (insp) google.script.run.withSuccessHandler(closeDialog).withFailureHandler(closeDialog).apiImportCancel(insp.importId);
+      else closeDialog();
+    }
+    init();
+  </script>
+</body>
+</html>

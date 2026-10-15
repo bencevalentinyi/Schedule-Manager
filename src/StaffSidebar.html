@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+  <style> body { padding: 10px 12px 20px; } .footer { position: static; border: 0; padding: 8px 0; justify-content: flex-start; } </style>
+</head>
+<body>
+  <label for="team">Team</label>
+  <select id="team" onchange="search()"></select>
+  <div id="status"></div>
+  <div style="display:flex;gap:6px;margin-top:8px">
+    <input type="text" id="q" placeholder="Search name, ID, role…" onkeydown="if(event.key==='Enter')search()">
+    <button class="btn small" onclick="search()">Search</button>
+  </div>
+  <label class="inline"><input type="checkbox" id="inactive" onchange="search()"> Include inactive</label>
+  <div class="small muted" id="count"></div>
+  <div class="scroll" style="max-height:230px" id="results"></div>
+  <p><button class="btn small" onclick="edit(null)">+ Add staff member</button>
+     <button class="btn small" onclick="loadUnknown()">Add unknown employees…</button></p>
+
+  <div id="editor" class="card hidden">
+    <h3 id="edTitle">Staff member</h3>
+    <div id="edFields"></div>
+    <div class="footer">
+      <button class="btn primary" onclick="save()">Save</button>
+      <button class="btn" id="activeBtn" onclick="toggleActive()">Deactivate</button>
+      <button class="btn" onclick="show('editor', false)">Close</button>
+    </div>
+  </div>
+
+  <div id="unknown" class="card hidden">
+    <h3>Employees in imported schedules but not in this staff sheet</h3>
+    <div id="unknownList"></div>
+    <div class="footer">
+      <button class="btn primary" id="addUnknownBtn" onclick="addUnknown()">Add selected</button>
+      <button class="btn" onclick="show('unknown', false)">Close</button>
+    </div>
+  </div>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var list = null, editing = null, unknown = [];
+
+    function init() {
+      call('Loading…', 'apiStaffBootstrap').then(function (b) {
+        if (!b.teams.length) { showStatus('warn', 'No ready teams yet. Create a team first.'); return; }
+        $('team').innerHTML = options(b.teams, 'teamId', 'teamName', b.currentTeamId || b.teams[0].teamId);
+        search();
+      });
+    }
+    function teamId() { return $('team').value; }
+
+    function search() {
+      show('editor', false); show('unknown', false);
+      call('Searching…', 'apiStaffList', teamId(), $('q').value, $('inactive').checked).then(function (r) {
+        list = r;
+        $('count').textContent = r.total + ' match(es)' + (r.total > r.rows.length ? ', showing ' + r.rows.length : '');
+        if (r.duplicates.length) showStatus('warn', 'Duplicate identifiers in this sheet: ' + esc(r.duplicates.join('; ')) + '. Fix them in the staff sheet.');
+        $('results').innerHTML = r.rows.map(function (s, i) {
+          return '<div class="list-item" onclick="edit(' + i + ')"><b>' + esc(s.employeeName || '(no name)') + '</b> ' + (s.active ? '' : '<span class="badge warn">inactive</span>') +
+            '<div class="small muted">' + esc(s.employeeId || 'no ID') + (s.values.Role ? ' · ' + esc(s.values.Role) : '') + '</div></div>';
+          // values are keyed by column header (Role is a built-in label)
+        }).join('') || '<p class="muted" style="padding:8px">No staff found.</p>';
+      });
+    }
+
+    function edit(i) {
+      show('unknown', false);
+      editing = i === null ? null : list.rows[i];
+      $('edTitle').textContent = editing ? 'Edit ' + (editing.employeeName || editing.employeeId) : 'New staff member';
+      $('edFields').innerHTML = list.fields.map(function (f) {
+        var v = editing ? (editing.values[f.label] || '') : '';
+        if (f.key === 'active') return '<label>' + esc(f.label) + '</label><select data-f="' + esc(f.label) + '">' + options(['Active', 'Inactive'], null, null, editing ? (editing.active ? 'Active' : 'Inactive') : 'Active') + '</select>';
+        var req = f.key === 'employeeId' || f.key === 'employeeName';
+        return '<label>' + esc(f.label) + (req ? ' *' : '') + (f.identifier && !req ? ' <span class="badge">ID</span>' : '') + '</label>' +
+          '<input type="text" data-f="' + esc(f.label) + '" value="' + esc(v) + '"' + (f.identifier ? ' spellcheck="false"' : '') + '>';
+      }).join('') + '<p class="small muted">Identifiers are stored as text (leading zeros are kept) and must be unique in this team.' +
+        (editing ? ' Changing the Employee ID does not rewrite already imported shifts.' : '') + '</p>';
+      show('activeBtn', !!editing);
+      if (editing) $('activeBtn').textContent = editing.active ? 'Mark inactive' : 'Mark active';
+      show('editor', true);
+    }
+
+    function save() {
+      var values = {};
+      document.querySelectorAll('#edFields [data-f]').forEach(function (el) { values[el.dataset.f] = el.value; });
+      call('Saving…', 'apiStaffSave', teamId(), values, editing ? editing.employeeId : '').then(function (r) {
+        showStatus('ok', (r.created ? 'Added ' : 'Updated ') + esc(r.employeeName) + ' (' + esc(r.employeeId) + ').');
+        search();
+      });
+    }
+    function toggleActive() {
+      call('Saving…', 'apiStaffSetActive', teamId(), editing.employeeId, !editing.active).then(function () { showStatus('ok', 'Saved.'); search(); });
+    }
+
+    function loadUnknown() {
+      show('editor', false);
+      call('Looking for unknown employees…', 'apiStaffUnknownCandidates', teamId()).then(function (r) {
+        unknown = r;
+        $('unknownList').innerHTML = r.length ? r.map(function (u, i) {
+          if (!u.canAdd) {
+            return '<div class="small" style="padding:3px 0">⚠ ' + esc(u.employeeName || '(no name)') + ' <span class="muted">(' + u.shifts + ' shift(s), last ' + esc(u.lastDate) +
+              ') — no Employee ID in the export: add this person with "+ Add staff member" (exact same name) to match future imports by name.</span></div>';
+          }
+          return '<label class="inline" style="display:flex"><input type="checkbox" data-u="' + i + '" checked> ' + esc(u.employeeName || '(no name)') + ' · ' + esc(u.employeeId) +
+            ' <span class="small muted">(' + u.shifts + ' shift(s), last ' + esc(u.lastDate) + ')</span></label>';
+        }).join('') : '<p class="muted">Every employee in this team\'s stored schedule is matched to the staff sheet.</p>';
+        show('addUnknownBtn', r.some(function (u) { return u.canAdd; }));
+        show('unknown', true);
+      });
+    }
+    function addUnknown() {
+      var ids = Array.prototype.filter.call(document.querySelectorAll('[data-u]'), function (c) { return c.checked; }).map(function (c) { return unknown[Number(c.dataset.u)].employeeId; });
+      if (!ids.length) return;
+      call('Adding…', 'apiStaffAddUnknown', teamId(), ids).then(function (r) { showStatus('ok', 'Added ' + r.added.length + ' employee(s).'); search(); });
+    }
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+<script>
+  /** Promise wrapper around google.script.run; server functions return {ok, data|error}. */
+  function api(name) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      var runner = google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok) resolve(res.data);
+          else reject((res && res.error) || { message: 'Unknown error.' });
+        })
+        .withFailureHandler(function (err) {
+          reject({ code: 'TRANSPORT', message: (err && err.message) || String(err) });
+        });
+      runner[name].apply(runner, args);
+    });
+  }
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function show(el, on) { (typeof el === 'string' ? $(el) : el).classList.toggle('hidden', !on); }
+  var busyCount = 0;
+  function busy(on, text) {
+    var el = $('busy');
+    if (!el) { el = document.createElement('div'); el.id = 'busy'; el.className = 'busy hidden'; document.body.appendChild(el); }
+    busyCount += on ? 1 : -1;
+    if (busyCount < 0) busyCount = 0;
+    el.textContent = text || 'Working…';
+    show(el, busyCount > 0);
+  }
+  /** Runs an API call with a busy overlay; shows errors in the element with id "status" (or alertBox). */
+  function call(text, name) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    busy(true, text);
+    var done = false;
+    var slow = setTimeout(function () {
+      if (done) return;
+      busy(false);
+      showStatus('warn', '<b>No answer from Google after 25 seconds.</b> The most common cause is being signed into <b>several Google accounts</b> in this browser — ' +
+        'dialogs then cannot reach the script. Open the spreadsheet in an incognito/private window signed into only this account, or sign out of the other accounts. ' +
+        'Also check Apps Script editor → Executions for an error.');
+    }, 25000);
+    return api.apply(null, args).then(function (d) { done = true; clearTimeout(slow); busy(false); return d; }, function (e) {
+      done = true; clearTimeout(slow); busy(false); showError(e); throw e;
+    });
+  }
+
+  // Show unexpected script errors in the dialog instead of failing silently.
+  window.addEventListener('error', function (ev) {
+    var box = document.getElementById('status');
+    if (box) box.innerHTML = '<div class="msg fatal"><b>The dialog hit an error:</b> ' + String(ev.message).replace(/</g, '&lt;') +
+      '<br>Check that every HTML file exists with the exact name (e.g. ClientCore, Styles) and was created with + → HTML.</div>';
+  });
+  function showError(e) {
+    var box = $('status');
+    var html = '<div class="msg fatal"><b>' + esc(e.message || 'Error') + '</b>' + reportList(e.details) + '</div>';
+    if (box) { box.innerHTML = html; box.scrollIntoView({ block: 'nearest' }); }
+  }
+  function showStatus(type, text) {
+    var box = $('status');
+    if (box) box.innerHTML = text ? '<div class="msg ' + type + '">' + text + '</div>' : '';
+  }
+  function reportList(rep) {
+    if (!rep || (!rep.fatal && !rep.warnings)) return '';
+    var items = (rep.fatal || []).concat(rep.warnings || []);
+    return items.length > 1 ? '<ul>' + items.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>' : '';
+  }
+  /** Renders a {fatal, warnings, info} report as message blocks. */
+  function renderReport(rep) {
+    if (!rep) return '';
+    var block = function (cls, title, items) {
+      if (!items || !items.length) return '';
+      return '<div class="msg ' + cls + '"><b>' + title + '</b><ul>' + items.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul></div>';
+    };
+    return block('fatal', 'Must fix', rep.fatal) + block('warn', 'Warnings', rep.warnings) + block('info', 'Information', rep.info);
+  }
+  function options(list, valueKey, labelKey, selected, blankLabel) {
+    var html = blankLabel !== undefined ? '<option value="">' + esc(blankLabel) + '</option>' : '';
+    return html + list.map(function (x) {
+      var v = valueKey ? x[valueKey] : x, l = labelKey ? x[labelKey] : x;
+      return '<option value="' + esc(v) + '"' + (String(v) === String(selected) ? ' selected' : '') + '>' + esc(l) + '</option>';
+    }).join('');
+  }
+  function closeDialog() { google.script.host.close(); }
+</script>

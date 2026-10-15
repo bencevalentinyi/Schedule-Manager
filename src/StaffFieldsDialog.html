@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+</head>
+<body>
+  <h1>Configure Staff Fields</h1>
+  <p class="muted">External identifiers (e.g. Converse ID, Aircall ID, AstraID) and other custom staff columns. Each field has a permanent key, so renaming it never loses values. Identifier values are stored as text (leading zeros are kept) and must be unique within a team.</p>
+  <div id="status"></div>
+  <div class="row" style="align-items:flex-start">
+    <div style="flex:0 0 250px">
+      <div class="scroll" style="max-height:400px" id="list"></div>
+      <p><button class="btn small" onclick="edit(null)">+ Add field</button></p>
+    </div>
+    <div style="flex:1 1 420px" id="editor" class="hidden">
+      <div class="row">
+        <div><label for="name">Display name *</label><input type="text" id="name" maxlength="50"></div>
+        <div><label for="type">Field type</label><select id="type"></select></div>
+      </div>
+      <p class="small muted" id="keyInfo"></p>
+      <label for="desc">Description</label><input type="text" id="desc" maxlength="300">
+      <label class="inline"><input type="checkbox" id="visible"> Show in staff sheets</label>
+      <label class="inline"><input type="checkbox" id="required"> Required when adding staff</label>
+      <label class="inline" id="matchBox"><input type="checkbox" id="matchable"> May be used as an import match key (only teams that explicitly choose it)</label>
+      <p><button class="btn primary" onclick="save()">Save field</button></p>
+      <div id="teamsBox" class="card hidden">
+        <h3>Teams using this field</h3>
+        <div class="checks" id="teams"></div>
+        <p class="small muted">Removing a field from a team hides its column; the values stay in the sheet.</p>
+        <p><button class="btn" onclick="saveTeams()">Save team selection</button></p>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span class="spacer"></span><button class="btn" onclick="closeDialog()">Close</button></div>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null, current = null;
+
+    function load(selectKey) {
+      call('Loading…', 'apiStaffFieldsBootstrap').then(function (d) {
+        data = d;
+        $('type').innerHTML = options(Object.keys(d.types).map(function (k) { return { k: k, l: d.types[k] }; }), 'k', 'l');
+        $('list').innerHTML = d.fields.map(function (f, i) {
+          var users = d.teams.filter(function (t) { return t.staffFields.indexOf('field:' + f.fieldKey) >= 0; }).length;
+          return '<div class="list-item" data-i="' + i + '" onclick="edit(' + i + ')"><b>' + esc(f.displayName) + '</b> ' +
+            (f.visible ? '' : '<span class="badge warn">hidden</span>') +
+            '<div class="small muted">' + esc(f.fieldKey) + ' · ' + (f.fieldType === 'IDENTIFIER' ? 'identifier' : 'text') + ' · ' + users + ' team(s)</div></div>';
+        }).join('') || '<p class="muted" style="padding:8px">No fields yet.</p>';
+        var i = selectKey ? d.fields.map(function (f) { return f.fieldKey; }).indexOf(selectKey) : -1;
+        if (i >= 0) edit(i);
+      });
+    }
+
+    function edit(i) {
+      current = i === null ? null : data.fields[i];
+      document.querySelectorAll('.list-item').forEach(function (el) { el.classList.toggle('sel', Number(el.dataset.i) === i); });
+      var f = current || { displayName: '', fieldType: 'IDENTIFIER', description: '', visible: true, required: false, matchable: true };
+      $('name').value = f.displayName; $('type').value = f.fieldType; $('desc').value = f.description;
+      $('visible').checked = f.visible; $('required').checked = f.required; $('matchable').checked = f.matchable;
+      $('keyInfo').textContent = current ? 'Permanent key: ' + current.fieldKey + ' (referenced by teams and linked to the staff sheet columns).' : 'A permanent key is assigned when you save.';
+      $('type').onchange = function () { show('matchBox', $('type').value === 'IDENTIFIER'); };
+      show('matchBox', f.fieldType === 'IDENTIFIER');
+      if (current) {
+        $('teams').innerHTML = data.teams.map(function (t) {
+          var on = t.staffFields.indexOf('field:' + current.fieldKey) >= 0;
+          return '<label class="inline"><input type="checkbox" data-team="' + esc(t.teamId) + '"' + (on ? ' checked' : '') + '> ' + esc(t.teamName) + '</label>';
+        }).join('') || '<p class="muted">No teams yet.</p>';
+      }
+      show('teamsBox', !!current);
+      show('editor', true);
+      showStatus('', '');
+    }
+
+    function save() {
+      var input = { fieldKey: current ? current.fieldKey : '', displayName: $('name').value, fieldType: $('type').value,
+        description: $('desc').value, visible: $('visible').checked, required: $('required').checked, matchable: $('matchable').checked };
+      call('Saving and updating staff sheets…', 'apiSaveStaffField', input).then(function (r) {
+        showStatus('ok', (r.created ? 'Created ' : 'Saved ') + esc(r.field.displayName) + (r.renamed ? ' — staff sheet headers were renamed; values were kept.' : '.') +
+          (r.problems.length ? '<br>' + r.problems.map(esc).join('<br>') : ''));
+        load(r.field.fieldKey);
+      });
+    }
+
+    function saveTeams() {
+      var ids = Array.prototype.filter.call(document.querySelectorAll('[data-team]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.team; });
+      call('Updating teams…', 'apiSetStaffFieldTeams', current.fieldKey, ids).then(function (r) {
+        showStatus('ok', r.changedTeams.length ? 'Updated: ' + esc(r.changedTeams.join(', ')) + '.' : 'No changes.');
+        load(current.fieldKey);
+      });
+    }
+    load();
+  </script>
+</body>
+</html>

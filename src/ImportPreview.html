@@ -1,0 +1,81 @@
+<!-- Included by ImportDialog.html: renders the analysis returned by apiImportAnalyze / apiImportCommit. -->
+<script>
+  function stat(label, value, cls) {
+    return '<div class="stat ' + (cls || '') + '"><b>' + esc(value) + '</b><span>' + esc(label) + '</span></div>';
+  }
+
+  function renderPreview(p) {
+    var S = p.summary;
+    var html = '';
+    if (p.previewOnly) html += '<div class="msg info"><b>Preview mode:</b> nothing will be written. Use Schedule Import → Import Quinyx Export to apply a file.</div>';
+    html += '<div class="card small">' + (S.scheduleDate ? '<b>Schedule date:</b> ' + esc(S.scheduleDate) + ' · ' : '') +
+      '<b>Source:</b> ' + esc(p.sourceFile) + ' · <b>Format:</b> ' + esc(p.format) + (p.sheetName ? ' · <b>Sheet:</b> ' + esc(p.sheetName) : '') +
+      ' · <b>Shift dates:</b> ' + esc(S.dateFrom ? S.dateFrom + (S.dateTo !== S.dateFrom ? ' → ' + S.dateTo : '') : '—') +
+      ' · <b>Team routing:</b> ' + esc(p.teamMode) + (p.dateOrder ? ' · <b>Date order:</b> ' + esc(p.dateOrder) : '') +
+      (S.shiftTypeFilters && S.shiftTypeFilters.length ? '<br><b>Selected shift types:</b> ' + S.shiftTypeFilters.map(function (f) {
+        return esc(f.teamName) + ': ' + (f.mode === 'ALL' ? 'all' : f.mode === 'SELECTED' ? esc(f.types.join(', ') || '(none)') : '<span style="color:#a50e0e">not configured</span>');
+      }).join(' · ') : '') + '</div>';
+    (p.fileWarnings || []).forEach(function (w) { html += '<div class="msg warn">' + esc(w) + '</div>'; });
+
+    html += '<div class="stats">' +
+      stat('Source rows', S.sourceRows) +
+      stat('Matching shift types', S.sourceRows - S.excludedByShiftType - S.otherTeamRows) +
+      stat('Excluded by shift type', S.excludedByShiftType, S.excludedByShiftType ? 'warn' : '') +
+      stat('Valid rows', S.validRows, 'good') +
+      stat('Invalid rows', S.rejectedRows, S.rejectedRows ? 'bad' : '') +
+      stat('Missing employee name', S.missingEmployee, S.missingEmployee ? 'bad' : '') +
+      stat('Unparseable shift info', S.unparseableShiftInfo, S.unparseableShiftInfo ? 'bad' : '') +
+      stat('Hours missing / invalid', S.hoursMissing + S.hoursInvalid, S.hoursMissing + S.hoursInvalid ? 'warn' : '') +
+      stat('Hours differ', S.hoursDiscrepancies, S.hoursDiscrepancies ? 'warn' : '') +
+      stat('New shifts', S.insert + S.restore, 'good') +
+      stat('Updated shifts', S.update) +
+      stat('Removed (replace)', S.remove, S.remove ? 'warn' : '') +
+      stat('Duplicates / conflicts', S.potentialDuplicates, S.changedPending ? 'warn' : '') +
+      stat('Unknown employees', S.unknownEmployeeCount, S.unknownEmployeeCount ? 'warn' : '') +
+      stat('Overlaps', S.overlapsCount, S.overlapsCount ? 'warn' : '') +
+      '</div>';
+
+    if (p.blockers.length && !p.previewOnly) {
+      html += '<div class="msg fatal"><b>The import cannot be applied yet:</b><ul>' + p.blockers.map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul></div>';
+    } else if (!p.previewOnly) {
+      html += '<div class="msg ok"><b>Ready.</b> Review the details, then click <b>Apply import</b>.</div>';
+    }
+    html += renderReport(p.report);
+
+    if (S.shiftTypes && S.shiftTypes.length) {
+      html += '<h3>Shift types in the file</h3><table class="grid"><tr><th>Shift type</th><th>Rows</th><th>Imported</th><th>Excluded</th><th></th></tr>' +
+        S.shiftTypes.map(function (t) {
+          return '<tr><td>' + esc(t.type || '(blank)') + '</td><td>' + t.rows + '</td><td>' + t.included + '</td><td>' + t.excluded + '</td><td>' +
+            (t.isNew ? '<span class="badge warn">new</span>' : '') + '</td></tr>';
+        }).join('') + '</table>';
+    }
+    if (S.teams.length) {
+      html += '<h3>Teams</h3><table class="grid"><tr><th>Team</th><th>Valid rows</th><th>Dates</th><th>New</th><th>Updated</th><th>Removed</th><th>Unchanged</th><th>Skipped</th><th>Pending decision</th><th>Rejected</th></tr>' +
+        S.teams.map(function (t) {
+          return '<tr><td>' + esc(t.teamName) + '</td><td>' + t.rows + '</td><td>' + esc(t.dateFrom ? t.dateFrom + ' → ' + t.dateTo : '—') + '</td><td>' + t.insert + '</td><td>' + t.update +
+            '</td><td>' + t.remove + '</td><td>' + t.unchanged + '</td><td>' + t.skipped + '</td><td>' + t.pending + '</td><td>' + t.rejected + '</td></tr>';
+        }).join('') + '</table>';
+    }
+    if (p.rejected.length) {
+      html += '<h3>Rejected rows (' + p.rejectedTotal + ')</h3><div class="scroll"><table class="grid"><tr><th>Row</th><th>Team</th><th>Reason</th></tr>' +
+        p.rejected.map(function (r) { return '<tr><td>' + r.row + '</td><td>' + esc(r.team) + '</td><td>' + esc(r.reasons.join(' ')) + '</td></tr>'; }).join('') +
+        '</table></div>' + (p.rejectedTotal > p.rejected.length ? '<p class="small muted">Showing the first ' + p.rejected.length + '.</p>' : '');
+    }
+    if (S.unknownEmployees.length) {
+      html += '<h3>Unknown employees (' + S.unknownEmployeeCount + ')</h3><div class="scroll"><table class="grid"><tr><th>Team</th><th>Employee ID</th><th>Name</th><th>Rows</th><th>Note</th></tr>' +
+        S.unknownEmployees.map(function (u) { return '<tr><td>' + esc(u.team) + '</td><td>' + esc(u.employeeId || '—') + '</td><td>' + esc(u.employeeName) + '</td><td>' + u.rows + '</td><td>' + esc(u.reason) + '</td></tr>'; }).join('') +
+        '</table></div>';
+    }
+    if (S.overlaps.length) {
+      html += '<h3>Overlapping shifts</h3><div class="scroll"><table class="grid">' + S.overlaps.map(function (o) { return '<tr><td>' + esc(o) + '</td></tr>'; }).join('') + '</table></div>';
+    }
+    if (p.rowWarnings.length) {
+      html += '<h3>Row warnings (' + p.rowWarningsTotal + ')</h3><div class="scroll"><table class="grid"><tr><th>Row</th><th>Warning</th></tr>' +
+        p.rowWarnings.map(function (r) { return '<tr><td>' + r.row + '</td><td>' + esc(r.messages.join(' ')) + '</td></tr>'; }).join('') + '</table></div>';
+    }
+    if (p.unmappedColumns.length) {
+      html += '<p class="small muted"><b>Unmapped columns</b> (kept in each record\'s Extra JSON, shown when a team lists them as team-specific fields): ' + esc(p.unmappedColumns.join(', ')) + '</p>';
+    }
+    return html;
+  }
+</script>

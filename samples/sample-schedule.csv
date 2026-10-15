@@ -1,0 +1,7 @@
+Team,Employee ID,Employee Name,Date,Start Time,End Time,Break,Activity,Cost Center
+Customer Support,1001,Ann Lee,2026-10-15,08:00,16:30,30,Phone,CC-10
+Customer Support,1002,Bob Ray,2026-10-15,09:00,13:00,0,Chat,CC-10
+Customer Support,1002,Bob Ray,2026-10-15,14:00,18:00,15,Email,CC-10
+Customer Support,1003,Cy Moe,2026-10-15,22:00,06:00,30,Night,CC-11
+Customer Support,1099,New Person,2026-10-16,08:00,16:00,30,Phone,CC-10
+Back Office,2001,Dee Fox,2026-10-15,07:00,15:00,0:30,Processing,CC-20

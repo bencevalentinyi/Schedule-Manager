@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+</head>
+<body>
+  <h1>Manage Existing Teams</h1>
+  <p class="muted">Edit settings, activate/deactivate, rebuild missing sheets or delete a team. Deleting never removes stored schedule history.</p>
+  <div id="status"></div>
+  <div class="scroll" style="max-height:330px"><table class="grid" id="teams"></table></div>
+
+  <div id="deleteBox" class="card hidden">
+    <h3>Delete team <span id="delName"></span></h3>
+    <p class="small">The team is removed from the registry. Its schedule records stay in <code>_SCHEDULE_DATA</code> (history). This cannot be undone from the menu.</p>
+    <label class="inline"><input type="checkbox" id="delSheets"> Also delete its schedule and staff sheets</label>
+    <label for="delConfirm">Type the team name to confirm</label>
+    <input type="text" id="delConfirm">
+    <p><button class="btn danger" onclick="confirmDelete()">Delete permanently</button> <button class="btn" onclick="show('deleteBox', false)">Cancel</button></p>
+  </div>
+
+  <div class="footer">
+    <button class="btn" onclick="closeDialog()">Close</button>
+    <span class="spacer"></span>
+    <button class="btn" onclick="load()">Reload</button>
+    <button class="btn primary" onclick="call('Opening…', 'apiShowTeamDialog', '')">Create new team</button>
+  </div>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var teams = [], deleting = null;
+
+    function load() {
+      call('Loading teams…', 'apiListTeams').then(function (list) { teams = list; render(); });
+    }
+
+    function render() {
+      if (!teams.length) { $('teams').innerHTML = '<tr><td>No teams yet.</td></tr>'; return; }
+      $('teams').innerHTML = '<tr><th>Team</th><th>Type</th><th>Status</th><th>Sheets</th><th>Actions</th></tr>' + teams.map(function (t, i) {
+        var st = t.status === 'READY' ? '<span class="badge ok">READY</span>' : '<span class="badge bad">' + esc(t.status) + '</span>';
+        st += ' ' + (t.active ? '<span class="badge">active</span>' : '<span class="badge warn">inactive</span>');
+        if (t.lastError) st += '<div class="small" style="color:#a50e0e">' + esc(t.lastError) + '</div>';
+        var sheets = (t.hasScheduleSheet ? '<a href="#" onclick="openSheet(' + i + ',\'schedule\');return false">' + esc(t.scheduleSheet) + '</a>' : '<span class="badge bad">schedule missing</span>') + '<br>' +
+          (t.hasStaffSheet ? '<a href="#" onclick="openSheet(' + i + ',\'staff\');return false">' + esc(t.staffSheet) + '</a>' : '<span class="badge bad">staff missing</span>');
+        return '<tr><td><b>' + esc(t.teamName) + '</b><div class="small muted">' + esc(t.teamId) + ' · hours ' + esc(t.hoursLabel) +
+          ' · shift types: ' + esc(t.shiftTypes) + (t.importAliases ? ' · aliases: ' + esc(t.importAliases) : '') + '</div></td>' +
+          '<td>' + esc(t.typeName) + '</td><td>' + st + '</td><td class="small">' + sheets + '</td><td style="white-space:nowrap">' +
+          '<button class="btn small" onclick="edit(' + i + ')">Edit</button> ' +
+          '<button class="btn small" onclick="toggle(' + i + ')">' + (t.active ? 'Deactivate' : 'Activate') + '</button> ' +
+          '<button class="btn small" onclick="rebuild(' + i + ')">Rebuild sheets</button> ' +
+          '<button class="btn small danger" onclick="askDelete(' + i + ')">Delete</button></td></tr>';
+      }).join('');
+    }
+
+    function edit(i) { call('Opening…', 'apiShowTeamDialog', teams[i].teamId); }
+    function openSheet(i, kind) { call('Opening…', 'apiOpenTeamSheet', teams[i].teamId, kind); }
+    function toggle(i) {
+      call('Saving…', 'apiSetTeamActive', teams[i].teamId, !teams[i].active).then(function () { showStatus('ok', 'Saved.'); load(); });
+    }
+    function rebuild(i) {
+      call('Rebuilding sheets…', 'apiRebuildTeam', teams[i].teamId).then(function (r) {
+        showStatus('ok', r.messages.map(esc).join('<br>')); load();
+      });
+    }
+    function askDelete(i) {
+      deleting = teams[i];
+      $('delName').textContent = '"' + deleting.teamName + '"';
+      $('delConfirm').value = ''; $('delSheets').checked = false;
+      show('deleteBox', true);
+      $('delConfirm').focus();
+    }
+    function confirmDelete() {
+      call('Deleting…', 'apiDeleteTeam', deleting.teamId, $('delConfirm').value, $('delSheets').checked).then(function (r) {
+        show('deleteBox', false);
+        showStatus('ok', 'Deleted ' + esc(r.deletedTeam) + (r.deletedSheets.length ? ' and sheets ' + esc(r.deletedSheets.join(', ')) : '') + '. ' + esc(r.note));
+        load();
+      });
+    }
+    load();
+  </script>
+</body>
+</html>

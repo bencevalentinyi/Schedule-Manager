@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+  <style>
+    details { border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; margin: 12px 0; }
+    details summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+    .types { max-height: 170px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Create New Team</h1>
+  <div class="steps" id="steps"></div>
+  <div id="status"></div>
+
+  <!-- 1. General -->
+  <section data-step="0">
+    <h2>General settings</h2>
+    <label for="teamName">Team name *</label>
+    <input type="text" id="teamName" maxlength="60" placeholder="e.g. Customer Support">
+    <p class="small muted">A stable Team ID (TEAM_001, …) is generated automatically; the name can be changed later.</p>
+    <label class="inline"><input type="checkbox" id="active" checked> Active</label>
+    <label>Team type</label>
+    <label class="inline"><input type="radio" name="typeMode" value="EXISTING" checked onchange="typeModeChanged()"> Existing type</label>
+    <label class="inline"><input type="radio" name="typeMode" value="NEW" onchange="typeModeChanged()"> New type</label>
+    <div id="existingType"><select id="teamTypeId" onchange="applyTypeDefaults()"></select><p class="small muted" id="typeDesc"></p></div>
+    <div id="newType" class="hidden row">
+      <div><label for="newTypeName">New type name *</label><input type="text" id="newTypeName" maxlength="60"></div>
+      <div><label for="newTypeDescription">Description</label><input type="text" id="newTypeDescription" maxlength="500"></div>
+    </div>
+    <details><summary>Description</summary><textarea id="description" maxlength="500"></textarea></details>
+  </section>
+
+  <!-- 2. Schedule -->
+  <section data-step="1" class="hidden">
+    <h2>Schedule settings</h2>
+    <label>Operating hours</label>
+    <div id="hoursModes"></div>
+    <div class="row" id="hoursTimes">
+      <div><label for="hoursStart">From</label><input type="time" id="hoursStart" value="06:00"></div>
+      <div><label for="hoursEnd">Until</label><input type="time" id="hoursEnd" value="22:00"></div>
+    </div>
+    <p class="small muted" id="hoursHint"></p>
+    <div class="row">
+      <div><label for="defaultDate">When the schedule is opened</label><select id="defaultDate"></select></div>
+      <div><label for="timeFormat">Time format</label>
+        <select id="timeFormat"><option value="">Use global setting</option><option value="HH:mm">24-hour (14:30)</option><option value="h:mm am/pm">12-hour (2:30 PM)</option></select></div>
+    </div>
+    <div>
+      <label class="inline"><input type="checkbox" id="showBreaks" checked> Show breaks</label>
+      <label class="inline"><input type="checkbox" id="showDurations" checked> Show durations and scheduled hours</label>
+      <label class="inline"><input type="checkbox" id="showHeadcount" checked> Show headcount by hour</label>
+    </div>
+    <details>
+      <summary>Advanced: columns of the daily view</summary>
+      <label class="inline"><input type="radio" name="layout" value="STANDARD" checked onchange="layoutChanged()"> Follow the team type's columns</label>
+      <label class="inline"><input type="radio" name="layout" value="CUSTOM" onchange="layoutChanged()"> Customize for this team</label>
+      <div class="checks card" id="scheduleFields"></div>
+      <label class="inline"><input type="checkbox" id="showTeamFields" checked> Show team-specific fields</label>
+      <label for="extraFields">Team-specific fields from the export</label>
+      <input type="text" id="extraFields" placeholder="Unmapped source column names, comma-separated">
+      <select id="granularity" class="hidden"></select>
+    </details>
+  </section>
+
+  <!-- 3. Staff -->
+  <section data-step="2" class="hidden">
+    <h2>Staff settings</h2>
+    <p class="muted">Columns of the team's staff sheet. Employee ID, Employee Name and Active are always included. Unticked columns are hidden, never deleted.</p>
+    <h3>Identifier and custom fields</h3>
+    <div class="checks card" id="registryFields"></div>
+    <div class="row" style="align-items:flex-end">
+      <div><label for="newFieldName">Add an identifier field</label><input type="text" id="newFieldName" placeholder="e.g. CRM ID" maxlength="50"></div>
+      <div style="flex:0 0 auto"><button class="btn" onclick="addField()">Add field</button></div>
+    </div>
+    <p class="small muted">Rename or hide fields for all teams under Setup &amp; Configuration → Configure Staff Fields.</p>
+    <h3>Standard fields</h3>
+    <div class="checks card" id="staffFields"></div>
+    <details><summary>Advanced: free-text custom columns</summary>
+      <input type="text" id="customStaffFields" placeholder="Comma-separated, e.g. Shift Lead, Languages">
+      <p class="small muted">Prefer identifier/custom fields above: they can be renamed safely.</p>
+    </details>
+  </section>
+
+  <!-- 4. Import -->
+  <section data-step="3" class="hidden">
+    <h2>Import settings</h2>
+    <div class="row">
+      <div><label for="scheduleType">Quinyx schedule type</label><select id="scheduleType" onchange="scheduleTypeChanged()"></select></div>
+      <div><label for="importProfileId">Import mapping profile</label><select id="importProfileId" onchange="profileChanged()"></select></div>
+    </div>
+    <p class="small muted" id="profileDesc"></p>
+    <label>Shift types to import</label>
+    <div id="shiftModes"></div>
+    <div id="shiftTypesBox">
+      <div class="types" id="shiftTypes"></div>
+      <div class="row" style="align-items:flex-end">
+        <div><label for="addType">Add a shift type manually</label><input type="text" id="addType" placeholder="Exact text as in the export"></div>
+        <div style="flex:0 0 auto"><button class="btn" onclick="addShiftType()">Add</button></div>
+      </div>
+      <label for="discoverFile">Or discover shift types from an export file</label>
+      <input type="file" id="discoverFile" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" onchange="discover()">
+      <p class="small muted">Matching is exact after trimming spaces. Shift types that are not selected are never imported for this team.</p>
+    </div>
+    <details>
+      <summary>Advanced: matching, duplicates, file layout, team aliases</summary>
+      <div class="row">
+        <div><label for="matchField">Match the export's employee ID against</label><select id="matchField"></select></div>
+        <div><label for="nameMatch">When the export has only names</label><select id="nameMatch"></select></div>
+      </div>
+      <label for="duplicateStrategy">Default handling of existing shifts</label><select id="duplicateStrategy"></select>
+      <div id="layoutBox" class="row">
+        <div><label for="layoutHeaderRow">Header row (0 = none)</label><input type="number" id="layoutHeaderRow" min="0" max="50"></div>
+        <div><label for="layoutFirstDataRow">First data row</label><input type="number" id="layoutFirstDataRow" min="1" max="60"></div>
+      </div>
+      <p class="small muted" id="layoutHint"></p>
+      <label for="importAliases">Import aliases (values in an export's team column that mean this team)</label>
+      <textarea id="importAliases"></textarea>
+    </details>
+  </section>
+
+  <!-- 5. Confirm -->
+  <section data-step="4" class="hidden">
+    <h2>Review and confirm</h2>
+    <div id="preview"></div>
+  </section>
+
+  <section id="done" class="hidden"></section>
+
+  <div class="footer" id="footer">
+    <button class="btn" onclick="closeDialog()">Cancel</button>
+    <span class="spacer"></span>
+    <button class="btn" id="backBtn" onclick="go(step - 1)">Back</button>
+    <button class="btn primary" id="nextBtn" onclick="next()">Next</button>
+    <button class="btn primary hidden" id="saveBtn" onclick="save()">Create team</button>
+  </div>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var STEP_NAMES = ['General', 'Schedule', 'Staff', 'Import', 'Confirm'];
+    var step = 0, data = null, editTeam = null, scheduleOrder = [], staffOrder = [], knownTypes = [], layoutLoaded = null;
+
+    function init() {
+      call('Loading…', 'apiTeamDialogBootstrap', BOOT.teamId || '').then(function (d) {
+        data = d;
+        editTeam = d.team;
+        knownTypes = d.knownShiftTypes.slice();
+        $('granularity').innerHTML = options(d.views, 'key', 'label', 'DAILY');
+        $('teamTypeId').innerHTML = options(d.types.filter(function (t) { return t.enabled || (editTeam && t.typeId === editTeam.teamTypeId); }), 'typeId', 'typeName');
+        $('hoursModes').innerHTML = radios('hoursMode', d.operatingModes, 'hoursModeChanged()');
+        $('defaultDate').innerHTML = options(Object.keys(d.defaultDateModes).map(function (k) { return { k: k, l: d.defaultDateModes[k] }; }), 'k', 'l');
+        $('scheduleType').innerHTML = options(Object.keys(d.importFormats).map(function (k) { return { k: k, l: d.importFormats[k] }; }), 'k', 'l');
+        $('shiftModes').innerHTML = radios('shiftMode', d.shiftTypeModes, 'shiftModeChanged()');
+        $('nameMatch').innerHTML = options(Object.keys(d.nameMatchStrategies).map(function (k) {
+          return { k: k, l: k ? d.nameMatchStrategies[k] : d.nameMatchStrategies[k] + ' (' + d.globalNameMatch + ')' };
+        }), 'k', 'l');
+        $('duplicateStrategy').innerHTML = '<option value="">Use the global default (' + esc(d.globalStrategy) + ')</option>' +
+          options(Object.keys(d.strategies).map(function (k) { return { k: k, l: d.strategies[k] }; }), 'k', 'l');
+        if (editTeam) fillFromTeam(editTeam); else { applyImportDefaults(d.defaults.import); applyTypeDefaults(); }
+        if (!d.types.some(function (t) { return t.enabled; }) && !editTeam) { setRadio('typeMode', 'NEW'); typeModeChanged(); }
+        go(0);
+      });
+    }
+
+    function radios(name, map, onchange) {
+      return Object.keys(map).map(function (k) {
+        return '<label class="inline"><input type="radio" name="' + name + '" value="' + esc(k) + '" onchange="' + onchange + '"> ' + esc(map[k]) + '</label>';
+      }).join('');
+    }
+    function typeById(id) { return data.types.filter(function (t) { return t.typeId === id; })[0]; }
+    function radio(name) { var el = document.querySelector('input[name=' + name + ']:checked'); return el ? el.value : ''; }
+    function setRadio(name, v) { var el = document.querySelector('input[name=' + name + '][value="' + v + '"]'); if (el) el.checked = true; }
+    function profileById(id) { return data.profiles.filter(function (p) { return p.profileId === id; })[0]; }
+
+    /* ---------- schedule ---------- */
+    function renderFieldChecks(selected) {
+      scheduleOrder = selected.slice();
+      $('scheduleFields').innerHTML = Object.keys(data.displayFields).map(function (k) {
+        return '<label class="inline"><input type="checkbox" data-field="' + k + '"' + (selected.indexOf(k) >= 0 || k === 'start' || k === 'end' ? ' checked' : '') + '> ' + esc(data.displayFields[k].label) + '</label>';
+      }).join('');
+      layoutChanged();
+    }
+    function setDisplay(d) {
+      setRadio('hoursMode', d.operatingHoursMode || 'STANDARD');
+      $('hoursStart').value = d.operatingHoursStart || '06:00';
+      $('hoursEnd').value = d.operatingHoursEnd === '24:00' ? '23:59' : (d.operatingHoursEnd || '22:00');
+      $('defaultDate').value = d.defaultDate || 'KEEP';
+      $('timeFormat').value = d.timeFormat || '';
+      ['showBreaks', 'showDurations', 'showTeamFields', 'showHeadcount'].forEach(function (k) { $(k).checked = !!d[k]; });
+      $('granularity').value = d.granularity || 'DAILY';
+      setRadio('layout', d.layout || 'STANDARD');
+      hoursModeChanged();
+    }
+    function hoursModeChanged() {
+      var m = radio('hoursMode');
+      show('hoursTimes', m !== '24_7');
+      $('hoursHint').textContent = m === '24_7' ? 'The view and headcount cover 00:00–24:00; shifts crossing midnight are shown on both days.'
+        : m === 'CUSTOM' ? 'An end time earlier than the start time means the hours continue past midnight (e.g. 18:00–06:00). Use 23:59 for "until midnight".'
+        : 'Same-day hours (e.g. 06:00–22:00). Shifts outside these hours are still shown, flagged "Outside operating hours".';
+    }
+    function layoutChanged() {
+      var custom = radio('layout') === 'CUSTOM';
+      if (!custom && radio('typeMode') === 'EXISTING') {
+        var t = typeById($('teamTypeId').value);
+        if (t) document.querySelectorAll('[data-field]').forEach(function (c) { c.checked = t.scheduleFields.indexOf(c.dataset.field) >= 0; });
+      }
+      document.querySelectorAll('[data-field]').forEach(function (c) {
+        c.disabled = (!custom && radio('typeMode') === 'EXISTING') || c.dataset.field === 'start' || c.dataset.field === 'end';
+      });
+    }
+
+    /* ---------- staff ---------- */
+    function renderStaffChecks(selected) {
+      staffOrder = selected.slice();
+      $('registryFields').innerHTML = data.staffRegistry.map(function (f) {
+        var k = 'field:' + f.fieldKey;
+        return '<label class="inline"><input type="checkbox" data-staff="' + k + '"' + (selected.indexOf(k) >= 0 ? ' checked' : '') + ' onchange="renderMatchOptions()"> ' +
+          esc(f.displayName) + (f.fieldType === 'IDENTIFIER' ? ' <span class="badge">ID</span>' : '') + (f.visible ? '' : ' <span class="badge warn">hidden</span>') + '</label>';
+      }).join('') || '<span class="muted">No fields defined yet.</span>';
+      $('staffFields').innerHTML = Object.keys(data.staffFieldDefs).map(function (k) {
+        var req = data.staffFieldDefs[k].required;
+        return '<label class="inline"><input type="checkbox" data-staff="' + k + '"' + (selected.indexOf(k) >= 0 || req ? ' checked' : '') + (req ? ' disabled' : '') + '> ' + esc(data.staffFieldDefs[k].label) + '</label>';
+      }).join('');
+      $('customStaffFields').value = selected.filter(function (f) { return f.indexOf('custom:') === 0; }).map(function (f) { return f.substr(7); }).join(', ');
+      renderMatchOptions();
+    }
+    function selectedStaff() {
+      var checked = Array.prototype.filter.call(document.querySelectorAll('[data-staff]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.staff; });
+      return staffOrder.filter(function (f) { return checked.indexOf(f) >= 0; }).concat(checked.filter(function (f) { return staffOrder.indexOf(f) < 0; }));
+    }
+    function renderMatchOptions(selectedValue) {
+      var cur = selectedValue || $('matchField').value || 'employeeId';
+      var staff = selectedStaff();
+      var opts = [{ k: 'employeeId', l: 'Employee ID (default)' }].concat(data.staffRegistry.filter(function (f) {
+        return f.fieldType === 'IDENTIFIER' && f.matchable && staff.indexOf('field:' + f.fieldKey) >= 0;
+      }).map(function (f) { return { k: 'field:' + f.fieldKey, l: f.displayName }; }));
+      $('matchField').innerHTML = options(opts, 'k', 'l', opts.some(function (o) { return o.k === cur; }) ? cur : 'employeeId');
+    }
+    function addField() {
+      var name = $('newFieldName').value.trim();
+      if (!name) return;
+      var keep = selectedStaff();
+      call('Adding field…', 'apiSaveStaffField', { displayName: name, fieldType: 'IDENTIFIER', visible: true, matchable: true }).then(function (r) {
+        data.staffRegistry.push(r.field);
+        keep.push('field:' + r.field.fieldKey);
+        renderStaffChecks(keep);
+        $('newFieldName').value = '';
+        showStatus('ok', 'Added "' + esc(r.field.displayName) + '" (key ' + esc(r.field.fieldKey) + ').');
+      });
+    }
+
+    /* ---------- import ---------- */
+    function applyImportDefaults(imp) {
+      $('scheduleType').value = imp.scheduleType || 'QUINYX_DAILY';
+      setRadio('shiftMode', imp.shiftTypeMode || 'NOT_CONFIGURED');
+      knownTypes = uniqList(knownTypes.concat(imp.knownShiftTypes || []).concat(imp.shiftTypes || []));
+      renderShiftTypes(imp.shiftTypes || []);
+      $('nameMatch').value = imp.nameMatch || '';
+      $('duplicateStrategy').value = imp.duplicateStrategy || '';
+      renderMatchOptions(imp.matchField || 'employeeId');
+      shiftModeChanged();
+      scheduleTypeChanged(true);
+    }
+    function uniqList(a) { var o = []; a.forEach(function (x) { if (x && o.indexOf(x) < 0) o.push(x); }); return o.sort(); }
+    function renderShiftTypes(selected) {
+      $('shiftTypes').innerHTML = knownTypes.length ? knownTypes.map(function (t) {
+        return '<label class="inline" style="display:flex"><input type="checkbox" data-st="' + esc(t) + '"' + (selected.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>';
+      }).join('') : '<span class="muted">No shift types known yet. Add them manually or discover them from an export file.</span>';
+    }
+    function selectedShiftTypes() {
+      return Array.prototype.filter.call(document.querySelectorAll('[data-st]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.st; });
+    }
+    function addShiftType() {
+      var t = $('addType').value.trim().replace(/\s+/g, ' ');
+      if (!t) return;
+      var sel = selectedShiftTypes(); sel.push(t);
+      knownTypes = uniqList(knownTypes.concat([t]));
+      renderShiftTypes(sel);
+      setRadio('shiftMode', 'SELECTED'); shiftModeChanged();
+      $('addType').value = '';
+    }
+    function shiftModeChanged() { show('shiftTypesBox', radio('shiftMode') !== 'ALL'); }
+    function discover() {
+      var f = $('discoverFile').files[0];
+      if (!f) return;
+      var reader = new FileReader();
+      busy(true, 'Reading file…');
+      reader.onload = function () {
+        busy(false);
+        var payload = { fileName: f.name, mimeType: f.type, base64: String(reader.result).split(',')[1] || '', encoding: 'AUTO' };
+        var prof = profileById($('importProfileId').value);
+        call('Discovering shift types…', 'apiDiscoverShiftTypes', payload, prof ? prof.profileId : '').then(function (r) {
+          var found = r.shiftTypes.map(function (t) { return t.type; }).filter(Boolean);
+          var sel = selectedShiftTypes();
+          knownTypes = uniqList(knownTypes.concat(found));
+          renderShiftTypes(sel);
+          showStatus(found.length ? 'ok' : 'warn', found.length ? 'Found ' + found.length + ' shift type(s): ' +
+            r.shiftTypes.map(function (t) { return esc(t.type || '(blank)') + ' (' + t.rows + ')'; }).join(', ') + '. Tick the ones this team should import.'
+            : 'No shift types were found in this file.' + reportList(r.report));
+          $('discoverFile').value = '';
+        });
+      };
+      reader.readAsDataURL(f);
+    }
+    function scheduleTypeChanged(keepProfile) {
+      var fmt = $('scheduleType').value;
+      var list = data.profiles.filter(function (p) { return (p.format || 'TABLE') === fmt; });
+      var cur = $('importProfileId').value;
+      $('importProfileId').innerHTML = options(list, 'profileId', 'profileName', '', '(Detect automatically at import time)');
+      if (keepProfile && list.some(function (p) { return p.profileId === cur; })) $('importProfileId').value = cur;
+      else if (fmt === 'QUINYX_DAILY' && list.length) $('importProfileId').value = list[0].profileId;
+      profileChanged();
+    }
+    function profileChanged() {
+      var p = profileById($('importProfileId').value);
+      $('profileDesc').textContent = p ? p.description : 'The format and columns are detected when you import, and you confirm them in the import wizard.';
+      var daily = p && p.format === 'QUINYX_DAILY';
+      show('layoutBox', !!daily);
+      layoutLoaded = daily ? { headerRow: p.dailyLayout.headerRow, firstDataRow: p.dailyLayout.firstDataRow } : null;
+      if (daily) { $('layoutHeaderRow').value = layoutLoaded.headerRow; $('layoutFirstDataRow').value = layoutLoaded.firstDataRow; }
+      $('layoutHint').textContent = daily ? 'Rows of the "' + p.profileName + '" profile. They apply to every team that uses this profile. Default assumption (unverified): labels in row 2, data from row 3.' : '';
+    }
+
+    /* ---------- defaults / prefill ---------- */
+    function applyTypeDefaults() {
+      var t = radio('typeMode') === 'EXISTING' ? typeById($('teamTypeId').value) : null;
+      $('typeDesc').textContent = t ? t.description : '';
+      var src = t || { scheduleFields: data.defaults.scheduleFields, staffFields: data.defaults.staffFields, display: data.defaults.display, defaultImportProfileId: '' };
+      renderFieldChecks(src.scheduleFields);
+      renderStaffChecks(src.staffFields);
+      setDisplay(src.display);
+      if (src.defaultImportProfileId) {
+        var p = profileById(src.defaultImportProfileId);
+        if (p) { $('scheduleType').value = p.format || 'TABLE'; scheduleTypeChanged(); $('importProfileId').value = p.profileId; profileChanged(); }
+      }
+    }
+    function fillFromTeam(t) {
+      $('title').textContent = 'Edit Team: ' + t.teamName + ' (' + t.teamId + ')';
+      $('saveBtn').textContent = 'Save changes';
+      $('teamName').value = t.teamName; $('description').value = t.description; $('active').checked = t.active;
+      $('teamTypeId').value = t.teamTypeId;
+      $('typeDesc').textContent = (typeById(t.teamTypeId) || {}).description || '';
+      renderFieldChecks(t.settings.scheduleFields);
+      renderStaffChecks(t.settings.staffFields);
+      setDisplay(t.settings.display);
+      $('extraFields').value = t.settings.extraFields.join(', ');
+      $('importAliases').value = t.importAliases;
+      applyImportDefaults(t.settings.import);
+      var p = profileById(t.importProfileId);
+      if (p) { $('scheduleType').value = p.format || 'TABLE'; scheduleTypeChanged(); $('importProfileId').value = p.profileId; profileChanged(); }
+      else $('importProfileId').value = '';
+    }
+    function typeModeChanged() {
+      var isNew = radio('typeMode') === 'NEW';
+      show('existingType', !isNew); show('newType', isNew);
+      if (!editTeam) applyTypeDefaults();
+      if (isNew) setRadio('layout', 'CUSTOM');
+      layoutChanged();
+    }
+
+    function collect() {
+      var checked = Array.prototype.filter.call(document.querySelectorAll('[data-field]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.field; });
+      var ordered = scheduleOrder.filter(function (f) { return checked.indexOf(f) >= 0; }).concat(checked.filter(function (f) { return scheduleOrder.indexOf(f) < 0; }));
+      var mode = radio('hoursMode');
+      var form = {
+        teamName: $('teamName').value, description: $('description').value, active: $('active').checked,
+        typeMode: radio('typeMode'), teamTypeId: $('teamTypeId').value,
+        newTypeName: $('newTypeName').value, newTypeDescription: $('newTypeDescription').value,
+        display: {
+          granularity: $('granularity').value, defaultView: 'DAILY',
+          operatingHoursMode: mode,
+          operatingHoursStart: mode === '24_7' ? '00:00' : $('hoursStart').value,
+          operatingHoursEnd: mode === '24_7' ? '23:59' : $('hoursEnd').value,
+          defaultDate: $('defaultDate').value, timeFormat: $('timeFormat').value,
+          showBreaks: $('showBreaks').checked, showDurations: $('showDurations').checked,
+          showTeamFields: $('showTeamFields').checked, showHeadcount: $('showHeadcount').checked, layout: radio('layout')
+        },
+        scheduleFields: ordered, extraFields: $('extraFields').value,
+        staffFields: selectedStaff(), customStaffFields: $('customStaffFields').value,
+        importProfileId: $('importProfileId').value, importAliases: $('importAliases').value,
+        import: {
+          scheduleType: $('scheduleType').value, matchField: $('matchField').value, nameMatch: $('nameMatch').value,
+          shiftTypeMode: radio('shiftMode'), shiftTypes: selectedShiftTypes(), knownShiftTypes: knownTypes,
+          duplicateStrategy: $('duplicateStrategy').value
+        }
+      };
+      if (layoutLoaded) form.profileLayout = { headerRow: Number($('layoutHeaderRow').value), firstDataRow: Number($('layoutFirstDataRow').value) };
+      return form;
+    }
+
+    function validateStep(s) {
+      var f = collect();
+      if (s === 0 && !f.teamName.trim()) return 'Enter a team name.';
+      if (s === 0 && f.typeMode === 'NEW' && !f.newTypeName.trim()) return 'Enter a name for the new team type.';
+      if (s === 0 && f.typeMode === 'EXISTING' && !f.teamTypeId) return 'Select a team type.';
+      if (s === 1 && f.display.operatingHoursMode !== '24_7' && (!/^\d{1,2}:\d{2}$/.test(f.display.operatingHoursStart) || !/^\d{1,2}:\d{2}$/.test(f.display.operatingHoursEnd))) return 'Enter the operating hours as HH:mm.';
+      if (s === 3 && f.import.shiftTypeMode === 'SELECTED' && !f.import.shiftTypes.length) return 'Select at least one shift type, or choose "Import all shift types".';
+      return '';
+    }
+
+    function go(s) {
+      if (s < 0) return;
+      step = s;
+      document.querySelectorAll('section[data-step]').forEach(function (el) { show(el, Number(el.dataset.step) === s); });
+      $('steps').innerHTML = STEP_NAMES.map(function (n, i) { return '<div class="' + (i === s ? 'on' : (i < s ? 'done' : '')) + '">' + (i + 1) + '. ' + n + '</div>'; }).join('');
+      $('backBtn').disabled = s === 0;
+      show('nextBtn', s < 4); show('saveBtn', s === 4);
+      showStatus('', '');
+      if (s === 4) preview();
+    }
+    function next() {
+      var err = validateStep(step);
+      if (err) { showStatus('fatal', esc(err)); return; }
+      go(step + 1);
+    }
+
+    function preview() {
+      $('saveBtn').disabled = true;
+      call('Checking configuration…', 'apiPreviewTeam', collect(), editTeam ? editTeam.teamId : '').then(function (p) {
+        var v = p.value;
+        var rows = [
+          ['Team name', v.teamName], ['Team type', v.typeMode === 'NEW' ? v.newTypeName + ' (new)' : v.typeName],
+          ['Active', v.active ? 'Yes' : 'No'],
+          ['Schedule sheet', p.plan.scheduleSheet], ['Staff sheet', p.plan.staffSheet],
+          ['Operating hours', p.hoursLabel],
+          ['Opens on', data.defaultDateModes[v.display.defaultDate]],
+          ['Schedule columns', p.scheduleLabels.join(', ') + (v.extraFields.length ? ' + ' + v.extraFields.join(', ') : '')],
+          ['Staff columns', p.staffLabels.join(', ')],
+          ['Import', p.profileName + ' · ' + p.importLabel],
+          ['Import aliases', v.importAliases || '—']
+        ];
+        if (p.plan.renames && p.plan.renames.length) rows.push(['Sheet renames', p.plan.renames.join('; ')]);
+        $('preview').innerHTML = '<table class="grid">' + rows.map(function (r) { return '<tr><th style="width:150px">' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</table>' + renderReport(p.report);
+        $('saveBtn').disabled = p.report.fatal.length > 0;
+      });
+    }
+
+    function save() {
+      var fn = editTeam ? 'apiUpdateTeam' : 'apiCreateTeam';
+      var args = editTeam ? [fn, editTeam.teamId, collect()] : [fn, collect()];
+      busy(true, editTeam ? 'Saving…' : 'Creating team and worksheets…');
+      api.apply(null, args).then(function (r) {
+        busy(false);
+        document.querySelectorAll('section[data-step]').forEach(function (el) { show(el, false); });
+        $('steps').innerHTML = '';
+        $('done').innerHTML = '<div class="msg ok"><b>' + (editTeam ? 'Saved' : 'Team created') + ': ' + esc(r.teamName) + ' (' + esc(r.teamId) + ')</b><ul>' +
+          '<li>Schedule sheet: ' + esc(r.scheduleSheet) + '</li><li>Staff sheet: ' + esc(r.staffSheet) + '</li>' +
+          (r.warnings || []).map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul></div>' +
+          '<p>Next: add staff in <b>Schedule Management → View Staff Directory</b>, then use <b>Schedule Import → Import Quinyx Export</b>.</p>';
+        show('done', true);
+        $('footer').innerHTML = '<span class="spacer"></span><button class="btn primary" onclick="closeDialog()">Close</button>';
+      }, function (e) { busy(false); showError(e); });
+    }
+
+    init();
+  </script>
+</body>
+</html>

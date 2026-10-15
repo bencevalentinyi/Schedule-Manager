@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+</head>
+<body>
+  <h1>Import History</h1>
+  <div id="status"></div>
+  <div class="stats" id="stats"></div>
+  <div id="undoBox"></div>
+  <div class="scroll" style="max-height:330px"><table class="grid" id="log"></table></div>
+  <p class="small muted">Full details are in the <code>_IMPORT_LOG</code> sheet. Statuses: COMMITTED (applied), UNDONE, FAILED (nothing written), COMMITTING (interrupted — undo to roll back).</p>
+  <div class="footer"><span class="spacer"></span><button class="btn" onclick="load()">Reload</button><button class="btn" onclick="closeDialog()">Close</button></div>
+  <?!= include('ClientCore') ?>
+  <?!= include('ImportPreview') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var cand = null;
+    function load() {
+      call('Loading history…', 'apiImportHistory', 100).then(function (h) {
+        var s = h.stats;
+        $('stats').innerHTML = stat('Imports', s.total) + stat('Committed', s.committed, 'good') + stat('Undone', s.undone) + stat('Failed', s.failed, s.failed ? 'bad' : '') +
+          stat('Shifts inserted', s.inserted) + stat('Shifts updated', s.updated) + stat('Shifts removed', s.removed) + stat('Rows rejected', s.rejected);
+        cand = h.undoCandidate;
+        $('undoBox').innerHTML = cand ? '<div class="card"><b>Latest undoable import:</b> ' + esc(cand.importId) + ' · ' + esc(cand.sourceFile) + ' · ' + esc(cand.timestamp) +
+          ' · ' + esc(cand.teams) + ' · +' + cand.inserted + ' / ~' + cand.updated + ' / −' + cand.removed +
+          (cand.status === 'COMMITTING' ? ' <span class="badge bad">interrupted</span>' : '') +
+          ' <button class="btn small danger" id="undoBtn" onclick="undo()">Undo this import</button></div>' : '';
+        $('log').innerHTML = '<tr><th>Time</th><th>Import ID</th><th>Source</th><th>Teams</th><th>Dates</th><th>Rows</th><th>Ins</th><th>Upd</th><th>Rem</th><th>Skip</th><th>Rej</th><th>Strategy</th><th>Status</th><th>Notes</th><th>User</th></tr>' +
+          h.entries.map(function (e) {
+            var cls = e.status === 'COMMITTED' ? 'ok' : (e.status === 'FAILED' || e.status === 'COMMITTING' ? 'bad' : 'warn');
+            return '<tr><td>' + esc(e.timestamp) + '</td><td class="small">' + esc(e.importId) + '</td><td>' + esc(e.sourceFile) + '</td><td>' + esc(e.teams) + '</td><td>' +
+              esc(e.dateFrom) + (e.dateTo && e.dateTo !== e.dateFrom ? ' → ' + esc(e.dateTo) : '') + '</td><td>' + e.rowsProcessed + '</td><td>' + e.rowsInserted + '</td><td>' + e.rowsUpdated +
+              '</td><td>' + e.rowsRemoved + '</td><td>' + e.rowsSkipped + '</td><td>' + e.rowsRejected + '</td><td>' + esc(e.strategy) + '</td><td><span class="badge ' + cls + '">' + esc(e.status) +
+              '</span></td><td class="small">' + esc(e.errorSummary) + '</td><td class="small">' + esc(e.user) + '</td></tr>';
+          }).join('');
+      });
+    }
+    function undo() {
+      var b = $('undoBtn');
+      if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to confirm undo'; return; }
+      call('Undoing import…', 'apiUndoLastImport', cand.importId).then(function (r) {
+        showStatus('ok', 'Undone ' + esc(r.importId) + ': ' + r.deleted + ' shift(s) deleted, ' + r.restored + ' restored' + (r.skipped ? ', ' + r.skipped + ' skipped (changed by a later action)' : '') + '.');
+        load();
+      });
+    }
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Styles') ?>
+</head>
+<body>
+  <h1>Setup / Configure Spreadsheet</h1>
+  <p class="muted">Creates or repairs the system sheets and configuration. Safe to run any number of times: existing sheets, schedules and settings are never overwritten.</p>
+  <div id="conn"></div>
+  <div id="status"></div>
+  <div id="state"></div>
+  <div id="result"></div>
+
+  <div class="footer">
+    <button class="btn" onclick="closeDialog()">Close</button>
+    <span class="spacer"></span>
+    <button class="btn hidden" id="validateBtn" onclick="validate()">Validate structure</button>
+    <button class="btn hidden" id="teamBtn" onclick="createTeam()">Create first team</button>
+    <button class="btn primary" id="initBtn" onclick="init()" disabled>…</button>
+  </div>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var state = null;
+
+    function load() {
+      // Render immediately from the state passed by the server, then test the dialog → script connection.
+      if (BOOT.state) { state = BOOT.state; render(); }
+      else call('Inspecting spreadsheet…', 'apiGetSetupState').then(function (s) { state = s; render(); });
+      testConnection();
+    }
+
+    function testConnection() {
+      var answered = false;
+      $('conn').innerHTML = '<span class="muted">Testing the connection between this dialog and the script…</span>';
+      var t = setTimeout(function () {
+        if (answered) return;
+        $('conn').innerHTML = '<div class="msg fatal"><b>This dialog cannot reach the script</b> (no answer after 15 seconds), so its buttons cannot work.' +
+          '<ul><li>Most common cause: you are signed into <b>several Google accounts</b> in this browser. Open the spreadsheet in an incognito/private window signed into only this account.</li>' +
+          '<li>Or your browser blocks third-party cookies for Google: allow cookies for <code>[*.]googleusercontent.com</code> and <code>[*.]google.com</code>, or try another browser.</li>' +
+          '<li>Workaround for setup only: in the Apps Script editor select <b>setupNow</b> and click Run.</li></ul></div>';
+      }, 15000);
+      try {
+        google.script.run
+          .withSuccessHandler(function () { answered = true; clearTimeout(t); $('conn').innerHTML = '<span class="small" style="color:#188038">✓ Connected to the script.</span>'; })
+          .withFailureHandler(function (e) {
+            answered = true; clearTimeout(t);
+            $('conn').innerHTML = '<div class="msg fatal"><b>The dialog could not reach the script:</b> ' + esc(e && e.message || e) +
+              '<br>If you are signed into several Google accounts, open the spreadsheet in an incognito window signed into only this account.</div>';
+          })
+          .apiPing();
+      } catch (err) {
+        answered = true; clearTimeout(t);
+        $('conn').innerHTML = '<div class="msg fatal"><b>google.script.run is not available:</b> ' + esc(err.message) + '</div>';
+      }
+    }
+
+    function render() {
+      var s = state;
+      var head;
+      if (!s.initialized) head = '<div class="msg info"><b>This spreadsheet has not been initialized.</b> Initialize to create the internal sheets, default configuration, a starter team type and a generic import profile.</div>';
+      else if (!s.healthy) head = '<div class="msg warn"><b>The system is initialized but some internal sheets or columns are missing.</b> Repair recreates only what is missing.</div>';
+      else head = '<div class="msg ok"><b>The spreadsheet is configured</b> (version ' + esc(s.version) + ', ' + s.teamCount + ' team(s)). Running Repair again is harmless. Other maintenance actions are under Schedule Manager → Maintenance.</div>';
+      var needsUpgrade = s.initialized && s.version !== s.codeVersion;
+      if (needsUpgrade) head += '<div class="msg warn"><b>Upgrade required:</b> this spreadsheet is on version ' + esc(s.version || '1.0.0') + ', the code is version ' + esc(s.codeVersion) +
+        '. Click <b>Upgrade</b>: it adds the new columns, staff fields, import profile and settings. Existing teams, staff, schedules and history are kept; running it again changes nothing.</div>';
+
+      var rows = s.sheets.map(function (x) {
+        var st = !x.exists ? '<span class="badge bad">missing</span>' : (x.missingColumns.length ? '<span class="badge warn">missing columns: ' + esc(x.missingColumns.join(', ')) + '</span>' : '<span class="badge ok">ok</span>');
+        return '<tr><td><code>' + esc(x.name) + '</code></td><td>' + st + '</td><td class="muted">' + esc(x.purpose) + '</td></tr>';
+      }).join('');
+      $('state').innerHTML = head + '<h2>Internal sheets</h2><table class="grid"><tr><th>Sheet</th><th>Status</th><th>Purpose</th></tr>' + rows + '</table>' +
+        '<p class="small muted">Internal sheets start with "_". They are protected with a warning only; hiding or protecting them is not a security boundary — anyone with edit access can change them.</p>';
+      var btn = $('initBtn');
+      btn.disabled = false;
+      btn.textContent = !s.initialized ? 'Initialize system' : (needsUpgrade ? 'Upgrade' : (s.healthy ? 'Run repair anyway' : 'Repair system'));
+      show('teamBtn', s.initialized && s.healthy && !needsUpgrade);
+      show('validateBtn', s.initialized);
+      $('teamBtn').textContent = s.teamCount ? 'Create another team' : 'Create first team';
+    }
+
+    function init() {
+      call('Setting up — this can take up to a minute…', 'apiInitializeSystem').then(function (r) {
+        state = r.state;
+        render();
+        $('result').innerHTML = '<div class="msg ok"><b>Done.</b><ul>' + r.actions.map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('') + '</ul></div>';
+        showStatus('', '');
+      });
+    }
+
+    function createTeam() { call('Opening team wizard…', 'apiShowTeamDialog', ''); }
+    function validate() { google.script.run.menuValidateStructure(); }
+
+    load();
+  </script>
+</body>
+</html>
