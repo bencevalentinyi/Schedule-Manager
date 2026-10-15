@@ -1,5 +1,20 @@
 # Verification and Test Plan
 
+## v1.1.3 Slack Workflow message
+
+**Results at hand-off:** unit tests 96/96, integration tests 24/24, upgrade checks 41/41 and UI static checks 1118, all passed under Node.js 20. The new unit tests were mutation-checked: three planted bugs were all caught.
+
+**Manual checklist (real spreadsheet):**
+
+1. *Slack Workflow Automation → Workflow Message* opens on the starter columns. Preview shows Key, Header_Date, Shift_Leads, Agents and Meetings for the run date, and writes nothing.
+2. Set Role = "Shift Lead" for a shift lead in the staff sheet. They appear only in Shift_Leads.
+3. Add a list column with "Works during part of a window" 08:00–14:00. Only people working in that window appear.
+4. Add a list column with "Ends after 24:30". A 23:40–08:00 shift appears; 08:00–16:00 does not. With Day = Yesterday, yesterday's late shifts appear.
+5. Add a link column: create the staff field (for example Aircall ID), enter the template with {IDS} and separator %2C. Every listed ID appears once, and people without an ID are named in a warning.
+6. **Save and write row**: row 1 holds the headers and row 2 the values, with line breaks inside the cells. Values beginning with "@" or "=" stay text.
+7. Add a time-driven trigger for generateSlackWorkflowMessage and run it once from the editor. Row 2 updates and Executions shows the log line.
+8. In Slack Workflow Builder, read the row (Key = DAILY) and post a test message. The names show as "@Name" text, or as real mentions when a Slack user ID field is configured.
+
 ## v1.1.2 acceptance criteria (UI overhaul)
 
 Results at hand-off, all executed under Node.js 20:

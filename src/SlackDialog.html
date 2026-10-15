@@ -13,6 +13,11 @@
     .group-order .check { flex: 1; }
     .formula { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
     .formula b { color: var(--text); }
+    .wf-value { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; max-height: 190px; overflow: auto;
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; margin: 0; }
+    .wf-col { margin-bottom: var(--s3); }
+    .wf-col .panel-head { margin-bottom: 4px; }
+    #wfTemplate, #wfUrl, #wfPrefix, #wfSep, #wfSuffix { font-family: var(--mono); font-size: 12.5px; }
   </style>
 </head>
 <body>
@@ -20,10 +25,11 @@
     <div class="head-row">
       <div>
         <h1>Slack Workflow Automation</h1>
-        <p class="subtitle">Builds payload records in the <code>_SLACK_PAYLOADS</code> sheet for a Slack Workflow to read. This tool does not send anything to Slack.</p>
+        <p class="subtitle">Builds sheet rows for a Slack Workflow to read: one combined message row, or one payload record per assignment. This tool does not send anything to Slack.</p>
       </div>
     </div>
     <div class="tabs" role="tablist" id="tabs" aria-label="Slack sections">
+      <button type="button" role="tab" data-tab="message" id="t-message" aria-controls="tab-message">Workflow message</button>
       <button type="button" role="tab" data-tab="generate" id="t-generate" aria-controls="tab-generate">Generate payloads</button>
       <button type="button" role="tab" data-tab="config" id="t-config" aria-controls="tab-config">Payload configuration</button>
       <button type="button" role="tab" data-tab="url" id="t-url" aria-controls="tab-url">Dashboard URL</button>
@@ -112,6 +118,49 @@
     </section>
 
     <!-- Dashboard URL -->
+    <!-- Workflow message -->
+    <section id="tab-message" class="hidden" role="tabpanel" aria-labelledby="t-message">
+      <p class="hint mt-0">One row for the whole day: headers in row 1, values in row 2. In Slack Workflow Builder, read the row with "Select a spreadsheet row" (for example where Key = DAILY) and put the columns into your message. Lists are sorted by start time, one line per person: <code>08:00 - 16:00 — @Ann Lee</code>.</p>
+      <div class="row">
+        <div class="field"><label class="label" for="wfSheet">Output sheet</label><input type="text" id="wfSheet" maxlength="90" oninput="wf.config.sheetName = this.value; wfDirty()">
+          <p class="hint">Created when missing. Rows 1–2 are rewritten on every run.</p></div>
+        <div class="field"><label class="label" for="wfDate">Run date</label><input type="date" id="wfDate" onchange="wfDirty()">
+          <p class="hint">"Today" for the columns below. A daily trigger always uses the real today.</p></div>
+      </div>
+      <div class="split">
+        <div>
+          <div class="list" id="wfList" role="listbox" aria-label="Message columns"></div>
+          <div class="cluster mt-2">
+            <button type="button" class="btn sm" onclick="wfAdd()">+ Add column</button>
+            <button type="button" class="btn icon sm" onclick="wfMove(-1)" aria-label="Move column up" title="Move up">▲</button>
+            <button type="button" class="btn icon sm" onclick="wfMove(1)" aria-label="Move column down" title="Move down">▼</button>
+          </div>
+          <div class="cluster mt-2">
+            <button type="button" class="btn ghost sm" onclick="wfDuplicate()">Duplicate</button>
+            <button type="button" class="btn ghost sm" onclick="wfRemove()" style="color:var(--error)">Remove</button>
+          </div>
+        </div>
+        <div id="wfEditor"></div>
+      </div>
+      <div class="cluster mt-3">
+        <button type="button" class="btn" onclick="wfPreview()">Preview</button>
+        <button type="button" class="btn" onclick="wfSave()">Save without writing</button>
+      </div>
+      <div id="wfResult" class="mt-3"></div>
+      <details class="disclosure">
+        <summary>Run it automatically every day</summary>
+        <div class="disclosure-body">
+          <ol class="small mt-3">
+            <li>Save the columns here.</li>
+            <li>Open Extensions → Apps Script → Triggers (clock icon) → Add Trigger.</li>
+            <li>Function: <code>generateSlackWorkflowMessage</code> · Event source: Time-driven · Day timer · pick the hour (for example 6–7 am). Add a second trigger in the evening if a column shows tomorrow.</li>
+            <li>In Slack Workflow Builder, schedule the workflow after that hour and read the row from the output sheet.</li>
+          </ol>
+          <p class="hint">Schedule Manager never creates triggers itself. Runs use the saved columns and today's date; errors appear in Apps Script → Executions.</p>
+        </div>
+      </details>
+    </section>
+
     <section id="tab-url" class="hidden" role="tabpanel" aria-labelledby="t-url">
       <div class="field">
         <label class="label" for="uTemplate">Dashboard URL template</label>
@@ -169,18 +218,24 @@
       currentTab = name;
       selectTab('tabs', name);
       showStatus('', '');
-      var foot = { generate: 'Generate payloads', config: 'Save configuration', url: 'Save dashboard URL settings' };
+      var foot = { message: 'Save and write row', generate: 'Generate payloads', config: 'Save configuration', url: 'Save dashboard URL settings' };
       $('footBtn').textContent = foot[name];
       updateFoot();
       if (name === 'url') previewUrl();
+      if (name === 'message' && !wf.config) wfLoad();
     }
     function updateFoot() {
       if (currentTab === 'generate') {
         $('footBtn').disabled = !(lastPreview && lastPreview.canGenerate);
         $('footNote').textContent = lastPreview ? '' : 'Preview first';
+      } else if (currentTab === 'message') {
+        $('footBtn').disabled = !wf.config; $('footNote').textContent = '';
       } else { $('footBtn').disabled = false; $('footNote').textContent = ''; }
     }
-    function footAction() { if (currentTab === 'generate') generate(); else if (currentTab === 'config') saveConfig(); else saveUrl(); }
+    function footAction() {
+      if (currentTab === 'message') wfGenerate();
+      else if (currentTab === 'generate') generate(); else if (currentTab === 'config') saveConfig(); else saveUrl();
+    }
 
     /* ---------- configuration ---------- */
     function fillConfig(c) {
@@ -368,6 +423,197 @@
           'Dashboard URL settings saved');
       });
     }
+    /* ---------- workflow message (one row) ---------- */
+    var wf = { config: null, boot: null, sel: 0, last: null };
+    var WF_OFFSETS = [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7];
+    function wfOffsetLabel(k) { return k === 0 ? 'Run date (today)' : k === -1 ? 'Yesterday' : k === 1 ? 'Tomorrow' : (k > 0 ? '+' : '') + k + ' days'; }
+
+    function wfLoad() {
+      call('Loading the workflow message…', 'apiWorkflowBootstrap').then(function (b) {
+        wf.boot = b; wf.config = b.config; wf.sel = 0;
+        $('wfSheet').value = wf.config.sheetName;
+        $('wfDate').value = b.today;
+        wfRenderList(); wfRenderEditor(); updateFoot();
+      });
+    }
+    function wfCol() { return wf.config.columns[wf.sel]; }
+    function wfDirty() { wf.last = null; }
+    function wfRenderList() {
+      $('wfList').innerHTML = wf.config.columns.map(function (c, i) {
+        return '<button type="button" class="list-item" role="option" aria-selected="' + (i === wf.sel) + '" onclick="wfSelect(' + i + ')"><span class="name">' +
+          esc(c.header || '(no header)') + '</span><span class="meta">' + esc(wf.boot.columnTypes[c.type]) +
+          (c.type === 'ROSTER' || c.type === 'URL' ? ' · ' + esc(wfOffsetLabel(c.dayOffset)) : '') + '</span></button>';
+      }).join('') || emptyHtml('＋', 'No columns', 'Add a column to start.');
+    }
+    function wfSelect(i) { wf.sel = i; wfRenderList(); wfRenderEditor(); }
+
+    function wfField(label, key, value, opts) {
+      opts = opts || {};
+      var id = 'wf_' + key;
+      var input = opts.select
+        ? '<select id="' + id + '" data-k="' + key + '" onchange="wfSet(this)">' + opts.select + '</select>'
+        : '<input type="text" id="' + (opts.id || id) + '" data-k="' + key + '" value="' + esc(value) + '" oninput="wfSet(this)"' + (opts.mono ? ' spellcheck="false"' : '') + (opts.placeholder ? ' placeholder="' + esc(opts.placeholder) + '"' : '') + '>';
+      return '<div class="field"><label class="label" for="' + (opts.id || id) + '">' + label + '</label>' + input + (opts.hint ? '<p class="hint">' + opts.hint + '</p>' : '') + '</div>';
+    }
+    function wfSwitch(label, key, on, hint) {
+      return '<label class="check"><input type="checkbox" class="switch" data-k="' + key + '"' + (on ? ' checked' : '') + ' onchange="wfSet(this)"> <span>' + label +
+        (hint ? ' <span class="hint">' + hint + '</span>' : '') + '</span></label>';
+    }
+    function wfTimeRule(prefix, mode, from, to, label) {
+      var opts = options(kv(wf.boot.timeModes), 'k', 'l', mode);
+      return '<div class="row">' + wfField(label, prefix + 'Mode', '', { select: opts }) +
+        (mode !== 'NONE' ? wfField(mode === 'OVERLAPS' ? 'From' : 'Time', prefix + 'From', from, { placeholder: 'HH:mm', hint: 'Use 24:30 for 00:30 the next day.' }) : '') +
+        (mode === 'OVERLAPS' ? wfField('To', prefix + 'To', to, { placeholder: 'HH:mm' }) : '') + '</div>';
+    }
+
+    function wfRenderEditor() {
+      var c = wfCol();
+      if (!c) { $('wfEditor').innerHTML = ''; return; }
+      var B = wf.boot;
+      var h = '<div class="row">' + wfField('Header<span class="req" aria-hidden="true">*</span>', 'header', c.header, { hint: 'The Slack Workflow finds the value by this name.' }) +
+        wfField('Type', 'type', '', { select: options(kv(B.columnTypes), 'k', 'l', c.type) }) + '</div>';
+      var offsets = options(WF_OFFSETS.map(function (k) { return { k: k, l: wfOffsetLabel(k) }; }), 'k', 'l', c.dayOffset);
+      if (c.type === 'TEXT') h += wfField('Text', 'text', c.text, { hint: 'Written exactly as typed, e.g. DAILY as the key the workflow looks up.' });
+      if (c.type === 'DATE') {
+        h += '<div class="row">' + wfField('Date format', 'dateFormat', c.dateFormat, { mono: true, hint: 'yyyy = year, MM = month, dd = day, EEEE = weekday. Example: yyyy. MM. dd' }) +
+          wfField('Day', 'dayOffset', '', { select: offsets }) + '</div>';
+      }
+      if (c.type === 'ROSTER' || c.type === 'URL') {
+        h += '<div class="row">' + wfField('Day', 'dayOffset', '', { select: offsets }) +
+          wfField('Include', 'category', '', { select: options(kv(B.categories), 'k', 'l', c.category) }) + '</div>';
+        h += '<div class="field"><span class="label" id="wfTeamsL">Teams <span class="optional">none ticked = all active teams</span></span><div class="check-grid panel subtle mb-0" role="group" aria-labelledby="wfTeamsL">' +
+          data.teams.map(function (t) { return '<label class="check"><input type="checkbox" data-wteam="' + esc(t.teamId) + '"' + (c.teamIds.indexOf(t.teamId) >= 0 ? ' checked' : '') + ' onchange="wfLists()"> ' + esc(t.teamName) + '</label>'; }).join('') + '</div></div>';
+        h += '<div class="row">' + wfField('People', 'roleMode', '', { select: options(kv(B.roleModes), 'k', 'l', c.roleMode) }) +
+          (c.roleMode !== 'ALL' ? wfField('Roles', 'roles', c.roles.join(', '), { placeholder: 'Shift Lead', hint: 'Comma-separated; compared with the Role column (or the team role in a shared directory), ignoring case.' }) : '') + '</div>';
+        h += wfTimeRule('time', c.timeMode, c.timeFrom, c.timeTo, 'Time filter');
+        h += wfSwitch('One line per person', 'merge', c.merge, 'Earliest start to latest end of the day. Off: one line per assignment.') +
+          wfSwitch('Exclude inactive employees', 'excludeInactive', c.excludeInactive) +
+          wfSwitch('Only people found in the staff directory as team members', 'onlyMembers', c.onlyMembers, 'Off: people missing from the directory are listed by their schedule name.');
+        if (data.knownActivityTypes.length) {
+          h += '<details class="disclosure"><summary>Activity types <span class="hint">' + (c.activityTypes.length ? c.activityTypes.length + ' selected' : 'all') + '</span></summary><div class="disclosure-body"><div class="check-list mt-3">' +
+            data.knownActivityTypes.map(function (t) { return '<label class="check"><input type="checkbox" data-wtype="' + esc(t) + '"' + (c.activityTypes.indexOf(t) >= 0 ? ' checked' : '') + ' onchange="wfLists()"> ' + esc(t) + '</label>'; }).join('') +
+            '</div><p class="hint">None ticked = all types.</p></div></details>';
+        }
+      }
+      if (c.type === 'ROSTER') {
+        h += wfField('Line text', 'lineTemplate', c.lineTemplate, { id: 'wfTemplate', mono: true }) +
+          '<div class="cluster" style="margin-top:-6px;margin-bottom:12px">' + B.linePlaceholders.map(function (p) {
+            return '<button type="button" class="btn sm chip" onclick="wfInsert(\'wfTemplate\', \'' + p + '\')">{' + p + '}</button>'; }).join('') + '</div>' +
+          '<p class="hint" style="margin-top:-6px">{DISPLAY} uses the employee display value from Payload configuration (default @{EMPLOYEE_NAME}). {MENTION} is a real Slack mention when the person has a Slack user ID, otherwise the display value. {TAG} is the tag below.</p>' +
+          wfField('When nobody matches', 'emptyText', c.emptyText) +
+          '<div class="panel subtle"><div class="eyebrow">Tag</div><p class="hint mt-0">Appended where {TAG} is, for lines that match its rule — for example :aircall: for people working across 14:00.</p>' +
+          wfField('Tag text', 'tagText', c.tagText, { placeholder: ':aircall:' }) + wfTimeRule('tag', c.tagMode, c.tagFrom, c.tagTo, 'Tag when') + '</div>';
+      }
+      if (c.type === 'URL') {
+        h += wfField('Dashboard URL', 'urlTemplate', c.urlTemplate, { id: 'wfUrl', mono: true, placeholder: 'https://dashboard.example.com/live?users={IDS}',
+          hint: '{IDS} is replaced by the identifiers of everyone selected above (each ID once). Also available: {DATE}, {COUNT}. Nothing else in the URL is changed.' }) +
+          '<div class="row">' + wfField('Identifier field', 'identifierField', '', { select: options(data.identifierFields, 'key', 'label', c.identifierField) }) +
+          wfField('Encoding', 'encoding', '', { select: options(kv(data.encodings), 'k', 'l', c.encoding) }) + '</div>' +
+          '<div class="row tight">' + wfField('Before each ID', 'itemPrefix', c.itemPrefix, { id: 'wfPrefix', mono: true, placeholder: '&userIds=' }) +
+          wfField('Between IDs', 'separator', c.separator, { id: 'wfSep', mono: true, placeholder: '%2C' }) +
+          wfField('After each ID', 'itemSuffix', c.itemSuffix, { id: 'wfSuffix', mono: true }) + '</div>' +
+          '<p class="hint" style="margin-top:-6px">Examples: users=1%2C2%2C3 → between IDs <code>%2C</code>. &amp;userIds=1&amp;userIds=2 → before each ID <code>&amp;userIds=</code>, between IDs empty. People without an identifier are left out and listed as a warning.</p>';
+      }
+      $('wfEditor').innerHTML = h;
+    }
+
+    /** Copies an input's value into the selected column; structural changes re-render the editor. */
+    function wfSet(el) {
+      var c = wfCol(), k = el.dataset.k;
+      var v = el.type === 'checkbox' ? el.checked : el.value;
+      if (k === 'dayOffset') v = Number(v);
+      if (k === 'roles') v = String(v).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      c[k] = v; // every column carries all settings (normalized by the server), so changing the type loses nothing
+      wfDirty();
+      if (['type', 'roleMode', 'timeMode', 'tagMode', 'dayOffset'].indexOf(k) >= 0) { wfRenderEditor(); var f = $('wf_' + k); if (f) f.focus(); }
+      if (k === 'header' || k === 'type' || k === 'dayOffset') wfRenderList();
+    }
+    function wfLists() { var c = wfCol(); c.teamIds = checkedData('wteam'); c.activityTypes = checkedData('wtype'); wfDirty(); }
+    function wfInsert(id, p) {
+      var el = $(id), token = '{' + p + '}';
+      var s = el.selectionStart === null || el.selectionStart === undefined ? el.value.length : el.selectionStart, e = el.selectionEnd || s;
+      el.value = el.value.slice(0, s) + token + el.value.slice(e);
+      el.focus(); el.setSelectionRange(s + token.length, s + token.length);
+      wfSet(el);
+    }
+    function wfAdd() {
+      var c = JSON.parse(JSON.stringify(wf.boot.defaultColumn));
+      c.header = 'Column_' + (wf.config.columns.length + 1);
+      wf.config.columns.splice(wf.sel + 1, 0, c);
+      wfSelect(wf.config.columns.length > 1 ? wf.sel + 1 : 0); wfDirty();
+      focusFirst('wfEditor');
+    }
+    function wfDuplicate() {
+      if (!wfCol()) return;
+      var c = JSON.parse(JSON.stringify(wfCol()));
+      c.header = c.header + '_copy';
+      wf.config.columns.splice(wf.sel + 1, 0, c);
+      wfSelect(wf.sel + 1); wfDirty();
+    }
+    function wfRemove() {
+      if (!wfCol()) return;
+      wf.config.columns.splice(wf.sel, 1);
+      wf.sel = Math.max(0, Math.min(wf.sel, wf.config.columns.length - 1));
+      wfRenderList(); wfRenderEditor(); wfDirty();
+      showStatus('info', 'Nothing is saved until you click Save or Save and write row. Close the dialog without saving to undo.', 'Column removed');
+    }
+    function wfMove(d) {
+      var j = wf.sel + d, cols = wf.config.columns;
+      if (j < 0 || j >= cols.length) return;
+      var t = cols[wf.sel]; cols[wf.sel] = cols[j]; cols[j] = t;
+      wfSelect(j); wfDirty();
+    }
+
+    function wfRenderResult(p) {
+      wf.last = p;
+      var kindOf = { TEXT: '', DATE: '', ROSTER: 'shift', URL: 'info' };
+      $('wfResult').innerHTML = renderReport(p.report) + p.columns.map(function (c, i) {
+        var meta = c.type === 'ROSTER' ? badge('', c.lines + ' line(s)') : c.type === 'URL' ? badge('', c.ids + ' ID(s)') + (c.missing.length ? ' ' + badge('warn', c.missing.length + ' missing') : '') : '';
+        return '<div class="wf-col"><div class="panel-head"><h3>' + esc(c.header) + '</h3>' + badge(kindOf[c.type], wf.boot.columnTypes[c.type]) +
+          (c.type === 'TEXT' ? '' : ' <span class="small muted">' + esc(c.date) + '</span>') + ' ' + meta +
+          '<button type="button" class="btn ghost sm" onclick="wfCopy(' + i + ', this)">Copy</button></div>' +
+          '<pre class="wf-value">' + esc(p.values[i]) + '</pre></div>';
+      }).join('');
+    }
+    function wfCopy(i, btn) {
+      var ta = document.createElement('textarea');
+      ta.value = wf.last.values[i]; document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      btn.textContent = ok ? 'Copied ✓' : 'Copy failed — select the text';
+      setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+    }
+    function wfCheck() {
+      if (!$('wfDate').value) { fieldError('wfDate', 'Choose a date.'); return false; }
+      fieldError('wfDate', '');
+      if (!wf.config.columns.length) { showStatus('fatal', 'Add at least one column.', 'Nothing to write'); return false; }
+      return true;
+    }
+    function wfPreview() {
+      if (!wfCheck()) return;
+      call('Building the message…', 'apiWorkflowPreview', wf.config, $('wfDate').value).then(function (p) {
+        wfRenderResult(p);
+        showStatus(p.canWrite ? 'ok' : 'fatal', p.canWrite ? 'Nothing was written. Click <b>Save and write row</b> to update "' + esc(p.sheetName) + '".' : 'Fix the problems below, then preview again.',
+          p.canWrite ? 'Preview for ' + p.runDate : 'The message cannot be written yet');
+      });
+    }
+    function wfSave() {
+      call('Saving…', 'apiWorkflowSaveConfig', wf.config).then(function (c) {
+        wf.config = c; wfRenderList(); wfRenderEditor();
+        showStatus('ok', 'A daily trigger for generateSlackWorkflowMessage uses these columns.', 'Workflow message columns saved');
+      });
+    }
+    function wfGenerate() {
+      if (!wfCheck()) return;
+      call('Saving and writing the row…', 'apiWorkflowGenerate', wf.config, $('wfDate').value).then(function (p) {
+        wfRenderResult(p);
+        showStatus('ok', 'Row 2 of "' + esc(p.written.sheet) + '" now holds the message for ' + esc(p.runDate) + ' (' + p.written.columns + ' columns). Nothing was sent to Slack. ' +
+          '<button type="button" class="btn sm" onclick="wfOpen()">Open the sheet</button>', 'Saved and written');
+      });
+    }
+    function wfOpen() { call('Opening…', 'apiWorkflowOpenSheet', wf.config.sheetName).then(closeDialog); }
+
     init();
   </script>
 </body>

@@ -836,9 +836,9 @@ function unitTestsV111_() {
 
 function unitTestsV112_() {
   return [
-    ['v1.1.2: a 1.1.1 spreadsheet needs no upgrade; older versions still do', function () {
-      assertEq_(APP.VERSION, '1.1.2');
-      assertEq_([versionNeedsUpgrade_('1.1.2'), versionNeedsUpgrade_('1.1.1')], [false, false]);
+    ['v1.1.2/1.1.3: 1.1.1 and 1.1.2 spreadsheets need no upgrade; older versions still do', function () {
+      assertEq_(APP.VERSION, '1.1.3');
+      assertEq_([versionNeedsUpgrade_('1.1.3'), versionNeedsUpgrade_('1.1.2'), versionNeedsUpgrade_('1.1.1')], [false, false, false]);
       assertEq_([versionNeedsUpgrade_('1.1.0'), versionNeedsUpgrade_('1.0.0'), versionNeedsUpgrade_(''), versionNeedsUpgrade_(undefined)], [true, true, true, true]);
     }],
     ['v1.1.2: payload summary counts distinct employees (ID first, else normalized name)', function () {
@@ -849,8 +849,131 @@ function unitTestsV112_() {
   ];
 }
 
+/** Fixture for the Slack Workflow message (v1.1.3): one team day with agents, a shift lead, a meeting and overnight shifts. */
+function workflowInput_(columns, over) {
+  var rec = function (id, name, date, start, end, cat, type, team) {
+    return { recordKey: 'K_' + id + '_' + start.replace(/\D/g, ''), teamId: team || 'TEAM_001', shiftDate: date, employeeId: id, employeeName: name,
+      shiftStart: start, shiftEnd: end, recordStatus: 'ACTIVE', activityCategory: cat || 'SHIFT', shiftType: type || 'Customer Support' };
+  };
+  var staff = {
+    E1: { employeeId: 'E1', employeeName: 'Ann Lee', active: true, fields: { role: 'Agent', 'field:aircall': 'A1', 'field:slack': 'U1' } },
+    E2: { employeeId: 'E2', employeeName: 'Bob Ray', active: true, fields: { role: 'Agent' } },
+    E3: { employeeId: 'E3', employeeName: 'Cy Moe', active: true, fields: { role: 'Shift Lead', 'field:aircall': 'A3' } },
+    E4: { employeeId: 'E4', employeeName: 'Dee Fox', active: true, fields: { role: 'Agent', 'field:aircall': 'D 4' } },
+    E5: { employeeId: 'E5', employeeName: 'Eve Kim', active: true, fields: { role: 'Agent' } },
+    E6: { employeeId: 'E6', employeeName: 'Fay Ng', active: true, fields: { role: 'Agent' } },
+    E7: { employeeId: 'E7', employeeName: 'Gus Old', active: false, fields: { role: 'Agent' } }
+  };
+  var input = {
+    cfg: normalizeWorkflowConfig_({ sheetName: 'Slack Workflow', columns: columns }), runDate: '2026-10-15',
+    records: [
+      rec('E1', 'Ann Lee', '2026-10-15', '2026-10-15 08:00', '2026-10-15 12:00'),
+      rec('E1', 'Ann Lee', '2026-10-15', '2026-10-15 12:30', '2026-10-15 16:00'),
+      rec('E1', 'Ann Lee', '2026-10-15', '2026-10-15 10:00', '2026-10-15 10:30', 'MEETING', 'Team Meeting'),
+      rec('E2', 'Bob Ray', '2026-10-15', '2026-10-15 14:00', '2026-10-15 22:00'),
+      rec('E3', 'Cy Moe', '2026-10-15', '2026-10-15 07:00', '2026-10-15 15:00'),
+      rec('E4', 'Dee Fox', '2026-10-15', '2026-10-15 23:40', '2026-10-16 08:00'),
+      rec('E5', 'Eve Kim', '2026-10-14', '2026-10-14 17:00', '2026-10-15 01:00'),
+      rec('E6', 'Fay Ng', '2026-10-15', '2026-10-15 09:00', '2026-10-15 17:00', 'SHIFT', 'Customer Support', 'TEAM_002'),
+      rec('E7', 'Gus Old', '2026-10-15', '2026-10-15 06:00', '2026-10-15 14:00'),
+      rec('X9', 'Not In Staff', '2026-10-15', '2026-10-15 06:30', '2026-10-15 10:00')
+    ],
+    teamsById: { TEAM_001: { teamId: 'TEAM_001', teamName: 'Alpha' }, TEAM_002: { teamId: 'TEAM_002', teamName: 'Beta' } },
+    allTeamIds: ['TEAM_001'],
+    resolve: function (t, r) { var s = staff[r.employeeId]; return { staff: s || null, member: !!s, role: s ? s.fields.role : '' }; },
+    fieldOf: function (s, key) { return key === 'employeeId' ? s.employeeId : (s.fields[key] || ''); },
+    slackIdOf: function (s) { return s.fields['field:slack'] || ''; },
+    displayTemplate: '@{EMPLOYEE_NAME}',
+    formatDate: function (iso, fmt) { return fmt.replace('yyyy', iso.substr(0, 4)).replace('MM', iso.substr(5, 2)).replace('dd', iso.substr(8, 2)); }
+  };
+  Object.keys(over || {}).forEach(function (k) { input[k] = over[k]; });
+  return input;
+}
+
+function wfValues_(columns, over) {
+  var r = buildWorkflowMessage_(workflowInput_(columns, over));
+  if (r.report.fatal.length) throw new Error('Unexpected fatal: ' + r.report.fatal.join(' | '));
+  return r.values;
+}
+
+function unitTestsV113_() {
+  var agents = { header: 'Agents', type: 'ROSTER', roleMode: 'EXCLUDE', roles: ['Shift Lead'] };
+  var col = function (extra) { var c = JSON.parse(JSON.stringify(agents)); Object.keys(extra).forEach(function (k) { c[k] = extra[k]; }); return c; };
+  return [
+    ['v1.1.3 message: one row; agents merged per person, sorted by start; shift leads, meetings, text and date columns', function () {
+      var r = buildWorkflowMessage_(workflowInput_([
+        { header: 'Key', type: 'TEXT', text: 'DAILY' }, { header: 'Header_Date', type: 'DATE', dateFormat: 'yyyy. MM. dd' },
+        { header: 'Shift_Leads', type: 'ROSTER', roleMode: 'ONLY', roles: ['shift lead'] }, agents,
+        { header: 'Meetings', type: 'ROSTER', category: 'MEETING', merge: false, lineTemplate: '{START_TIME} - {END_TIME} — {DISPLAY} ({ACTIVITY})' }
+      ]));
+      assertEq_(r.report.fatal, []);
+      assertEq_(r.headers, ['Key', 'Header_Date', 'Shift_Leads', 'Agents', 'Meetings']);
+      assertEq_(r.values[0], 'DAILY');
+      assertEq_(r.values[1], '2026. 10. 15');
+      assertEq_(r.values[2], '07:00 - 15:00 — @Cy Moe', 'role match ignores case');
+      assertEq_(r.values[3].split('\n'), ['06:30 - 10:00 — @Not In Staff', '08:00 - 16:00 — @Ann Lee', '14:00 - 22:00 — @Bob Ray', '23:40 - 08:00 — @Dee Fox'],
+        'inactive excluded, other team excluded, split shift merged, overnight kept, meeting not in the shift list');
+      assertEq_(r.values[4], '10:00 - 10:30 — @Ann Lee (Team Meeting)');
+    }],
+    ['v1.1.3 message: time rules (window, across a time, past midnight, yesterday, starts before) and tags', function () {
+      var v = wfValues_([
+        col({ header: 'Aircall', timeMode: 'OVERLAPS', timeFrom: '08:00', timeTo: '14:00', onlyMembers: true }),
+        col({ header: 'At14', timeMode: 'COVERS', timeFrom: '14:00', lineTemplate: '{DISPLAY}' }),
+        col({ header: 'Late', timeMode: 'ENDS_AFTER', timeFrom: '24:30', lineTemplate: '{DISPLAY}' }),
+        col({ header: 'YesterdayLate', dayOffset: -1, timeMode: 'ENDS_AFTER', timeFrom: '24:30', lineTemplate: '{DISPLAY}' }),
+        col({ header: 'Morning', timeMode: 'STARTS_BEFORE', timeFrom: '14:00', lineTemplate: '{DISPLAY}', onlyMembers: true }),
+        col({ header: 'Tagged', onlyMembers: true, tagText: ':aircall:', tagMode: 'COVERS', tagFrom: '14:00' })
+      ]);
+      assertEq_(v[0], '08:00 - 16:00 — @Ann Lee', 'only Ann works inside 08–14 (Bob starts at 14:00); unknown employee excluded');
+      assertEq_(v[1], '@Ann Lee');
+      assertEq_(v[2], '@Dee Fox', 'overnight shift ends 08:00 the next day');
+      assertEq_(v[3], '@Eve Kim', 'yesterday 17:00–01:00');
+      assertEq_(v[4], '@Ann Lee');
+      assertEq_(v[5].split('\n')[0], '08:00 - 16:00 — @Ann Lee :aircall:');
+      assertEq_(v[5].split('\n')[1], '14:00 - 22:00 — @Bob Ray', 'no tag, no trailing space');
+    }],
+    ['v1.1.3 message: one dashboard link with all IDs (joined, prefixed, encoded); missing IDs reported, never invented', function () {
+      var r = buildWorkflowMessage_(workflowInput_([
+        col({ header: 'Aircall_URL', type: 'URL', urlTemplate: 'https://calls.example/live?users={IDS}', identifierField: 'field:aircall', separator: '%2C', onlyMembers: true }),
+        col({ header: 'Converse_URL', type: 'URL', urlTemplate: 'https://chat.example/team?page=1{IDS}', identifierField: 'field:aircall', itemPrefix: '&userIds=', separator: '', onlyMembers: true }),
+        col({ header: 'Late_URL', type: 'URL', urlTemplate: 'https://calls.example/live?users={IDS}&n={COUNT}', identifierField: 'field:aircall', timeMode: 'STARTS_FROM', timeFrom: '15:00', onlyMembers: true }),
+        col({ header: 'Split_URL', type: 'URL', urlTemplate: 'https://calls.example/live?users={IDS}', identifierField: 'field:aircall', merge: false, timeMode: 'STARTS_BEFORE', timeFrom: '13:00', onlyMembers: true })
+      ]));
+      assertEq_(r.report.fatal, []);
+      assertEq_(r.values[3], 'https://calls.example/live?users=A1', 'an ID appears once even when the person has two assignments');
+      assertEq_(r.values[0], 'https://calls.example/live?users=A1%2CD%204');
+      assertEq_(r.values[1], 'https://chat.example/team?page=1&userIds=A1&userIds=D%204');
+      assertEq_(r.values[2], 'https://calls.example/live?users=D%204&n=1');
+      assertEq_(r.columns[0].missing, ['Bob Ray']);
+      assert_(r.report.warnings.some(function (w) { return /Aircall_URL.*Bob Ray/.test(w); }), 'missing ID warned');
+    }],
+    ['v1.1.3 message: per-assignment lines, Slack mention, empty text', function () {
+      var v = wfValues_([
+        col({ header: 'Split', merge: false, lineTemplate: '{START_TIME}-{END_TIME} {MENTION}', onlyMembers: true, timeMode: 'STARTS_BEFORE', timeFrom: '13:00' }),
+        col({ header: 'Nobody', dayOffset: 2, emptyText: 'No agents scheduled' })
+      ]);
+      assertEq_(v[0].split('\n'), ['08:00-12:00 <@U1>', '12:30-16:00 <@U1>']);
+      assertEq_(v[1], 'No agents scheduled');
+    }],
+    ['v1.1.3 message: configuration errors block generation', function () {
+      var r = buildWorkflowMessage_(workflowInput_([
+        { header: '', type: 'TEXT' }, { header: 'A', type: 'TEXT' }, { header: 'a', type: 'TEXT' },
+        { header: 'U', type: 'URL', urlTemplate: 'https://x.example/?ids=' },
+        { header: 'R', type: 'ROSTER', roleMode: 'ONLY', roles: [] },
+        { header: 'T', type: 'ROSTER', timeMode: 'OVERLAPS', timeFrom: '14:00', timeTo: '08:00' },
+        { header: 'P', type: 'ROSTER', lineTemplate: '{NOPE}' }
+      ]));
+      var f = r.report.fatal.join(' | ');
+      ['enter a header', 'used twice', '{IDS}', 'list the roles', 'end time after', '{NOPE}'].forEach(function (s) { assert_(f.indexOf(s) >= 0, 'expected "' + s + '" in ' + f); });
+      assertEq_(r.values, []);
+      assertEq_(validateWorkflowConfig_(normalizeWorkflowConfig_({ sheetName: '_X', columns: [{ header: 'A', type: 'TEXT' }] })).fatal.length, 1, 'internal sheet name refused');
+      assertEq_(normalizeWorkflowConfig_({}).columns.length, 5, 'starter configuration');
+    }]
+  ];
+}
+
 function runUnitTests() {
-  return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_()));
+  return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_()).concat(unitTestsV113_()));
 }
 
 /** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */
@@ -1136,6 +1259,30 @@ function runIntegrationTests() {
       assert_(formulas.some(function (f) { return /^=LEFT\(\$[A-Z]+7,7\)="Meeting"$/.test(f); }), 'meeting row rule present: ' + formulas.join(' | '));
       assert_(!apiViewerRender('NO_SUCH_TEAM', '', null).ok, 'unknown team is refused');
     }],
+    ['v1.1.3: workflow message is written as one row; the trigger entry point uses the saved configuration', function () {
+      var team = getTeam_(ctx.teams.alpha.teamId);
+      ctx.savedMessage = getConfig_().SLACK_MESSAGE_CONFIG;
+      var name = IT_PREFIX_ + 'Workflow';
+      var cfg = { sheetName: name, columns: [
+        { header: 'Key', type: 'TEXT', text: 'DAILY' },
+        { header: 'Header_Date', type: 'DATE', dateFormat: 'yyyy. MM. dd' },
+        { header: 'Agents', type: 'ROSTER', teamIds: [team.teamId], emptyText: 'No agents scheduled' }] };
+      var prev = apiWorkflowPreview(cfg, '2026-10-15');
+      assert_(prev.ok, prev.error && prev.error.message);
+      var agents = prev.data.values[2];
+      assert_(/^\d\d:\d\d - \d\d:\d\d — @/.test(agents), 'agents listed: ' + agents);
+      assert_(!ss.getSheetByName(name), 'preview writes nothing');
+      var gen = apiWorkflowGenerate(cfg, '2026-10-15');
+      assert_(gen.ok, gen.error && gen.error.message);
+      var sh = ss.getSheetByName(name);
+      assertEq_(sh.getRange(1, 1, 1, 3).getValues()[0], ['Key', 'Header_Date', 'Agents']);
+      assertEq_(sh.getRange(2, 1, 1, 3).getValues()[0], ['DAILY', '2026. 10. 15', agents]);
+      assert_(!apiWorkflowGenerate({ sheetName: name, columns: [{ header: 'U', type: 'URL', urlTemplate: 'ftp://x/{IDS}' }] }, '2026-10-15').ok, 'invalid configuration refused');
+      assertEq_(sh.getRange(1, 1).getValue(), 'Key', 'a refused run leaves the sheet as it was');
+      var r = generateSlackWorkflowMessage();
+      assertEq_([r.sheet, r.columns], [name, 3]);
+      assertEq_(sh.getRange(2, 1).getValue(), 'DAILY');
+    }],
     ['18. Recover from a missing team worksheet', function () {
       var team = getTeam_(ctx.teams.beta.teamId);
       ss.deleteSheet(resolveTeamSheet_(team, 'schedule'));
@@ -1191,6 +1338,9 @@ function itCleanup_(ctx) {
       replaceAllRows_(tt.sheet, def, tt.header, rows, tt.lastRow);
     });
     if (ctx.savedSlack) setConfigValues_({ SLACK_PAYLOAD_CONFIG: ctx.savedSlack.p, DASHBOARD_URL_CONFIG: ctx.savedSlack.u });
+    if (ctx.savedMessage !== undefined) setConfigValues_({ SLACK_MESSAGE_CONFIG: ctx.savedMessage });
+    var wfSheet = getSs_().getSheetByName(IT_PREFIX_ + 'Workflow');
+    if (wfSheet) getSs_().deleteSheet(wfSheet);
     var fieldRows = listStaffFields_().filter(function (f) { return f.displayName.indexOf(IT_PREFIX_) === 0; }).map(function (f) { return f._row; });
     if (fieldRows.length) deleteSheetRows_(requireSheet_(T_STAFF_FIELDS.sheet), fieldRows);
     rebuildSheetIndex_();

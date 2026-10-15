@@ -480,3 +480,30 @@ Status is always written in text (badge text, alert title or icon glyph), never 
 **Meeting shading.** `layoutScheduleSheet_` adds a row rule that shades a row when its Flags text starts with "Meeting", or when its Category is "Meeting". The rule is applied when a sheet is created, rebuilt or repaired.
 
 **Static checks.** `tests/run-ui-checks.js` enforces the conventions that keep controls connected and labelled. Run it after every UI change.
+## 11. Slack Workflow message (v1.1.3)
+
+`SlackMessageService.gs` produces **one row**: headers in row 1 and values in row 2 of an output sheet (default `Slack Workflow`, never a `_` sheet). It is the configurable successor of the old hardcoded `daily_wf` script.
+
+**Pipeline.** `prepareWorkflowMessage_(cfg, runDate)` collects data and calls the pure builder `buildWorkflowMessage_`. `writeWorkflowMessage_` then rewrites rows 1–2 as plain text, so values are never read as formulas.
+
+1. **Collect:** the schedule records of the teams and days the columns need (`queryScheduleRecords_`), and each team's staff index.
+2. **Resolve each record:** staff match (`matchEmployee_`), membership, and role. The role is the team role from `_TEAM_MEMBERSHIP`, otherwise the staff Role column, otherwise the role from the export.
+3. **Select per column:** day = run date + `dayOffset`; then team, category, activity type, eligibility and role filters, per assignment.
+4. **Merge and filter by time:** assignments are merged per person (earliest start, latest end), unless `merge` is off. The time rule then runs on the merged span, in minutes from 00:00 of that day, so overnight shifts and `24:30`-style times work.
+5. **Render:**
+   - a list column becomes lines from the line template, sorted by start time, then name;
+   - a link column becomes `{IDS}` = each distinct identifier as before + encoded ID + after, joined with the separator;
+   - missing identifiers are reported and left out.
+
+**Validation (refuses to write):**
+- headers missing or used twice;
+- unsupported placeholders;
+- a link without `{IDS}`, or not http(s);
+- invalid times;
+- a role filter with no roles;
+- unknown teams or identifier fields;
+- a value over 49,000 characters.
+
+**Triggers.** `generateSlackWorkflowMessage()` is a plain entry point for a time-driven trigger that the administrator adds; the code never creates triggers. A single function writes every column, so morning and evening runs never overwrite each other's columns.
+
+**Configuration** is the `SLACK_MESSAGE_CONFIG` key in `_CONFIG` (JSON): `{sheetName, columns[]}`. When the key is missing, `getConfig_` supplies `{}`, which normalizes to the five starter columns.

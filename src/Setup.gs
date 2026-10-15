@@ -84,7 +84,7 @@ function initializeSystem_() {
   if (getConfig_().SYSTEM_VERSION !== APP.VERSION) {
     setConfigValues_({ SYSTEM_VERSION: APP.VERSION });
     actions.push(APP.COMPATIBLE_VERSIONS.indexOf(fromVersion) >= 0
-      ? 'Recorded version ' + APP.VERSION + ' (from ' + fromVersion + '; no data or configuration changes were needed).'
+      ? 'Recorded version ' + APP.VERSION + ' (from ' + fromVersion + '; no team, staff or schedule data was changed).'
       : 'Upgraded the system from version ' + (fromVersion || '1.0.0') + ' to ' + APP.VERSION + '.');
   }
 

@@ -148,41 +148,47 @@ check('no duplicate columns or sheets', (() => {
 })());
 
 /* ------------------------------------------------------------------------ */
-/* Scenario C: v1.1.1 -> v1.1.2 (UI-only release: no migration needed)      */
+/* Scenario C: v1.1.1 / v1.1.2 -> current (UI release + one new config key; no data migration) */
 /* ------------------------------------------------------------------------ */
-console.log('v1.1.1 -> ' + run('APP.VERSION'));
-const g3 = makeGlobals('Europe/Stockholm');
-const ss3 = g3.spreadsheet;
-const ctx3 = vm.createContext(g3.globals);
-fs.readdirSync(SRC).filter((f) => f.endsWith('.gs')).sort().forEach((f) => vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx3, { filename: f }));
-const run3 = (code) => vm.runInContext(code, ctx3);
-run3(`
-  initializeSystem_();
-  var type = listTeamTypes_(false)[0];
-  var team = createTeam_({ teamName: 'Current Team', typeMode: 'EXISTING', teamTypeId: type.typeId }).team;
-  itImport_({ teams: {}, imports: [] }, 'Employee ID,Employee Name,Date,Start,End\\nE1,Ann Lee,2026-10-15,08:00,16:00', team.teamId, 'UPDATE');
-  setConfigValues_({ SYSTEM_VERSION: '1.1.1' });
-  resetConfigMemo_();
-`);
-const snapshot3 = () => run3(`JSON.stringify({
-  teams: readTable_(T_TEAMS).rows.map(function (t) { return [t.teamId, t.settings]; }),
-  types: readTable_(T_TEAM_TYPES).rows.map(function (t) { return [t.typeId, t.staffFields, t.display]; }),
-  records: readAllScheduleRecords_().records.map(function (r) { return [r.recordKey, r.shiftStart, r.shiftEnd]; }),
-  cfg: readTable_(T_CONFIG).rows.filter(function (r) { return r.key !== 'SYSTEM_VERSION'; }).map(function (r) { return [r.key, r.value]; }),
-  sheets: getSs_().getSheets().map(function (s) { return s.getName(); })
-})`);
-const before3 = snapshot3();
-let code3 = 'OK';
-try { run3('requireInitialized_()'); } catch (e) { code3 = e.code; }
-check('v1.1.1 spreadsheet keeps working without an upgrade', code3 === 'OK', code3);
-check('setup dialog does not ask for an upgrade', run3('getSetupState_().needsUpgrade') === false);
-const acts3 = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
-console.log('    setup actions:\n      - ' + acts3.join('\n      - '));
-check('setup only records the new version', acts3.length === 1 && /^Recorded version 1\.1\.2 .*no data or configuration changes/.test(acts3[0]), acts3.join(' | '));
-check('version recorded', run3('getConfig_().SYSTEM_VERSION') === '1.1.2');
-check('teams, types, records, configuration and sheets unchanged', snapshot3() === before3);
-const acts3b = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
-check('second setup run changes nothing', acts3b.length === 0, acts3b.join(' | '));
+['1.1.1', '1.1.2'].forEach((fromVersion) => {
+  console.log('v' + fromVersion + ' -> ' + run('APP.VERSION'));
+  const g3 = makeGlobals('Europe/Stockholm');
+  const ctx3 = vm.createContext(g3.globals);
+  fs.readdirSync(SRC).filter((f) => f.endsWith('.gs')).sort().forEach((f) => vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx3, { filename: f }));
+  const run3 = (code) => vm.runInContext(code, ctx3);
+  run3(`
+    initializeSystem_();
+    var type = listTeamTypes_(false)[0];
+    var team = createTeam_({ teamName: 'Current Team', typeMode: 'EXISTING', teamTypeId: type.typeId }).team;
+    itImport_({ teams: {}, imports: [] }, 'Employee ID,Employee Name,Date,Start,End\\nE1,Ann Lee,2026-10-15,08:00,16:00', team.teamId, 'UPDATE');
+    var key = readTable_(T_CONFIG).rows.filter(function (r) { return r.key === 'SLACK_MESSAGE_CONFIG'; })[0];
+    deleteSheetRows_(requireSheet_(T_CONFIG.sheet), [key._row]); // that key did not exist before 1.1.3
+    setConfigValues_({ SYSTEM_VERSION: '${fromVersion}' });
+    resetConfigMemo_();
+  `);
+  const snapshot3 = () => run3(`JSON.stringify({
+    teams: readTable_(T_TEAMS).rows.map(function (t) { return [t.teamId, t.settings]; }),
+    types: readTable_(T_TEAM_TYPES).rows.map(function (t) { return [t.typeId, t.staffFields, t.display]; }),
+    records: readAllScheduleRecords_().records.map(function (r) { return [r.recordKey, r.shiftStart, r.shiftEnd]; }),
+    cfg: readTable_(T_CONFIG).rows.filter(function (r) { return r.key !== 'SYSTEM_VERSION' && r.key !== 'SLACK_MESSAGE_CONFIG'; }).map(function (r) { return [r.key, r.value]; }),
+    sheets: getSs_().getSheets().map(function (s) { return s.getName(); })
+  })`);
+  const before3 = snapshot3();
+  let code3 = 'OK';
+  try { run3('requireInitialized_()'); } catch (e) { code3 = e.code; }
+  check(fromVersion + ' spreadsheet keeps working without an upgrade', code3 === 'OK', code3);
+  check('setup dialog does not ask for an upgrade', run3('getSetupState_().needsUpgrade') === false);
+  check('workflow message works before Setup (starter columns from the default)', run3('loadWorkflowConfig_().columns.length') === 5);
+  const acts3 = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
+  console.log('    setup actions:\n      - ' + acts3.join('\n      - '));
+  check('setup only adds the new key and records the version', acts3.length === 2 && /^Added 1 missing configuration key/.test(acts3[0]) &&
+    /^Recorded version 1\.1\.3 \(from /.test(acts3[1]), acts3.join(' | '));
+  check('version recorded', run3('getConfig_().SYSTEM_VERSION') === '1.1.3');
+  check('new key added with an empty value', run3('getConfig_().SLACK_MESSAGE_CONFIG') === '{}');
+  check('teams, types, records, other configuration and sheets unchanged', snapshot3() === before3);
+  const acts3b = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
+  check('second setup run changes nothing', acts3b.length === 0, acts3b.join(' | '));
+});
 
 console.log(failed ? failed + ' migration check(s) FAILED' : 'Migration test: all checks passed');
 process.exit(failed ? 1 : 0);

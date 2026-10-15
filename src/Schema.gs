@@ -10,11 +10,12 @@
 
 var APP = Object.freeze({
   NAME: 'Schedule Manager',
-  VERSION: '1.1.2',
+  VERSION: '1.1.3',
   MENU: 'Schedule Manager',
   // Stored versions whose sheets and configuration need no migration for this code
-  // (1.1.2 changed only the user interface). Setup still records the new version.
-  COMPATIBLE_VERSIONS: Object.freeze(['1.1.1'])
+  // (1.1.2 changed only the user interface; 1.1.3 adds one configuration key, which is
+  // read with its default until Setup adds it). Setup still records the new version.
+  COMPATIBLE_VERSIONS: Object.freeze(['1.1.1', '1.1.2'])
 });
 
 /** True when a spreadsheet stored with this version must run Setup → Upgrade first. */

@@ -1,5 +1,77 @@
 # Changelog
 
+## 1.1.3 — Slack Workflow message (one combined row)
+
+The logic of the earlier "daily plan" script (`daily_wf`), rebuilt on the normalized schedule data. Teams, roles, times, URLs and IDs are now settings, not code.
+
+### What it produces
+
+- **One row** in an output sheet (default `Slack Workflow`): headers in row 1, values in row 2. A Slack Workflow reads it with "Select a spreadsheet row", for example where `Key` = `DAILY`.
+- **Column types:**
+
+| Type | Value |
+|---|---|
+| Fixed text | Exactly what you type, e.g. `DAILY` |
+| Date | The run date ± days, in any `Utilities.formatDate` format (e.g. `yyyy. MM. dd`) |
+| Schedule list | One line per person, sorted by start time, e.g. `08:00 - 16:00 — @Ann Lee :aircall:` |
+| Dashboard link | One URL with the identifiers of everyone who matches, e.g. `…users=1%2C2%2C3` or `…&userIds=1&userIds=2` |
+
+- **Filters for lists and links:**
+  - teams (none ticked = all active teams);
+  - day (yesterday, today, tomorrow, up to ±7 days);
+  - shifts, meetings or both;
+  - activity types;
+  - roles: everyone, only these roles, or everyone except them. Roles come from the team role in a shared directory, then the staff Role column, then the export;
+  - inactive employees and people missing from the staff directory;
+  - a time rule: works during part of a window, works across a time, starts before, starts at or after, or ends after. `24:30` means 00:30 the next day.
+- **Lines:**
+  - one line per person (earliest start to latest end, like the old script) or one per assignment;
+  - an editable template with `{START_TIME} {END_TIME} {DISPLAY} {MENTION} {EMPLOYEE_NAME} {TEAM_NAME} {ACTIVITY} {ROLE} {TAG} {DATE}`;
+  - a tag appended to lines that match their own time rule;
+  - a text for "nobody matches".
+- **Mentions:** `{MENTION}` is a real Slack mention (`<@U…>`) when the payload configuration names a staff field holding Slack user IDs and the person has one. Otherwise it falls back to the display value (`@Name`), which Slack shows as text only.
+- **Links:**
+  - text before each ID, between IDs and after each ID;
+  - encoding;
+  - each ID appears once;
+  - people without an ID are left out and listed in a warning, never guessed.
+
+### Mapping the old script
+
+| Old `daily_wf` column | New column setting |
+|---|---|
+| NOR_SL / NOR_Agents / SWE_Agents / LUX_Agents | Schedule list; team; People = only / except "Shift Lead" |
+| NOR_Aircall_Tag | Schedule list; except Shift Lead; Works across a time 14:00; line `{DISPLAY}` |
+| NOR_Late_Shifts / NOR_Yesterday_Late_Shifts | Schedule list; Ends after 24:30; Day = today / yesterday; line `{DISPLAY}` |
+| NOR_Tomorrow_Aircall_Agents | Schedule list; Day = tomorrow; Starts before 14:00; line `{DISPLAY}` |
+| Meetings_Trainings | Schedule list; Include = meetings (add training types under Activity types); per assignment; line `… ({ACTIVITY})` |
+| `:aircall:` suffix | Tag `:aircall:`, with a time rule |
+| *_Converse / *_Aircall / *_Astra URLs | Dashboard link with `{IDS}`; identifier field = your Aircall/Converse/Astra staff field; separator `%2C` or prefix `&userIds=`; time filter (e.g. 08:00–14:00) and roles as needed |
+
+### Running it
+
+- **Manually:** *Slack Workflow Automation → Workflow Message (one row for Slack)*. Edit the columns, preview with a copy button per column, then **Save and write row**.
+- **Daily:** add a time-driven trigger for `generateSlackWorkflowMessage` yourself (*Extensions → Apps Script → Triggers*). It uses the saved columns and today's date.
+  - Schedule Manager still never creates triggers.
+  - One function writes all columns, so a morning and an evening trigger can no longer overwrite each other's columns (the old P2/Q2 problem).
+
+### Other changes
+
+- New file `SlackMessageService.gs`.
+- `SlackDialog.html` has a new first tab.
+- `Main.gs`: new menu item; `checkInstall` now expects 21 script files.
+- New configuration key `SLACK_MESSAGE_CONFIG`.
+- **Upgrade:** 1.1.1 and 1.1.2 spreadsheets keep working without one. Until Setup runs, the key is read with its default; Setup then adds it ("Added 1 missing configuration key") and records 1.1.3. No team, staff or schedule data changes.
+
+### Tests
+
+| Suite | What it covers |
+|---|---|
+| Unit tests (5 new) | Merging and sorting, overnight shifts, every time rule, yesterday and tomorrow, roles, tags, mentions, links (join, prefix, encoding, one ID once, missing IDs), empty text, configuration errors |
+| Mutation check | The new tests were run against a copy with three planted bugs (sorting, the "across a time" rule, duplicate IDs). All three were caught, after one test was added for the duplicate-ID case |
+| Integration test (1 new) | Preview writes nothing; the row is written; an invalid configuration is refused; the trigger entry point uses the saved columns |
+| Upgrade test | Scenario C now starts from 1.1.1 and from 1.1.2 |
+
 ## 1.1.2 — User interface overhaul
 
 A UI release. The scheduling engine, import rules, data model and stored configuration are unchanged, so **no migration is needed** (see "Version and upgrade" below).

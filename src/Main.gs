@@ -31,6 +31,7 @@ function onOpen() {
       .addSeparator()
       .addItem('View Staff Directory', 'menuViewStaff'))
     .addSubMenu(ui.createMenu('Slack Workflow Automation')
+      .addItem('Workflow Message (one row for Slack)', 'menuSlackMessage')
       .addItem('Generate Payloads', 'menuSlackGenerate')
       .addItem('Configure Payload Generation', 'menuSlackConfig')
       .addItem('Configure Dashboard URL', 'menuSlackUrl')
@@ -79,7 +80,7 @@ function checkInstall() {
     Schema: 'APP', Utils: 'logError_', SheetStore: 'readTable_', ConfigService: 'getConfig_', Setup: 'initializeSystem_',
     TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
     ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
-    MembershipService: 'readMemberships_', SlackPayloadService: 'buildPayloadPlan_',
+    MembershipService: 'readMemberships_', SlackPayloadService: 'buildPayloadPlan_', SlackMessageService: 'buildWorkflowMessage_',
     ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
     AuditService: 'readImportLog_', Main: 'onOpen', Tests: 'runUnitTests'
   };
@@ -292,6 +293,10 @@ function menuViewStaff() {
 /* ------------------------------------------------------------------------ */
 /* Slack Workflow Automation                                                 */
 /* ------------------------------------------------------------------------ */
+
+function menuSlackMessage() {
+  menuRun_('menuSlackMessage', function () { showHtml_('SlackDialog', 'Slack Workflow Message', { tab: 'message' }, DIALOG_SIZE.LARGE); });
+}
 
 function menuSlackGenerate() {
   menuRun_('menuSlackGenerate', function () { showHtml_('SlackDialog', 'Generate Slack Payloads', { tab: 'generate' }, DIALOG_SIZE.LARGE); });
