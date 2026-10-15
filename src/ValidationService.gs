@@ -103,7 +103,7 @@ function validateData_() {
   Object.keys(orphan).forEach(function (t) {
     rep.info.push(orphan[t] + ' record(s) belong to team ID "' + t + '", which is not registered (deleted team history is kept).');
   });
-  var overlaps = findOverlaps_(active);
+  var overlaps = findConflicts_(active); // meetings inside a shift are expected, not conflicts
   if (overlaps.length) {
     rep.warnings.push(overlaps.length + ' overlapping shift pair(s): ' + overlaps.slice(0, 8).map(function (p) {
       return (p[0].rec.employeeName || p[0].rec.employeeId) + ' ' + p[0].rec.shiftStart + ' / ' + p[1].rec.shiftStart;

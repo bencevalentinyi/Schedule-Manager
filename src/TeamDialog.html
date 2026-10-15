@@ -67,6 +67,15 @@
   <!-- 3. Staff -->
   <section data-step="2" class="hidden">
     <h2>Staff settings</h2>
+    <label>Staff directory</label>
+    <label class="inline"><input type="radio" name="staffMode" value="DEDICATED" checked onchange="staffModeChanged()"> Create a dedicated staff sheet for this team</label>
+    <label class="inline"><input type="radio" name="staffMode" value="SHARED" onchange="staffModeChanged()"> Use an existing staff sheet shared with other teams</label>
+    <div id="sharedBox" class="card hidden">
+      <label for="sharedSheet">Shared staff directory</label>
+      <select id="sharedSheet"></select>
+      <label class="inline"><input type="checkbox" id="addAllMembers"> Make all employees currently in this directory members of this team</label>
+      <p class="small muted">Each employee exists once in the directory. Team membership stays explicit: employees belong to this team only when marked as members (View Staff Directory). Employees of the teams already using the directory keep their membership automatically.</p>
+    </div>
     <p class="muted">Columns of the team's staff sheet. Employee ID, Employee Name and Active are always included. Unticked columns are hidden, never deleted.</p>
     <h3>Identifier and custom fields</h3>
     <div class="checks card" id="registryFields"></div>
@@ -103,8 +112,18 @@
       <input type="file" id="discoverFile" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" onchange="discover()">
       <p class="small muted">Matching is exact after trimming spaces. Shift types that are not selected are never imported for this team.</p>
     </div>
+    <div class="card">
+      <label class="inline"><input type="checkbox" id="importMeetings" onchange="show('meetingBox', this.checked)"> Import meetings</label>
+      <div id="meetingBox" class="hidden">
+        <p class="small muted">Tick the shift/activity types that are meetings. They are imported as separate assignments (category Meeting), even when they overlap a shift. Meetings inside a shift are not added to working hours. Unknown types are never treated as meetings.</p>
+        <div class="types" id="meetingTypes"></div>
+      </div>
+      <p class="small muted">With meeting import off, rows of the meeting types below are excluded and counted in the import preview.</p>
+    </div>
     <details>
-      <summary>Advanced: matching, duplicates, file layout, team aliases</summary>
+      <summary>Advanced: matching, routing, duplicates, file layout, team aliases</summary>
+      <label class="inline"><input type="checkbox" id="useDirectoryRouting"> Use staff directory for employee matching and team routing</label>
+      <p class="small muted">When enabled, imports using "Route by staff directory membership" send a row to this team only if the employee is an active member and the destination is unambiguous.</p>
       <div class="row">
         <div><label for="matchField">Match the export's employee ID against</label><select id="matchField"></select></div>
         <div><label for="nameMatch">When the export has only names</label><select id="nameMatch"></select></div>
@@ -158,6 +177,9 @@
         }), 'k', 'l');
         $('duplicateStrategy').innerHTML = '<option value="">Use the global default (' + esc(d.globalStrategy) + ')</option>' +
           options(Object.keys(d.strategies).map(function (k) { return { k: k, l: d.strategies[k] }; }), 'k', 'l');
+        $('sharedSheet').innerHTML = d.staffDirectories.length ? options(d.staffDirectories.map(function (s) {
+          return { k: s.sheetId, l: s.sheetName + ' — used by ' + s.teams.map(function (t) { return t.teamName; }).join(', ') };
+        }), 'k', 'l') : '<option value="">(no staff directories to share yet)</option>';
         if (editTeam) fillFromTeam(editTeam); else { applyImportDefaults(d.defaults.import); applyTypeDefaults(); }
         if (!d.types.some(function (t) { return t.enabled; }) && !editTeam) { setRadio('typeMode', 'NEW'); typeModeChanged(); }
         go(0);
@@ -255,8 +277,13 @@
     function applyImportDefaults(imp) {
       $('scheduleType').value = imp.scheduleType || 'QUINYX_DAILY';
       setRadio('shiftMode', imp.shiftTypeMode || 'NOT_CONFIGURED');
-      knownTypes = uniqList(knownTypes.concat(imp.knownShiftTypes || []).concat(imp.shiftTypes || []));
+      knownTypes = uniqList(knownTypes.concat(imp.knownShiftTypes || []).concat(imp.shiftTypes || []).concat(imp.meetingTypes || []));
+      meetingSel = (imp.meetingTypes || []).slice();
+      $('meetingTypes').innerHTML = '';
       renderShiftTypes(imp.shiftTypes || []);
+      $('importMeetings').checked = !!imp.importMeetings;
+      show('meetingBox', !!imp.importMeetings);
+      $('useDirectoryRouting').checked = !!imp.useStaffDirectoryRouting;
       $('nameMatch').value = imp.nameMatch || '';
       $('duplicateStrategy').value = imp.duplicateStrategy || '';
       renderMatchOptions(imp.matchField || 'employeeId');
@@ -268,6 +295,19 @@
       $('shiftTypes').innerHTML = knownTypes.length ? knownTypes.map(function (t) {
         return '<label class="inline" style="display:flex"><input type="checkbox" data-st="' + esc(t) + '"' + (selected.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>';
       }).join('') : '<span class="muted">No shift types known yet. Add them manually or discover them from an export file.</span>';
+      if (document.querySelector('[data-mt]')) meetingSel = selectedMeetingTypes(); // keep ticks when the list is re-rendered
+      $('meetingTypes').innerHTML = knownTypes.length ? knownTypes.map(function (t) {
+        return '<label class="inline" style="display:flex"><input type="checkbox" data-mt="' + esc(t) + '"' + (meetingSel.indexOf(t) >= 0 ? ' checked' : '') + '> ' + esc(t) + '</label>';
+      }).join('') : '<span class="muted">No types known yet. Add or discover them under "Shift types to import" first.</span>';
+    }
+    var meetingSel = [];
+    function selectedMeetingTypes() {
+      return Array.prototype.filter.call(document.querySelectorAll('[data-mt]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mt; });
+    }
+    function staffModeChanged() {
+      var shared = radio('staffMode') === 'SHARED';
+      show('sharedBox', shared);
+      if (shared && !data.staffDirectories.length) showStatus('warn', 'There is no staff directory to share yet: another team must exist first.');
     }
     function selectedShiftTypes() {
       return Array.prototype.filter.call(document.querySelectorAll('[data-st]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.st; });
@@ -347,6 +387,9 @@
       setDisplay(t.settings.display);
       $('extraFields').value = t.settings.extraFields.join(', ');
       $('importAliases').value = t.importAliases;
+      setRadio('staffMode', data.staffShared ? 'SHARED' : 'DEDICATED');
+      if (data.staffShared) $('sharedSheet').value = String(t.settings.staffSheetId);
+      staffModeChanged();
       applyImportDefaults(t.settings.import);
       var p = profileById(t.importProfileId);
       if (p) { $('scheduleType').value = p.format || 'TABLE'; scheduleTypeChanged(); $('importProfileId').value = p.profileId; profileChanged(); }
@@ -383,8 +426,11 @@
         import: {
           scheduleType: $('scheduleType').value, matchField: $('matchField').value, nameMatch: $('nameMatch').value,
           shiftTypeMode: radio('shiftMode'), shiftTypes: selectedShiftTypes(), knownShiftTypes: knownTypes,
-          duplicateStrategy: $('duplicateStrategy').value
-        }
+          duplicateStrategy: $('duplicateStrategy').value,
+          importMeetings: $('importMeetings').checked, meetingTypes: selectedMeetingTypes(),
+          useStaffDirectoryRouting: $('useDirectoryRouting').checked
+        },
+        staffMode: radio('staffMode'), sharedStaffSheetId: $('sharedSheet').value, addAllMembers: $('addAllMembers').checked
       };
       if (layoutLoaded) form.profileLayout = { headerRow: Number($('layoutHeaderRow').value), firstDataRow: Number($('layoutFirstDataRow').value) };
       return form;
@@ -423,7 +469,8 @@
         var rows = [
           ['Team name', v.teamName], ['Team type', v.typeMode === 'NEW' ? v.newTypeName + ' (new)' : v.typeName],
           ['Active', v.active ? 'Yes' : 'No'],
-          ['Schedule sheet', p.plan.scheduleSheet], ['Staff sheet', p.plan.staffSheet],
+          ['Schedule sheet', p.plan.scheduleSheet],
+          ['Staff directory', v.staffMode === 'SHARED' ? 'Shared: ' + (v.sharedStaffSheetName || p.plan.staffSheet) + (v.addAllMembers ? ' (all current employees become members)' : ' (explicit membership)') : 'Dedicated: ' + p.plan.staffSheet],
           ['Operating hours', p.hoursLabel],
           ['Opens on', data.defaultDateModes[v.display.defaultDate]],
           ['Schedule columns', p.scheduleLabels.join(', ') + (v.extraFields.length ? ' + ' + v.extraFields.join(', ') : '')],

@@ -155,7 +155,18 @@ function layoutStaffSheet_(sh, team) {
   var keys = resolveStaffColumns_(header, notes, registry);
   while (header.length && !header[header.length - 1] && !keys[keys.length - 1]) { header.pop(); keys.pop(); notes.pop(); }
 
-  var selected = team.settings.staffFields;
+  // A shared directory shows the union of the fields selected by every team using it.
+  var sharing = teamsUsingStaffSheet_(sh.getSheetId());
+  if (!sharing.some(function (t) { return t.teamId === team.teamId; })) sharing.push(team);
+  var selected = [];
+  sharing.forEach(function (t) { t.settings.staffFields.forEach(function (f) { if (selected.indexOf(f) < 0) selected.push(f); }); });
+  selected = normalizeStaffFields_(selected);
+  var regOrder = {};
+  Object.keys(registry).forEach(function (k) { regOrder[STAFF_REGISTRY_PREFIX + k] = registry[k].displayOrder; });
+  selected = selected.slice(0, 2).concat(selected.slice(2).sort(function (a, b) {
+    var oa = regOrder[a] === undefined ? -1 : regOrder[a], ob = regOrder[b] === undefined ? -1 : regOrder[b];
+    return oa - ob;
+  }));
   selected.forEach(function (f) {
     var label = staffFieldLabel_(f, registry);
     var i = keys.indexOf(f);
@@ -170,7 +181,9 @@ function layoutStaffSheet_(sh, team) {
   var hdrRange = sh.getRange(H, 1, 1, header.length);
   hdrRange.setValues([header]).setNotes([newNotes]);
 
-  sh.getRange(STAFF_LAYOUT.TITLE_ROW, 1).setValue(team.teamName + ' — Staff Directory')
+  sh.getRange(STAFF_LAYOUT.TITLE_ROW, 1).setValue(sharing.length > 1
+    ? 'Shared Staff Directory — ' + sharing.map(function (t) { return t.teamName; }).join(', ') + ' (team membership: View Staff Directory)'
+    : team.teamName + ' — Staff Directory')
     .setFontSize(14).setFontWeight('bold').setFontColor(cfg.HEADER_COLOR);
   var sched = resolveTeamSheet_(team, 'schedule');
   sh.getRange(STAFF_LAYOUT.NAV_ROW, 1).setValue(sched ? '=HYPERLINK("#gid=' + sched.getSheetId() + '","→ Daily schedule")' : '');
@@ -288,6 +301,10 @@ function tryStaffIndex_(team, forImport) {
     idx.nameMatch = imp.nameMatch || '';
     idx.matchFieldLabel = staffFieldLabel_(matchField, st.registry);
     idx.matchFieldMissing = matchField !== 'employeeId' && st.keys.indexOf(matchField) < 0;
+    // Shared directories: employees are members only with an explicit ACTIVE membership.
+    var teams = listTeams_();
+    idx.shared = isSharedDirectory_(team, teams);
+    idx.isMember = memberCheckForTeam_(team, teams);
     return idx;
   } catch (e) {
     logError_('tryStaffIndex_', e);
@@ -367,6 +384,10 @@ function upsertStaff_(team, values, originalId) {
   ensureRows_(sh, rowNum);
   if (textCells.length) sh.getRangeList(textCells).setNumberFormat('@');
   sh.getRange(rowNum, 1, 1, width).setValues([out]);
+  // In a shared directory, a new employee added for this team becomes a member of this team only.
+  if (!target && isSharedDirectory_(team)) {
+    setMemberships_([{ employeeId: id, teamId: team.teamId, status: MEMBERSHIP_STATUS.ACTIVE, source: 'STAFF_SIDEBAR' }]);
+  }
   return { employeeId: id, employeeName: name, row: rowNum, created: !target };
 }
 
@@ -390,14 +411,18 @@ function setStaffActive_(team, employeeId, active) {
  */
 function unknownStaffCandidates_(team) {
   var idx = buildStaffIndex_(readStaff_(team).rows);
+  var isMember = memberCheckForTeam_(team);
   var strategy = (team.settings.import && team.settings.import.nameMatch) || getConfig_().NAME_MATCH_STRATEGY;
   var out = {};
   queryScheduleRecords_({ teamIds: [team.teamId] }).forEach(function (r) {
     if (r.recordStatus !== RECORD_STATUS.ACTIVE) return;
     var m = matchEmployee_(idx, r.employeeId, r.employeeName, strategy);
-    if (m.status === STAFF_MATCH.ID || m.status === STAFF_MATCH.NAME) return;
+    var inDirectory = m.status === STAFF_MATCH.ID || m.status === STAFF_MATCH.NAME;
+    if (inDirectory && isMember(m.staff).member) return;
     var k = r.employeeId ? 'ID:' + idKey_(r.employeeId) : 'NM:' + normName_(r.employeeName);
-    if (!out[k]) out[k] = { employeeId: r.employeeId, employeeName: r.employeeName, shifts: 0, lastDate: r.shiftDate, canAdd: !!r.employeeId };
+    // In a shared directory, a known employee who is not a member can be added as a member.
+    if (!out[k]) out[k] = { employeeId: inDirectory ? m.staff.employeeId : r.employeeId, employeeName: inDirectory ? m.staff.employeeName : r.employeeName,
+      shifts: 0, lastDate: r.shiftDate, canAdd: inDirectory || !!r.employeeId, membershipOnly: inDirectory };
     out[k].shifts++;
     if (r.shiftDate > out[k].lastDate) out[k].lastDate = r.shiftDate;
     if (!out[k].employeeName && r.employeeName) out[k].employeeName = r.employeeName;
@@ -410,6 +435,12 @@ function addUnknownStaff_(team, employeeIds) {
   var wanted = (employeeIds || []).map(idKey_);
   var candidates = unknownStaffCandidates_(team).filter(function (c) { return c.canAdd && wanted.indexOf(idKey_(c.employeeId)) >= 0; });
   var added = [];
+  var memberships = candidates.filter(function (c) { return c.membershipOnly; }).map(function (c) {
+    added.push(c.employeeId);
+    return { employeeId: c.employeeId, teamId: team.teamId, status: MEMBERSHIP_STATUS.ACTIVE, source: 'STAFF_SIDEBAR' };
+  });
+  setMemberships_(memberships);
+  candidates = candidates.filter(function (c) { return !c.membershipOnly; });
   candidates.forEach(function (c) {
     var v = {};
     v[STAFF_FIELD_DEFS.employeeId.label] = c.employeeId;
@@ -521,12 +552,17 @@ function apiStaffList(teamId, query, includeInactive) {
     var total = rows.length;
     rows.sort(function (a, b) { return a.employeeName.localeCompare(b.employeeName); });
     var dupMap = findDuplicateIdentifiers_(st.rows, st.keys, st.header, st.registry);
+    var teams = listTeams_();
+    var shared = isSharedDirectory_(team, teams);
+    var isMember = memberCheckForTeam_(team, teams);
     return {
       fields: visible,
+      shared: shared,
+      sharedWith: shared ? teamsUsingStaffSheet_(team.settings.staffSheetId, teams).map(function (t) { return t.teamName; }) : [],
       rows: rows.slice(0, 200).map(function (r) {
         var v = {};
         Object.keys(r.values).forEach(function (h) { v[h] = isDate_(r.values[h]) ? formatTimestamp_(r.values[h]) : r.values[h]; });
-        return { employeeId: r.employeeId, employeeName: r.employeeName, active: r.active, row: r._row, values: v };
+        return { employeeId: r.employeeId, employeeName: r.employeeName, active: r.active, row: r._row, values: v, member: isMember(r).member };
       }),
       total: total,
       duplicates: Object.keys(dupMap).map(function (l) { return l + ': ' + dupMap[l].join(', '); })

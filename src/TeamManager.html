@@ -44,7 +44,8 @@
         var sheets = (t.hasScheduleSheet ? '<a href="#" onclick="openSheet(' + i + ',\'schedule\');return false">' + esc(t.scheduleSheet) + '</a>' : '<span class="badge bad">schedule missing</span>') + '<br>' +
           (t.hasStaffSheet ? '<a href="#" onclick="openSheet(' + i + ',\'staff\');return false">' + esc(t.staffSheet) + '</a>' : '<span class="badge bad">staff missing</span>');
         return '<tr><td><b>' + esc(t.teamName) + '</b><div class="small muted">' + esc(t.teamId) + ' · hours ' + esc(t.hoursLabel) +
-          ' · shift types: ' + esc(t.shiftTypes) + (t.importAliases ? ' · aliases: ' + esc(t.importAliases) : '') + '</div></td>' +
+          ' · shift types: ' + esc(t.shiftTypes) + ' · ' + esc(t.meetings) + (t.sharedStaff ? ' · shared staff directory' : '') +
+          (t.importAliases ? ' · aliases: ' + esc(t.importAliases) : '') + '</div></td>' +
           '<td>' + esc(t.typeName) + '</td><td>' + st + '</td><td class="small">' + sheets + '</td><td style="white-space:nowrap">' +
           '<button class="btn small" onclick="edit(' + i + ')">Edit</button> ' +
           '<button class="btn small" onclick="toggle(' + i + ')">' + (t.active ? 'Deactivate' : 'Activate') + '</button> ' +

@@ -6,7 +6,7 @@
 </head>
 <body>
   <h1>Configure Staff Fields</h1>
-  <p class="muted">External identifiers (e.g. Converse ID, Aircall ID, AstraID) and other custom staff columns. Each field has a permanent key, so renaming it never loses values. Identifier values are stored as text (leading zeros are kept) and must be unique within a team.</p>
+  <p class="muted">Additional staff columns created by you — for example external identifiers (Converse ID, CRM ID, Telephony ID…) or other custom fields. None are created by default. Each field has a permanent key, so renaming it never loses values. Identifier values are stored as text (leading zeros are kept) and must be unique within a team.</p>
   <div id="status"></div>
   <div class="row" style="align-items:flex-start">
     <div style="flex:0 0 250px">
@@ -19,7 +19,10 @@
         <div><label for="type">Field type</label><select id="type"></select></div>
       </div>
       <p class="small muted" id="keyInfo"></p>
-      <label for="desc">Description</label><input type="text" id="desc" maxlength="300">
+      <div class="row">
+        <div><label for="desc">Description</label><input type="text" id="desc" maxlength="300"></div>
+        <div style="flex:0 0 140px"><label for="order">Display order</label><input type="number" id="order" min="0" max="9999"></div>
+      </div>
       <label class="inline"><input type="checkbox" id="visible"> Show in staff sheets</label>
       <label class="inline"><input type="checkbox" id="required"> Required when adding staff</label>
       <label class="inline" id="matchBox"><input type="checkbox" id="matchable"> May be used as an import match key (only teams that explicitly choose it)</label>
@@ -29,6 +32,15 @@
         <div class="checks" id="teams"></div>
         <p class="small muted">Removing a field from a team hides its column; the values stay in the sheet.</p>
         <p><button class="btn" onclick="saveTeams()">Save team selection</button></p>
+      </div>
+      <div id="deleteBox" class="card hidden">
+        <h3>Delete this field</h3>
+        <p class="small muted">Prefer hiding (untick "Show in staff sheets"). Deleting removes the field from all teams. By default the column and its values stay in the staff sheets as an ordinary column.</p>
+        <label class="inline"><input type="checkbox" id="delValues" onchange="show('delConfirmBox', this.checked)"> Also permanently delete the stored values</label>
+        <div id="delConfirmBox" class="hidden">
+          <label for="delConfirm">Type the field name to confirm permanent deletion</label><input type="text" id="delConfirm">
+        </div>
+        <p><button class="btn danger" onclick="delField()">Delete field</button></p>
       </div>
     </div>
   </div>
@@ -59,6 +71,8 @@
       document.querySelectorAll('.list-item').forEach(function (el) { el.classList.toggle('sel', Number(el.dataset.i) === i); });
       var f = current || { displayName: '', fieldType: 'IDENTIFIER', description: '', visible: true, required: false, matchable: true };
       $('name').value = f.displayName; $('type').value = f.fieldType; $('desc').value = f.description;
+      $('order').value = current ? current.displayOrder : (data.fields.length + 1) * 10;
+      show('deleteBox', !!current); $('delValues').checked = false; show('delConfirmBox', false); $('delConfirm').value = '';
       $('visible').checked = f.visible; $('required').checked = f.required; $('matchable').checked = f.matchable;
       $('keyInfo').textContent = current ? 'Permanent key: ' + current.fieldKey + ' (referenced by teams and linked to the staff sheet columns).' : 'A permanent key is assigned when you save.';
       $('type').onchange = function () { show('matchBox', $('type').value === 'IDENTIFIER'); };
@@ -76,11 +90,19 @@
 
     function save() {
       var input = { fieldKey: current ? current.fieldKey : '', displayName: $('name').value, fieldType: $('type').value,
-        description: $('desc').value, visible: $('visible').checked, required: $('required').checked, matchable: $('matchable').checked };
+        description: $('desc').value, visible: $('visible').checked, required: $('required').checked, matchable: $('matchable').checked,
+        displayOrder: Number($('order').value || 0) };
       call('Saving and updating staff sheets…', 'apiSaveStaffField', input).then(function (r) {
         showStatus('ok', (r.created ? 'Created ' : 'Saved ') + esc(r.field.displayName) + (r.renamed ? ' — staff sheet headers were renamed; values were kept.' : '.') +
           (r.problems.length ? '<br>' + r.problems.map(esc).join('<br>') : ''));
         load(r.field.fieldKey);
+      });
+    }
+
+    function delField() {
+      call('Deleting field…', 'apiDeleteStaffField', current.fieldKey, $('delValues').checked, $('delConfirm').value).then(function (r) {
+        showStatus('ok', 'Deleted "' + esc(r.deleted) + '". ' + (r.valuesDeleted ? 'Stored values were cleared in ' + r.columnsCleared + ' sheet(s).' : 'Its columns and values remain in the staff sheets as ordinary columns.'));
+        show('editor', false); load();
       });
     }
 

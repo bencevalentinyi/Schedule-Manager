@@ -18,6 +18,8 @@ var CONFIG_DEFAULTS = [
   ['TEAM_ID_SEQ', '0', 'Last issued team number (IDs are never reused).', 'system'],
   ['TEST_MODE', 'FALSE', 'Set TRUE only in a scratch copy to allow runIntegrationTests().', 'system'],
   ['KNOWN_SHIFT_TYPES', '[]', 'JSON list of shift types discovered in imported exports (maintained automatically).', 'system'],
+  ['SLACK_PAYLOAD_CONFIG', '{}', 'JSON: Slack payload generation settings (edit via Slack Workflow Automation → Configure Payload Generation).', 'system'],
+  ['DASHBOARD_URL_CONFIG', '{}', 'JSON: dashboard URL template settings (edit via Slack Workflow Automation → Configure Dashboard URL).', 'system'],
 
   ['TIMEZONE', '', 'Time zone used for "today" and timestamps. Blank = spreadsheet time zone.', 'display'],
   ['DATE_FORMAT', 'yyyy-mm-dd', 'Sheets number format for dates in team views.', 'display'],
@@ -53,7 +55,8 @@ var CONFIG_ENUMS = {
 var CONFIG_BOOLEANS = ['INITIALIZED', 'TEST_MODE', 'SHOW_CARRY_OVER', 'HIDE_SYSTEM_SHEETS', 'STRIP_LEADING_ZEROS'];
 var CONFIG_NUMBERS = { MAX_SHIFT_HOURS: [1, 48], MIN_SHIFT_MINUTES: [0, 600], MAX_FILE_MB: [1, 45], STAGING_RETENTION_HOURS: [1, 720], HOURS_TOLERANCE_MINUTES: [0, 240] };
 var CONFIG_COLORS = ['HEADER_COLOR', 'HEADER_FONT_COLOR', 'BAND_COLOR', 'WARN_COLOR', 'ERROR_COLOR'];
-var CONFIG_READONLY = ['SYSTEM_VERSION', 'INITIALIZED', 'INITIALIZED_AT', 'TEAM_ID_SEQ', 'KNOWN_SHIFT_TYPES'];
+var CONFIG_READONLY = ['SYSTEM_VERSION', 'INITIALIZED', 'INITIALIZED_AT', 'TEAM_ID_SEQ', 'KNOWN_SHIFT_TYPES',
+  'SLACK_PAYLOAD_CONFIG', 'DASHBOARD_URL_CONFIG'];
 
 /* Per-execution memo; invalidated on every write. Apps Script executions are short-lived. */
 var configMemo_ = null;

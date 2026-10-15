@@ -71,10 +71,12 @@ function initializeSystem_() {
   if (Object.keys(updates).length) setConfigValues_(updates);
 
   // Seed data and v1.1 migration. Every step only adds what is missing.
-  if (seedStaffFieldsIfEmpty_()) actions.push('Created the configurable staff identifier fields (Converse ID, Aircall ID, AstraID).');
+  seedStaffFieldsIfEmpty_(); // v1.1.1: creates nothing (identifier fields are added by administrators)
   if (seedDailyProfileIfMissing_()) actions.push('Created the "Quinyx Daily Schedule" import profile (default layout, not yet verified against a real export).');
   if (seedDefaultsIfEmpty_()) actions.push('Created the starter team type and the generic import profile.');
   migrateTeamTypesV11_().forEach(function (m) { actions.push(m); });
+  var ordered = migrateStaffFieldOrder_();
+  if (ordered) actions.push('Set the display order of ' + ordered + ' existing staff field(s) (their current order is kept).');
   migrateTeamsV11_().forEach(function (m) { actions.push(m); });
 
   // Record the version last, so an interrupted upgrade is simply run again.
@@ -111,6 +113,10 @@ function migrateTeamsV11_() {
       imp.scheduleType = 'TABLE';   // v1.0 teams were set up for generic table imports
       s.import = imp;
       parts.push('default import settings');
+    } else if (s.import.importMeetings === undefined || s.import.useStaffDirectoryRouting === undefined) {
+      // v1.1.1: explicit meeting/routing settings, both off, so imports behave exactly as before.
+      s.import = normalizeTeamImport_(s.import);
+      parts.push('meeting import off, staff-directory routing off');
     }
     if (!parts.length) return;
     var copy = {};
@@ -133,7 +139,8 @@ function migrateTeamTypesV11_() {
     var changed = [];
     var obj = rowToTeamType_(r);
     if (!r.display || !r.display.operatingHoursMode) changed.push('operating hours');
-    if (Array.isArray(r.staffFields) && stableStringify_(r.staffFields) === stableStringify_(LEGACY_DEFAULT_STAFF_FIELDS_V1)) {
+    if (Array.isArray(r.staffFields) && (stableStringify_(r.staffFields) === stableStringify_(LEGACY_DEFAULT_STAFF_FIELDS_V1) ||
+        stableStringify_(r.staffFields) === stableStringify_(LEGACY_DEFAULT_STAFF_FIELDS_V110))) {
       obj.staffFields = DEFAULT_STAFF_FIELDS.slice();
       changed.push('new default staff columns for future teams');
     }
@@ -143,6 +150,25 @@ function migrateTeamTypesV11_() {
     msgs.push('Upgraded team type "' + obj.typeName + '": ' + changed.join(', ') + '.');
   });
   return msgs;
+}
+
+/**
+ * v1.1.1: staff fields created before "Display Order" existed get an order that
+ * follows their row order (10, 20, …). Fields that already have an order are untouched.
+ */
+function migrateStaffFieldOrder_() {
+  if (!getSheet_(T_STAFF_FIELDS.sheet)) return 0;
+  var rows = readTable_(T_STAFF_FIELDS).rows.filter(function (r) { return str_(r.fieldKey); });
+  var used = rows.map(function (r) { return toNumber_(r.displayOrder, NaN); }).filter(isFinite);
+  var next = used.length ? Math.max.apply(null, used) : 0;
+  var count = 0;
+  rows.forEach(function (r) {
+    if (str_(r.displayOrder) !== '') return;
+    next += 10;
+    updateObject_(T_STAFF_FIELDS, { _row: r._row, displayOrder: next });
+    count++;
+  });
+  return count;
 }
 
 /** Reads a config value directly (bypassing defaults) to know if it was ever set. */

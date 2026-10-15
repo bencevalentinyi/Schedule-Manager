@@ -14,12 +14,12 @@
  * Dependencies: Schema.gs, Utils.gs, SheetStore.gs, TeamService.gs, StaffService.gs
  */
 
-/** Seed data for new installations and upgrades (editable afterwards). */
-var SEED_STAFF_FIELDS_ = [
-  { fieldKey: 'external_id_1', displayName: 'Converse ID' },
-  { fieldKey: 'external_id_2', displayName: 'Aircall ID' },
-  { fieldKey: 'external_id_3', displayName: 'AstraID' }
-];
+/**
+ * v1.1.1: no fields are created automatically. Administrators add identifier
+ * fields (e.g. Converse ID, CRM ID) under Configure Staff Fields when needed.
+ * Fields created by v1.1.0 installations are kept as ordinary user data.
+ */
+var SEED_STAFF_FIELDS_ = [];
 
 function rowToStaffField_(r) {
   var type = str_(r.fieldType).toUpperCase();
@@ -32,14 +32,16 @@ function rowToStaffField_(r) {
     visible: r.visible === '' || r.visible === null || r.visible === undefined ? true : toBool_(r.visible),
     matchable: type === 'IDENTIFIER' && toBool_(r.matchable),
     description: str_(r.description),
+    displayOrder: toNumber_(r.displayOrder, 100),
     _row: r._row
   };
 }
 
-/** All registry fields; [] before the v1.1 upgrade created the sheet. */
+/** All registry fields in display order; [] before the v1.1 upgrade created the sheet. */
 function listStaffFields_() {
   if (!getSheet_(T_STAFF_FIELDS.sheet)) return [];
-  return readTable_(T_STAFF_FIELDS).rows.map(rowToStaffField_).filter(function (f) { return f.fieldKey; });
+  return readTable_(T_STAFF_FIELDS).rows.map(rowToStaffField_).filter(function (f) { return f.fieldKey; })
+    .sort(function (a, b) { return a.displayOrder - b.displayOrder || a.displayName.localeCompare(b.displayName); });
 }
 
 /** fieldKey -> field */
@@ -50,7 +52,7 @@ function getStaffFieldMap_() {
 }
 
 function seedStaffFieldsIfEmpty_() {
-  if (listStaffFields_().length) return false;
+  if (!SEED_STAFF_FIELDS_.length || listStaffFields_().length) return false;
   var now = new Date();
   appendObjects_(T_STAFF_FIELDS, SEED_STAFF_FIELDS_.map(function (s) {
     return { fieldKey: s.fieldKey, displayName: s.displayName, fieldType: 'IDENTIFIER', required: false, visible: true,
@@ -112,6 +114,7 @@ function saveStaffField_(input) {
     visible: input.visible === undefined ? true : !!input.visible,
     matchable: type === 'IDENTIFIER' && (input.matchable === undefined ? true : !!input.matchable),
     description: str_(input.description).substr(0, 300),
+    displayOrder: Math.max(0, Math.min(9999, Math.round(toNumber_(input.displayOrder, existing ? existing.displayOrder : (all.length + 1) * 10)))),
     updatedAt: now
   };
   if (existing) { obj._row = existing._row; updateObject_(T_STAFF_FIELDS, obj); }
@@ -147,6 +150,57 @@ function setStaffFieldTeams_(fieldKey, teamIds) {
   });
   relayoutAllStaffSheets_();
   return changed;
+}
+
+/**
+ * Deletes a registry field. The field is removed from every team. Its staff
+ * sheet columns are KEPT as plain, unmanaged columns (values preserved) unless
+ * deleteValues is true AND confirmText equals the field's display name — then
+ * the column values are permanently cleared (header kept, marked "(deleted)").
+ */
+function deleteStaffField_(fieldKey, deleteValues, confirmText) {
+  var map = getStaffFieldMap_();
+  var f = map[fieldKey];
+  if (!f) fail_('NOT_FOUND', 'Staff field ' + fieldKey + ' no longer exists.');
+  if (deleteValues && str_(confirmText) !== f.displayName) {
+    fail_('CONFIRMATION', 'To permanently delete the stored values, type the field name exactly: "' + f.displayName + '".');
+  }
+  var ref = STAFF_REGISTRY_PREFIX + fieldKey;
+  var cleared = 0, sheetsDone = {};
+  listTeams_().forEach(function (team) {
+    var sh = team.status === TEAM_STATUS.READY ? resolveTeamSheet_(team, 'staff') : null;
+    if (sh && !sheetsDone[sh.getSheetId()]) {
+      sheetsDone[sh.getSheetId()] = true;
+      var H = STAFF_LAYOUT.HEADER_ROW, lc = sh.getLastColumn();
+      if (lc >= 1) {
+        var hdr = sh.getRange(H, 1, 1, lc);
+        var keys = resolveStaffColumns_(hdr.getValues()[0].map(str_), hdr.getNotes()[0], map);
+        var i = keys.indexOf(ref);
+        if (i >= 0) {
+          // Unlink the column (remove the key note) so it becomes an ordinary user column.
+          sh.getRange(H, i + 1).setNote('').setValue(f.displayName + (deleteValues ? ' (deleted)' : ''));
+          sh.showColumns(i + 1);
+          if (deleteValues && sh.getLastRow() > H) {
+            sh.getRange(H + 1, i + 1, sh.getLastRow() - H, 1).clearContent();
+            cleared++;
+          }
+        }
+      }
+    }
+    if (team.settings.staffFields.indexOf(ref) >= 0 || team.settings.import.matchField === ref) {
+      team.settings.staffFields = team.settings.staffFields.filter(function (x) { return x !== ref; });
+      if (team.settings.import.matchField === ref) team.settings.import.matchField = 'employeeId';
+      saveTeamRow_(team);
+    }
+  });
+  listTeamTypes_(true).forEach(function (t) {
+    if (t.staffFields.indexOf(ref) < 0) return;
+    t.staffFields = t.staffFields.filter(function (x) { return x !== ref; });
+    t.updatedAt = new Date();
+    updateObject_(T_TEAM_TYPES, t);
+  });
+  deleteSheetRows_(requireSheet_(T_STAFF_FIELDS.sheet), [f._row]);
+  return { deleted: f.displayName, valuesDeleted: !!deleteValues, columnsCleared: cleared };
 }
 
 /** Re-applies the staff sheet layout of every READY team (renames, visibility). */
@@ -189,6 +243,13 @@ function apiSaveStaffField(input) {
       var problems = relayoutAllStaffSheets_();
       return { field: r.field, renamed: r.renamed, created: r.created, problems: problems };
     }, 60000);
+  });
+}
+
+function apiDeleteStaffField(fieldKey, deleteValues, confirmText) {
+  return apiCall_('apiDeleteStaffField', function () {
+    requireInitialized_();
+    return withLock_(function () { return deleteStaffField_(fieldKey, !!deleteValues, confirmText); }, 60000);
   });
 }
 

@@ -27,6 +27,12 @@
       stat('Unparseable shift info', S.unparseableShiftInfo, S.unparseableShiftInfo ? 'bad' : '') +
       stat('Hours missing / invalid', S.hoursMissing + S.hoursInvalid, S.hoursMissing + S.hoursInvalid ? 'warn' : '') +
       stat('Hours differ', S.hoursDiscrepancies, S.hoursDiscrepancies ? 'warn' : '') +
+      stat('Normal shifts', S.normalShifts) +
+      stat('Meetings detected', S.meetingsDetected) +
+      stat('Meetings selected', S.meetingsSelected, S.meetingsSelected ? 'good' : '') +
+      stat('Meetings excluded', S.meetingsExcluded, S.meetingsExcluded ? 'warn' : '') +
+      stat('Ambiguous team', S.ambiguousRouting, S.ambiguousRouting ? 'bad' : '') +
+      stat('Unroutable rows', S.unroutable, S.unroutable ? 'bad' : '') +
       stat('New shifts', S.insert + S.restore, 'good') +
       stat('Updated shifts', S.update) +
       stat('Removed (replace)', S.remove, S.remove ? 'warn' : '') +
@@ -48,6 +54,29 @@
           return '<tr><td>' + esc(t.type || '(blank)') + '</td><td>' + t.rows + '</td><td>' + t.included + '</td><td>' + t.excluded + '</td><td>' +
             (t.isNew ? '<span class="badge warn">new</span>' : '') + '</td></tr>';
         }).join('') + '</table>';
+    }
+    if (p.routing && p.routing.length) {
+      var needs = function (s) { return ['AMBIGUOUS', 'UNKNOWN_EMPLOYEE', 'NO_MEMBERSHIP', 'AMBIGUOUS_NAME', 'ASSIGNED_MANUALLY', 'SKIPPED'].indexOf(s) >= 0; };
+      var teamsList = (typeof boot !== 'undefined' && boot && boot.teams) ? boot.teams.filter(function (t) { return t.status === 'READY'; }) : [];
+      var ov = (typeof routingOverrides !== 'undefined') ? routingOverrides : {};
+      var problems = p.routing.filter(function (r) { return needs(r.status); }).length;
+      html += '<h3>Employee matching and team routing (' + p.routingTotal + ' row(s)' + (problems ? ', <span style="color:#a50e0e">' + problems + ' need a decision</span>' : '') + ')</h3>' +
+        '<div class="scroll" style="max-height:300px"><table class="grid"><tr><th>Row</th><th>Employee (Quinyx)</th><th>Matched ID</th><th>Staff name</th><th>Match</th><th>Membership</th><th>Resolved team</th><th>Routing</th></tr>' +
+        p.routing.map(function (r) {
+          var cell = esc(r.team || '—');
+          if (needs(r.status) && teamsList.length) {
+            var cur = ov[String(r.row)] || '';
+            var opts = '<option value="">— decide —</option><option value="SKIP"' + (cur === 'SKIP' ? ' selected' : '') + '>Skip this row</option>' +
+              r.candidates.concat(teamsList.filter(function (t) { return !r.candidates.some(function (c) { return c.teamId === t.teamId; }); }))
+                .map(function (t) { return '<option value="' + esc(t.teamId) + '"' + (cur === t.teamId ? ' selected' : '') + '>' + esc(t.teamName) + '</option>'; }).join('');
+            cell = '<select data-route="' + r.row + '" onchange="routeChanged(this)">' + opts + '</select>';
+          }
+          var cls = needs(r.status) && r.status !== 'ASSIGNED_MANUALLY' && r.status !== 'SKIPPED' ? 'bad' : (r.status === 'ROUTED' || r.status === 'SELECTED_TEAM' || r.status === 'TEAM_COLUMN' ? 'ok' : 'warn');
+          return '<tr><td>' + r.row + '</td><td>' + esc(r.sourceName || r.sourceId) + '</td><td>' + esc(r.employeeId || '—') + '</td><td>' + esc(r.staffName || '—') +
+            '</td><td>' + esc(r.method) + '</td><td>' + esc(r.membership || '—') + '</td><td>' + cell + '</td><td><span class="badge ' + cls + '">' + esc(r.status) + '</span></td></tr>';
+        }).join('') + '</table></div>' +
+        (p.routingTotal > p.routing.length ? '<p class="small muted">Showing ' + p.routing.length + ' of ' + p.routingTotal + ' rows (problems first).</p>' : '') +
+        (problems ? '<p class="small">Choose a team or "Skip" for each highlighted row, then click <b>Re-analyze with my routing decisions</b>.</p>' : '');
     }
     if (S.teams.length) {
       html += '<h3>Teams</h3><table class="grid"><tr><th>Team</th><th>Valid rows</th><th>Dates</th><th>New</th><th>Updated</th><th>Removed</th><th>Unchanged</th><th>Skipped</th><th>Pending decision</th><th>Rejected</th></tr>' +

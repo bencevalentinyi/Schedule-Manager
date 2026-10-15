@@ -122,6 +122,7 @@
       <div><label for="strategy2">When a shift already exists</label><select id="strategy2" onchange="$('strategy').value=this.value; analyze()"></select></div>
       <div><label class="inline"><input type="checkbox" id="allowPartial2" onchange="$('allowPartial').checked=this.checked; analyze()"> Import valid rows, skip rejected rows</label></div>
       <div style="flex:0 0 auto"><button class="btn small" onclick="go(2)">Change shift-type selection</button></div>
+      <div style="flex:0 0 auto"><button class="btn small" onclick="analyze()">Re-analyze with my routing decisions</button></div>
     </div>
     <div id="preview"></div>
   </section>
@@ -143,6 +144,10 @@
     var BOOT = <?!= bootJson ?>;
     var NAMES = ['Source', 'Layout / mapping', 'Team & shift types', 'Preview', 'Done'];
     var boot = null, insp = null, plan = null, cur = 0, profileId = '';
+    var routingOverrides = {}; // sourceRow -> teamId | 'SKIP' (decisions for ambiguous / unroutable rows)
+    function routeChanged(sel) {
+      if (sel.value) routingOverrides[sel.dataset.route] = sel.value; else delete routingOverrides[sel.dataset.route];
+    }
 
     function init() {
       if (BOOT.previewOnly) $('title').textContent = 'Preview Import (no changes are written)';
@@ -254,6 +259,7 @@
       insp = r;
       if (r.importId === prevId && r.previousImport === undefined) r.previousImport = null;
       profileId = r.profileId || '';
+      if (r.importId !== prevId) routingOverrides = {};
       if (isDaily()) setDaily(r); else setGeneric(r);
     }
 
@@ -358,7 +364,7 @@
       var t = teamById($('team').value);
       var types = (insp.shiftTypes || []);
       var hasTypes = isDaily() ? !!(insp.layout && insp.layout.shiftTypeColumn) : !!(insp.fieldMap && currentFieldMap().shiftType);
-      var single = mode !== 'SPLIT' && !!t;
+      var single = mode !== 'SPLIT' && mode !== 'DIRECTORY' && !!t;
       show('stBox', hasTypes && single);
       if (!(hasTypes && single)) return;
       $('stTeam').textContent = t.teamName;
@@ -389,7 +395,8 @@
         importId: insp.importId, format: insp.format, profileId: profileId,
         teamMode: radio('teamMode') || 'AUTO', teamId: $('team').value,
         strategy: $('strategy').value, allowPartial: $('allowPartial').checked,
-        shiftTypeOverride: shiftTypeOverride(), saveShiftTypes: $('stSave').checked && !$('stBox').classList.contains('hidden')
+        shiftTypeOverride: shiftTypeOverride(), saveShiftTypes: $('stSave').checked && !$('stBox').classList.contains('hidden'),
+        routingOverrides: routingOverrides
       };
       if (isDaily()) {
         req.layout = currentLayout(); req.scheduleDate = $('scheduleDate').value; req.headerRow = 1;

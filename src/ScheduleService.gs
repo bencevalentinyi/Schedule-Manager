@@ -48,7 +48,8 @@ function rowToRecord_(row, idx, tz, rowNumber) {
     shiftType: str_(g('shiftType')),
     sourceShiftInfo: str_(g('sourceShiftInfo')),
     sourceHours: str_(g('sourceHours')),
-    scheduledMinutes: str_(g('scheduledMinutes')) === '' ? '' : toNumber_(g('scheduledMinutes'), '')
+    scheduledMinutes: str_(g('scheduledMinutes')) === '' ? '' : toNumber_(g('scheduledMinutes'), ''),
+    activityCategory: str_(g('activityCategory')) || ACTIVITY_CATEGORY.SHIFT
   };
 }
 
@@ -119,7 +120,9 @@ function employeeIdentity_(rec) {
 }
 
 /**
- * Marks overlapping shifts of the same employee. Records need startMin/endMin.
+ * All pairs of overlapping assignments of the same employee (pairwise, so two
+ * meetings inside one shift are compared with each other too). Records need
+ * startMin/endMin.
  * @return {Array<[Object, Object]>} overlapping pairs
  */
 function findOverlaps_(records) {
@@ -130,14 +133,77 @@ function findOverlaps_(records) {
   });
   var pairs = [];
   Object.keys(groups).forEach(function (k) {
-    var list = groups[k].slice().sort(function (a, b) { return a.startMin - b.startMin; });
-    var maxEnd = -Infinity, maxRec = null;
-    list.forEach(function (r) {
-      if (maxRec && r.startMin < maxEnd) pairs.push([maxRec, r]);
-      if (r.endMin > maxEnd) { maxEnd = r.endMin; maxRec = r; }
-    });
+    var list = groups[k].slice().sort(function (a, b) { return a.startMin - b.startMin || a.endMin - b.endMin; });
+    for (var i = 0; i < list.length; i++) {
+      for (var j = i + 1; j < list.length && list[j].startMin < list[i].endMin; j++) pairs.push([list[i], list[j]]);
+    }
   });
   return pairs;
+}
+
+function activityCategoryOf_(r) {
+  var rec = r.rec || r;
+  return str_(rec.activityCategory).toUpperCase() === ACTIVITY_CATEGORY.MEETING ? ACTIVITY_CATEGORY.MEETING : ACTIVITY_CATEGORY.SHIFT;
+}
+
+/**
+ * Classifies an overlapping pair:
+ *  - MEETING_IN_SHIFT: a meeting entirely inside a normal shift (expected, not a conflict);
+ *  - CONFLICT: two shifts, two meetings, or a meeting only partly inside a shift.
+ * (Identical copies never reach this point: they share a record key.)
+ */
+function classifyOverlap_(a, b) {
+  var ca = activityCategoryOf_(a), cb = activityCategoryOf_(b);
+  if (ca !== cb) {
+    var meeting = ca === ACTIVITY_CATEGORY.MEETING ? a : b, shift = meeting === a ? b : a;
+    if (meeting.startMin >= shift.startMin && meeting.endMin <= shift.endMin) return 'MEETING_IN_SHIFT';
+  }
+  return 'CONFLICT';
+}
+
+/** Overlapping pairs that are real conflicts (meetings inside shifts excluded). */
+function findConflicts_(records) {
+  return findOverlaps_(records).filter(function (p) { return classifyOverlap_(p[0], p[1]) === 'CONFLICT'; });
+}
+
+/**
+ * Working minutes per employee for a set of assignments (documented rule):
+ *   shifts:   net minutes (gross minus recorded break) of every SHIFT;
+ *   meetings: only the part of a MEETING not covered by any of the employee's
+ *             shifts is added (a meeting inside a shift is already paid time).
+ * Activity durations themselves are never changed.
+ * @param {Object[]} rows items with rec, startMin, endMin
+ * @return {Object} identity -> minutes
+ */
+function workMinutesByEmployee_(rows) {
+  var groups = {};
+  rows.forEach(function (r) { var id = employeeIdentity_(r.rec || r); (groups[id] = groups[id] || []).push(r); });
+  var out = {};
+  Object.keys(groups).forEach(function (id) {
+    var shifts = groups[id].filter(function (r) { return activityCategoryOf_(r) === ACTIVITY_CATEGORY.SHIFT; });
+    var total = 0;
+    shifts.forEach(function (s) {
+      var rec = s.rec || s;
+      var net = toNumber_(rec.netMinutes, NaN);
+      total += isFinite(net) && net > 0 ? net : (s.endMin - s.startMin - toNumber_(rec.breakMinutes, 0));
+    });
+    groups[id].forEach(function (m) {
+      if (activityCategoryOf_(m) !== ACTIVITY_CATEGORY.MEETING) return;
+      // Subtract the covered parts: walk the meeting interval against the sorted shift intervals.
+      var covered = 0;
+      var segs = shifts.map(function (s) { return [Math.max(s.startMin, m.startMin), Math.min(s.endMin, m.endMin)]; })
+        .filter(function (x) { return x[1] > x[0]; }).sort(function (x, y) { return x[0] - y[0]; });
+      var cur = -Infinity;
+      segs.forEach(function (x) {
+        var s0 = Math.max(x[0], cur);
+        if (x[1] > s0) covered += x[1] - s0;
+        cur = Math.max(cur, x[1]);
+      });
+      total += (m.endMin - m.startMin) - covered;
+    });
+    out[id] = total;
+  });
+  return out;
 }
 
 /**
@@ -188,6 +254,7 @@ function buildDayRows_(records, dateIso, staffIdx, opts) {
       if (m.status === STAFF_MATCH.UNKNOWN || m.status === STAFF_MATCH.AMBIGUOUS) flags.push('Unknown employee');
       else if (m.status === STAFF_MATCH.NAME) flags.push('Name match');
       if (m.staff && !m.staff.active) flags.push('Inactive employee');
+      if (m.staff && staffIdx.isMember && !staffIdx.isMember(m.staff).member) flags.push('Not a team member');
     }
     rows.push({
       rec: r, startMin: startMin, endMin: endMin, carry: carry || nextDay, flags: flags,
@@ -196,8 +263,17 @@ function buildDayRows_(records, dateIso, staffIdx, opts) {
       beMin: isIsoDateTime_(r.breakEnd) ? wallMinutes_(r.breakEnd) : null
     });
   });
+  // Meetings: label them; a meeting inside a shift is expected, not an overlap.
+  var inShift = {};
   findOverlaps_(rows).forEach(function (p) {
+    if (classifyOverlap_(p[0], p[1]) === 'MEETING_IN_SHIFT') {
+      inShift[rows.indexOf(activityCategoryOf_(p[0]) === ACTIVITY_CATEGORY.MEETING ? p[0] : p[1])] = true;
+      return;
+    }
     p.forEach(function (x) { if (x.flags.indexOf('Overlap') < 0) x.flags.push('Overlap'); });
+  });
+  rows.forEach(function (x, i) {
+    if (activityCategoryOf_(x) === ACTIVITY_CATEGORY.MEETING) x.flags.unshift(inShift[i] ? 'Meeting (in shift)' : 'Meeting (outside shift)');
   });
   rows.sort(function (a, b) {
     return a.startMin - b.startMin || displayName_(a).localeCompare(displayName_(b));
@@ -215,7 +291,7 @@ function rowMatchesFilters_(row, f) {
   if (f.status && f.status !== ALL_OPTION) {
     if (f.status === 'OK') return row.flags.length === 0;
     if (f.status === 'Has warnings') return row.flags.length > 0;
-    return row.flags.indexOf(f.status) >= 0;
+    return row.flags.some(function (x) { return x.indexOf(f.status) === 0; });
   }
   return true;
 }
@@ -273,6 +349,7 @@ function displayCell_(field, row, ctx) {
     case 'team': return [safeCell_(ctx.teamName), '@'];
     case 'activity': return [safeCell_(r.activity), '@'];
     case 'shiftType': return [safeCell_(r.shiftType), '@'];
+    case 'activityCategory': return [r.activityCategory === ACTIVITY_CATEGORY.MEETING ? 'Meeting' : 'Shift', '@'];
     case 'sourceShiftInfo': return [safeCell_(r.sourceShiftInfo), '@'];
     case 'scheduledHours':
       return r.scheduledMinutes === '' || r.scheduledMinutes === null || r.scheduledMinutes === undefined
@@ -486,12 +563,15 @@ function renderDailyView_(team, opts) {
   sh.getRange(VIEW.FILTER_ROW, VIEW.STATUS_COL).setValue(filters.status || ALL_OPTION);
 
   // --- summary ---
-  var people = uniq_(rows.filter(function (r) { return !r.carry; }).map(function (r) { return employeeIdentity_(r.rec); }));
-  var netTotal = rows.filter(function (r) { return !r.carry; }).reduce(function (s, r) { return s + (r.rec.netMinutes || 0); }, 0);
+  var own = rows.filter(function (r) { return !r.carry; });
+  var people = uniq_(own.map(function (r) { return employeeIdentity_(r.rec); }));
+  var work = workMinutesByEmployee_(own);
+  var netTotal = Object.keys(work).reduce(function (s, k) { return s + work[k]; }, 0);
+  var meetingCount = own.filter(function (r) { return activityCategoryOf_(r) === ACTIVITY_CATEGORY.MEETING; }).length;
   var countFlag = function (f) { return rows.filter(function (r) { return r.flags.indexOf(f) >= 0; }).length; };
-  var summary = 'Shifts: ' + rows.filter(function (r) { return !r.carry; }).length +
+  var summary = 'Shifts: ' + (own.length - meetingCount) + (meetingCount ? '   |   Meetings: ' + meetingCount : '') +
     '   |   Staff: ' + people.length +
-    '   |   Net hours: ' + formatMinutesAsDuration_(netTotal) +
+    '   |   Working hours: ' + formatMinutesAsDuration_(netTotal) +
     '   |   Overlaps: ' + countFlag('Overlap') +
     '   |   Unknown employees: ' + countFlag('Unknown employee') +
     (visible.length !== rows.length ? '   |   Showing ' + visible.length + ' of ' + rows.length + ' (filtered)' : '');

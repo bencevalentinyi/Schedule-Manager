@@ -22,6 +22,11 @@
   <div id="editor" class="card hidden">
     <h3 id="edTitle">Staff member</h3>
     <div id="edFields"></div>
+    <div id="memberBox" class="hidden">
+      <h3>Team membership (shared directory)</h3>
+      <div id="memberList"></div>
+      <button class="btn small" onclick="saveMemberships()">Save membership</button>
+    </div>
     <div class="footer">
       <button class="btn primary" onclick="save()">Save</button>
       <button class="btn" id="activeBtn" onclick="toggleActive()">Deactivate</button>
@@ -58,8 +63,11 @@
         list = r;
         $('count').textContent = r.total + ' match(es)' + (r.total > r.rows.length ? ', showing ' + r.rows.length : '');
         if (r.duplicates.length) showStatus('warn', 'Duplicate identifiers in this sheet: ' + esc(r.duplicates.join('; ')) + '. Fix them in the staff sheet.');
+        else if (r.shared) showStatus('info', 'Shared staff directory (' + esc(r.sharedWith.join(', ')) + '). Employees belong to this team only when marked as members.');
+        else showStatus('', '');
         $('results').innerHTML = r.rows.map(function (s, i) {
           return '<div class="list-item" onclick="edit(' + i + ')"><b>' + esc(s.employeeName || '(no name)') + '</b> ' + (s.active ? '' : '<span class="badge warn">inactive</span>') +
+            (r.shared && !s.member ? ' <span class="badge">not a member of this team</span>' : '') +
             '<div class="small muted">' + esc(s.employeeId || 'no ID') + (s.values.Role ? ' · ' + esc(s.values.Role) : '') + '</div></div>';
           // values are keyed by column header (Role is a built-in label)
         }).join('') || '<p class="muted" style="padding:8px">No staff found.</p>';
@@ -80,7 +88,28 @@
         (editing ? ' Changing the Employee ID does not rewrite already imported shifts.' : '') + '</p>';
       show('activeBtn', !!editing);
       if (editing) $('activeBtn').textContent = editing.active ? 'Mark inactive' : 'Mark active';
+      show('memberBox', false);
+      if (editing && editing.employeeId && list.shared) {
+        api('apiStaffMemberships', teamId(), editing.employeeId).then(function (m) {
+          $('memberList').innerHTML = m.teams.map(function (t) {
+            return '<div style="display:flex;gap:6px;align-items:center;margin:3px 0"><label class="inline" style="flex:1"><input type="checkbox" data-mteam="' + esc(t.teamId) + '"' +
+              (t.member ? ' checked' : '') + '> ' + esc(t.teamName) + '</label><input type="text" data-mrole="' + esc(t.teamId) + '" value="' + esc(t.teamRole) +
+              '" placeholder="Team role (optional)" style="flex:1"></div>';
+          }).join('');
+          show('memberBox', true);
+        }, showError);
+      }
       show('editor', true);
+    }
+
+    function saveMemberships() {
+      var listM = Array.prototype.map.call(document.querySelectorAll('[data-mteam]'), function (c) {
+        return { teamId: c.dataset.mteam, member: c.checked, teamRole: document.querySelector('[data-mrole="' + c.dataset.mteam + '"]').value };
+      });
+      call('Saving membership…', 'apiStaffSaveMemberships', teamId(), editing.employeeId, listM).then(function () {
+        showStatus('ok', 'Membership saved for ' + esc(editing.employeeName) + '.');
+        search();
+      });
     }
 
     function save() {
@@ -105,7 +134,8 @@
               ') — no Employee ID in the export: add this person with "+ Add staff member" (exact same name) to match future imports by name.</span></div>';
           }
           return '<label class="inline" style="display:flex"><input type="checkbox" data-u="' + i + '" checked> ' + esc(u.employeeName || '(no name)') + ' · ' + esc(u.employeeId) +
-            ' <span class="small muted">(' + u.shifts + ' shift(s), last ' + esc(u.lastDate) + ')</span></label>';
+            ' <span class="small muted">(' + u.shifts + ' shift(s), last ' + esc(u.lastDate) + ')' +
+            (u.membershipOnly ? ' — already in the shared directory: adds team membership only' : '') + '</span></label>';
         }).join('') : '<p class="muted">Every employee in this team\'s stored schedule is matched to the staff sheet.</p>';
         show('addUnknownBtn', r.some(function (u) { return u.canAdd; }));
         show('unknown', true);

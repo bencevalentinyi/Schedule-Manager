@@ -1,6 +1,7 @@
 /**
  * Runs the pure unit tests defined in src/Tests.gs (runUnitTests) under Node.js,
  * without a Google environment. Only service-free code paths are exercised.
+ * Every .gs file in src/ is loaded (load order does not matter by design).
  *
  * Usage:  node tests/run-unit-tests.js
  */
@@ -10,9 +11,6 @@ const path = require('path');
 const vm = require('vm');
 
 const SRC = path.join(__dirname, '..', 'src');
-const FILES = ['Schema.gs', 'Utils.gs', 'SheetStore.gs', 'ConfigService.gs', 'ImportMappingService.gs',
-  'TeamTypeService.gs', 'TeamService.gs', 'StaffFieldService.gs', 'StaffService.gs', 'ScheduleService.gs', 'DashboardService.gs',
-  'QuinyxParser.gs', 'ValidationService.gs', 'AuditService.gs', 'ImportService.gs', 'Main.gs', 'Tests.gs'];
 
 // Minimal stand-in for the one Utilities function pure code may touch.
 const Utilities = {
@@ -24,8 +22,15 @@ const Utilities = {
 };
 
 const context = vm.createContext({ console, Utilities });
-for (const f of FILES) {
+fs.readdirSync(SRC).filter((f) => f.endsWith('.gs')).sort().forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), context, { filename: f });
-}
+});
 const result = vm.runInContext('runUnitTests()', context);
-process.exit(result.failed ? 1 : 0);
+
+// Requirement (v1.1.1 #32): setup/migrations must never create (duplicate) triggers.
+// Static check: no source file may create triggers at all.
+const triggerUse = fs.readdirSync(SRC).filter((f) => /\.(gs|html)$/.test(f))
+  .filter((f) => /ScriptApp\s*\.\s*newTrigger/.test(fs.readFileSync(path.join(SRC, f), 'utf8')));
+console.log(triggerUse.length ? '  FAIL trigger creation found in: ' + triggerUse.join(', ') : '  PASS no source file creates triggers (ScriptApp.newTrigger)');
+
+process.exit(result.failed || triggerUse.length ? 1 : 0);

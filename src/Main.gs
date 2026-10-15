@@ -29,6 +29,12 @@ function onOpen() {
       .addItem('Refresh Schedule Data', 'menuRefresh')
       .addItem('View Team Schedule', 'menuViewTeamSchedule')
       .addItem('View Staff Directory', 'menuViewStaff'))
+    .addSubMenu(ui.createMenu('Slack Workflow Automation')
+      .addItem('Generate Payloads', 'menuSlackGenerate')
+      .addItem('Configure Payload Generation', 'menuSlackConfig')
+      .addItem('Configure Dashboard URL', 'menuSlackUrl')
+      .addItem('View Generated Payloads', 'menuSlackView')
+      .addItem('Validate Payload Data', 'menuSlackValidate'))
     .addSubMenu(ui.createMenu('Maintenance')
       .addItem('Rebuild Missing Sheets', 'menuRebuildMissing')
       .addItem('Repair Formatting', 'menuRepairFormatting')
@@ -72,10 +78,11 @@ function checkInstall() {
     Schema: 'APP', Utils: 'logError_', SheetStore: 'readTable_', ConfigService: 'getConfig_', Setup: 'initializeSystem_',
     TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
     ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
+    MembershipService: 'readMemberships_', SlackPayloadService: 'buildPayloadPlan_',
     ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
     AuditService: 'readImportLog_', Main: 'onOpen', Tests: 'runUnitTests'
   };
-  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'TeamTypeDialog', 'StaffFieldsDialog',
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'TeamTypeDialog', 'StaffFieldsDialog', 'SlackDialog',
     'SettingsDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
@@ -91,7 +98,7 @@ function checkInstall() {
   });
   if (typeof g.APP !== 'undefined' && g.APP.VERSION) console.log('Code version: ' + g.APP.VERSION);
   if (problems.length) problems.forEach(function (p) { console.log('PROBLEM: ' + p); });
-  else console.log('All 18 script files and 14 HTML files are present. If something still fails, check Executions for the error message.');
+  else console.log('All ' + Object.keys(scripts).length + ' script files and ' + html.length + ' HTML files are present. If something still fails, check Executions for the error message.');
   return problems;
 }
 
@@ -260,6 +267,37 @@ function menuViewTeamSchedule() {
 
 function menuViewStaff() {
   menuRun_('menuViewStaff', function () { showHtml_('StaffSidebar', 'Staff Directory', {}, 0, 0, true); });
+}
+
+/* ------------------------------------------------------------------------ */
+/* Slack Workflow Automation                                                 */
+/* ------------------------------------------------------------------------ */
+
+function menuSlackGenerate() {
+  menuRun_('menuSlackGenerate', function () { showHtml_('SlackDialog', 'Generate Slack Payloads', { tab: 'generate' }, 920, 680); });
+}
+
+function menuSlackConfig() {
+  menuRun_('menuSlackConfig', function () { showHtml_('SlackDialog', 'Configure Payload Generation', { tab: 'config' }, 920, 680); });
+}
+
+function menuSlackUrl() {
+  menuRun_('menuSlackUrl', function () { showHtml_('SlackDialog', 'Configure Dashboard URL', { tab: 'url' }, 920, 680); });
+}
+
+function menuSlackView() {
+  menuRun_('menuSlackView', function () {
+    var sh = requireSheet_(T_SLACK_PAYLOADS.sheet, 'Run Setup / Configure Spreadsheet → Upgrade.');
+    if (sh.isSheetHidden()) sh.showSheet();
+    sh.activate();
+    getSs_().toast('Generated payloads. Regenerate (Replace mode) instead of editing rows by hand.', APP.NAME, 6);
+  });
+}
+
+function menuSlackValidate() {
+  menuRun_('menuSlackValidate', function () {
+    showReport_('Validate Payload Data', validatePayloads_(), 'Checks the payload and dashboard URL configuration and the stored payload records (validity, missing identifiers, stale source records).');
+  });
 }
 
 /* ------------------------------------------------------------------------ */

@@ -1,12 +1,89 @@
 # Verification and Test Plan
 
-## 0. v1.1 acceptance criteria
+## v1.1.1 acceptance criteria (the 32 test scenarios of the patch)
+
+Results at hand-off, all executed under Node.js 20:
+
+- **U** = unit tests (`node tests/run-unit-tests.js`): **89/89 passed**, plus the static check that no file creates triggers.
+- **I** = integration tests against the Sheets mock (`node tests/run-integration-tests.js`): **22/22 passed**.
+- **M** = upgrade tests (`node tests/run-migration-test.js`): **25/25 checks passed**, covering 1.0 → 1.1.1 and 1.1.0 → 1.1.1, each run twice.
+- **S** = must still be checked in real Google Sheets: run `runIntegrationTests` in a copy, and the checklist below.
+
+Nothing has been tested against a real Quinyx export or a real Slack Workflow.
+
+| # | Scenario | Verified by |
+|---|---|---|
+| 1 | One normal shift | U (meeting fixture: Bob; v1.1 plan tests) |
+| 2 | Several meetings on one date | U ("Meetings #1–5": four meetings for Ann, distinct keys) |
+| 3 | Meeting before the shift | U (07:30–08:00: not a conflict, counted outside the shift) |
+| 4 | Meeting during the shift | U (10:00 and 15:00: *in shift*, no conflict) |
+| 5 | Meeting after the shift | U (16:00–16:30) |
+| 6 | Meeting import on/off | U (off: 4 excluded and reported, shifts unchanged) |
+| 7 | Repeated import: no duplicate meetings | U (second run: 0 actions, 6 unchanged) |
+| 8 | No double-counting | U (working minutes = 480 + 30 + 30) |
+| 9 | Default staff columns | U, I (exactly Employee ID, Name, Active, Role, Notes) |
+| 10 | No identifier fields by default | U (`SEED_STAFF_FIELDS_` empty), M (none created on upgrade) |
+| 11 | Add a custom identifier field | I |
+| 12 | Rename keeps values | I (`000123` kept through rename; also kept after delete-without-confirmation) |
+| 13 | One sheet shared by several teams | I |
+| 14 | Shared records stay authoritative | I (one record per employee; same directory sheet ID) |
+| 15 | Membership explicit | U (checker), I (owner backfilled, joining team has no implicit members) |
+| 16 | Ambiguous routing flagged | U (ambiguous / unknown / no membership; override and skip), I (blocks until decided) |
+| 17 | Payloads for one team | U |
+| 18 | Payloads for several teams | U, I |
+| 19 | Selected date or range | U (date filter), I (single date) |
+| 20 | Separate records for shifts and meetings | U |
+| 21 | `@Name` display | U, I (`@Shared One`) |
+| 22 | URL from the template | U, I |
+| 23 | Selectable identifier field | U (`field:crm` → `CRM-001`, leading zeros `007`) |
+| 24 | Custom delimiters preserved | U (`https://google.com/user="xy"%2"yx"` exactly, flagged as unusual) |
+| 25 | Encoding applied correctly | U (`A B/7` → `A%20B%2F7`; the template is not encoded) |
+| 26 | Missing-identifier policies | U (blank + warning / skip / block) |
+| 27 | Preview = final URL | U (same builder; equality asserted) |
+| 28 | Selectable number of blocks | U |
+| 29 | Grouping never drops records | U (refuses when records don't fit; record count verified) |
+| 30 | Replace keeps unrelated payloads | I (other team's rows kept, no duplication) |
+| 31 | Append creates a new Generation ID | U, I (two generations; identical content flagged) |
+| 32 | No duplicate triggers | Static check: no source file calls `ScriptApp.newTrigger`; the upgrade never creates triggers |
+
+### Manual checklist for v1.1.1 (real spreadsheet)
+
+**Upgrade**
+
+- [ ] Run `checkInstall`; it should report every file present.
+- [ ] Run Setup → **Upgrade**. It lists the added columns and sheets and "meeting import off, staff-directory routing off" for each team. A second run lists nothing new.
+- [ ] Existing views, staff columns and identifiers look exactly as before.
+
+**Meetings (with a real Daily Schedule export containing meetings)**
+
+- [ ] Discover the types and tick the meeting types for a team. With *Import meetings* **off**, the preview shows *Meetings excluded = n*. With it **on**, it shows *Meetings selected = n*.
+- [ ] The daily view shows meetings flagged *Meeting (in shift)* or *(outside shift)*; only real clashes are flagged *Overlap*.
+- [ ] *Working hours* in row 4 does not grow when a meeting lies inside a shift.
+- [ ] Importing the same file again creates 0 new rows.
+
+**Staff and shared directories**
+
+- [ ] A new team's staff sheet has exactly five columns.
+- [ ] Add "Converse ID" in *Configure Staff Fields*, enter `000123`, rename the field; the value is kept.
+- [ ] Create team B sharing team A's staff sheet. The sheet title lists both teams. A's employees are still A's members; B has none.
+- [ ] In *View Staff Directory* for team B, mark one employee as a member of both teams.
+- [ ] Enable routing for A and B and import with *Route by staff directory membership*. The routing table shows that employee as **AMBIGUOUS**; Apply is blocked until a team is chosen.
+
+**Slack payloads**
+
+- [ ] *Configure Dashboard URL*: enter your real template and delimiters, choose the identifier field, and check the live preview against a known working URL.
+- [ ] *Configure Payload Generation* → *Generate Payloads* → **Preview**: check the counts, statuses and URLs, then **Generate**. `_SLACK_PAYLOADS` shows one row per shift or meeting.
+- [ ] Generate again in Replace mode: rows of other teams and dates remain. Append mode: a second Generation ID appears; identical content asks for confirmation.
+- [ ] Run *Validate Payload Data* after a new import: changed schedules are reported as stale payloads.
+- [ ] Check with the Slack Workflow owner that the columns or line text match what the workflow expects (**schema not yet verified**).
+
+## v1.1 acceptance criteria
 
 How each requirement of the v1.1 update is verified.
 
-- **U** = unit test (`node tests/run-unit-tests.js`, 74/74 passing)
-- **I** = integration test against the Sheets mock (`node tests/run-integration-tests.js`, 20/20 passing)
-- **M** = upgrade test (`node tests/run-migration-test.js`, 14/14 passing)
+- **U** = unit test
+- **I** = integration test against the Sheets mock
+- **M** = upgrade test
 - **S** = needs a real spreadsheet: `runIntegrationTests` in a copy, plus the manual checklist in §0.1
 
 Nothing has been verified against a real Quinyx export yet.

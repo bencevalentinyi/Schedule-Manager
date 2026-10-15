@@ -34,7 +34,9 @@ function rebuildDashboard_() {
         showCarryOver: showCarry, window: win, hoursToleranceMinutes: cfgNum_(cfg, 'HOURS_TOLERANCE_MINUTES', 15) });
     var own = dayRows.filter(function (r) { return !r.carry; });
     var people = uniq_(own.map(function (r) { return employeeIdentity_(r.rec); })).length;
-    var net = own.reduce(function (s, r) { return s + (r.rec.netMinutes || 0); }, 0);
+    var work = workMinutesByEmployee_(own);
+    var net = Object.keys(work).reduce(function (s, k) { return s + work[k]; }, 0);
+    own = own.filter(function (r) { return activityCategoryOf_(r) === ACTIVITY_CATEGORY.SHIFT; }); // "Shifts Today" counts shifts only
     var hc = headcountByHour_(dayRows, today, win.startMin, win.endMin);
     var peak = hc.reduce(function (m, h) { return Math.max(m, h.count); }, 0);
     var flagCount = function (f) { return dayRows.filter(function (r) { return r.flags.indexOf(f) >= 0; }).length; };

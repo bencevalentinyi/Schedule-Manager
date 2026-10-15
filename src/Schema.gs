@@ -10,7 +10,7 @@
 
 var APP = Object.freeze({
   NAME: 'Schedule Manager',
-  VERSION: '1.1.0',
+  VERSION: '1.1.1',
   MENU: 'Schedule Manager'
 });
 
@@ -121,7 +121,9 @@ var T_SCHEDULE = {
     col_('shiftType', 'Shift Type', { text: true }),
     col_('sourceShiftInfo', 'Source Shift Info', { text: true }),
     col_('sourceHours', 'Source Hours', { text: true }),
-    col_('scheduledMinutes', 'Scheduled Minutes', { number: true })
+    col_('scheduledMinutes', 'Scheduled Minutes', { number: true }),
+    // v1.1.1
+    col_('activityCategory', 'Activity Category', { text: true })
   ]
 };
 
@@ -151,7 +153,10 @@ var T_IMPORT_LOG = {
     col_('fileHash', 'File Hash', { text: true }),
     // v1.1
     col_('rowsExcluded', 'Rows Excluded (Shift Type)', { number: true }),
-    col_('shiftTypes', 'Shift Types Imported', { text: true })
+    col_('shiftTypes', 'Shift Types Imported', { text: true }),
+    // v1.1.1
+    col_('meetingsImported', 'Meetings Imported', { number: true }),
+    col_('meetingsExcluded', 'Meetings Excluded', { number: true })
   ]
 };
 
@@ -205,13 +210,68 @@ var T_STAFF_FIELDS = {
     col_('matchable', 'Usable As Match Key'),
     col_('description', 'Description', { text: true }),
     col_('createdAt', 'Created At', { datetime: true }),
+    col_('updatedAt', 'Updated At', { datetime: true }),
+    // v1.1.1
+    col_('displayOrder', 'Display Order', { number: true })
+  ]
+};
+
+/**
+ * v1.1.1: explicit employee-to-team membership. Required for staff directories
+ * shared by several teams; a dedicated directory implicitly means "everyone in
+ * it is a member of its one team".
+ */
+var T_MEMBERSHIP = {
+  sheet: '_TEAM_MEMBERSHIP',
+  purpose: 'Employee-to-team membership for shared staff directories (Employee ID + Team ID).',
+  columns: [
+    col_('employeeId', 'Employee ID', { text: true }),
+    col_('teamId', 'Team ID', { text: true }),
+    col_('status', 'Membership Status', { text: true }),
+    col_('teamRole', 'Team Role', { text: true }),
+    col_('source', 'Source', { text: true }),
+    col_('createdAt', 'Created At', { datetime: true }),
     col_('updatedAt', 'Updated At', { datetime: true })
+  ]
+};
+
+/** v1.1.1: Slack Workflow payload records (derived output; never edited by the importer). */
+var T_SLACK_PAYLOADS = {
+  sheet: '_SLACK_PAYLOADS',
+  purpose: 'Generated Slack Workflow payload records. Derived from _SCHEDULE_DATA and staff directories; regenerate instead of editing.',
+  columns: [
+    col_('payloadId', 'Payload ID', { text: true }),
+    col_('generationId', 'Generation ID', { text: true }),
+    col_('generatedAt', 'Generated At', { datetime: true }),
+    col_('scheduleDate', 'Schedule Date', { text: true }),
+    col_('employeeId', 'Employee ID', { text: true }),
+    col_('employeeName', 'Employee Name', { text: true }),
+    col_('employeeDisplay', 'Employee Display', { text: true }),
+    col_('teamId', 'Team ID', { text: true }),
+    col_('teamName', 'Team Name', { text: true }),
+    col_('activityType', 'Activity Type', { text: true }),
+    col_('activityCategory', 'Activity Category', { text: true }),
+    col_('startDateTime', 'Start DateTime', { text: true }),
+    col_('endDateTime', 'End DateTime', { text: true }),
+    col_('startTime', 'Start Time', { text: true }),
+    col_('endTime', 'End Time', { text: true }),
+    col_('dashboardId', 'Dashboard ID', { text: true }),
+    col_('dashboardUrl', 'Dashboard URL', { text: true }),
+    col_('blockNumber', 'Block Number', { number: true }),
+    col_('groupKey', 'Group Key', { text: true }),
+    col_('sourceRecordKey', 'Source Schedule Record ID', { text: true }),
+    col_('sourceImportId', 'Source Import ID', { text: true }),
+    col_('payloadStatus', 'Payload Status', { text: true }),
+    col_('message', 'Message', { text: true }),
+    col_('lineText', 'Line Text', { text: true }),
+    col_('slackUserId', 'Slack User ID', { text: true }),
+    col_('contentHash', 'Content Hash', { text: true })
   ]
 };
 
 /** Creation / validation order of system sheets. */
 var SYSTEM_TABLES = [T_CONFIG, T_TEAMS, T_TEAM_TYPES, T_MAPPINGS, T_SCHEDULE,
-  T_IMPORT_LOG, T_CHANGES, T_STAGING, T_STAFF_MASTER, T_STAFF_FIELDS];
+  T_IMPORT_LOG, T_CHANGES, T_STAGING, T_STAFF_MASTER, T_STAFF_FIELDS, T_MEMBERSHIP, T_SLACK_PAYLOADS];
 
 /* ------------------------------------------------------------------------ */
 /* Enumerations                                                              */
@@ -233,8 +293,10 @@ var TEAM_MODES = {
   AUTO: 'Auto-detect',
   EXPLICIT: 'All rows go to the selected team',
   SPLIT: 'Split rows by the team column',
-  FILTER: 'Only import rows belonging to the selected team'
+  FILTER: 'Only import rows belonging to the selected team',
+  DIRECTORY: 'Route by staff directory membership'
 };
+var ACTIVITY_CATEGORY = { SHIFT: 'SHIFT', MEETING: 'MEETING' };
 var STAFF_MATCH = {
   ID: 'ID', NAME: 'NAME', AMBIGUOUS: 'AMBIGUOUS', UNKNOWN: 'UNKNOWN'
 };
@@ -305,6 +367,7 @@ var DISPLAY_FIELDS = {
   employeeName: { label: 'Employee Name', kind: 'text', width: 180 },
   team: { label: 'Team', kind: 'text', width: 130 },
   shiftType: { label: 'Shift Type', kind: 'text', width: 140 },
+  activityCategory: { label: 'Category', kind: 'text', width: 85 },
   activity: { label: 'Activity', kind: 'text', width: 150 },
   role: { label: 'Role', kind: 'text', width: 120 },
   start: { label: 'Start', kind: 'time', width: 70 },
@@ -347,12 +410,13 @@ var CUSTOM_FIELD_PREFIX = 'custom:';    // legacy (v1.0) free-text custom column
 var STAFF_FIELD_TYPES = { IDENTIFIER: 'External identifier (text, unique per team)', TEXT: 'Text' };
 var STAFF_ACTIVE_VALUES = ['Active', 'Inactive'];
 
-/** Default staff sheet (v1.1): the eight required columns, in order. */
-var DEFAULT_STAFF_FIELDS = ['employeeId', 'employeeName', 'field:external_id_1', 'field:external_id_2',
-  'field:external_id_3', 'active', 'role', 'notes'];
-/** v1.0 default; the migration upgrades a starter team type that still has exactly this list. */
+/** Default staff sheet (v1.1.1): five columns. Identifier fields are created by administrators when needed. */
+var DEFAULT_STAFF_FIELDS = ['employeeId', 'employeeName', 'active', 'role', 'notes'];
+/** Earlier defaults; the migration upgrades a starter team type that still has exactly one of these lists. */
 var LEGACY_DEFAULT_STAFF_FIELDS_V1 = ['employeeId', 'employeeName', 'email', 'team', 'role', 'active',
   'skills', 'notes', 'lastUpdated'];
+var LEGACY_DEFAULT_STAFF_FIELDS_V110 = ['employeeId', 'employeeName', 'field:external_id_1', 'field:external_id_2',
+  'field:external_id_3', 'active', 'role', 'notes'];
 
 /* ------------------------------------------------------------------------ */
 /* Display defaults and view registry                                       */
@@ -392,7 +456,11 @@ var DEFAULT_TEAM_IMPORT = {
   shiftTypeMode: 'NOT_CONFIGURED',
   shiftTypes: [],
   knownShiftTypes: [],
-  duplicateStrategy: ''
+  duplicateStrategy: '',
+  // v1.1.1
+  importMeetings: false,
+  meetingTypes: [],
+  useStaffDirectoryRouting: false
 };
 
 /**
@@ -424,5 +492,5 @@ var STAFF_LAYOUT = Object.freeze({ TITLE_ROW: 1, NAV_ROW: 2, HEADER_ROW: 3, FIRS
 
 var STATUS_FILTER_OPTIONS = ['(All)', 'OK', 'Has warnings', 'Overnight', 'Overlap',
   'Unknown employee', 'Name match', 'Long shift', 'Hours differ', 'Outside operating hours',
-  'From previous day', 'Starts next day'];
+  'From previous day', 'Starts next day', 'Meeting', 'Not a team member'];
 var ALL_OPTION = '(All)';

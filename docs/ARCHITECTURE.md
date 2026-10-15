@@ -258,6 +258,19 @@ Keys include `SYSTEM_VERSION`, `INITIALIZED`, `INITIALIZED_AT`, `TEAM_ID_SEQ`, `
 | Source Hours | text | v1.1, original hours cell |
 | Scheduled Minutes | number | v1.1, parsed hours (blank if missing or invalid) |
 
+**`_TEAM_MEMBERSHIP`** (v1.1.1): key = Employee ID + Team ID.
+
+| Column | Contents |
+|---|---|
+| Membership Status | `ACTIVE` or `INACTIVE` |
+| Team Role | optional |
+| Source | `BACKFILL`, `ADMIN` or `STAFF_SIDEBAR` |
+| Created At / Updated At | datetime |
+
+**`_SLACK_PAYLOADS`** (v1.1.1): key `Payload ID`. Columns: Generation ID, Generated At, Schedule Date, Employee ID / Name / Display, Team ID / Name, Activity Type / Category, Start/End DateTime, Start/End Time, Dashboard ID / URL, Block Number, Group Key, Source Schedule Record ID, Source Import ID, Payload Status, Message, Line Text, Slack User ID, Content Hash. This is derived output: regenerate it rather than editing it.
+
+**`_SCHEDULE_DATA`** v1.1.1 adds **Activity Category** (`SHIFT` or `MEETING`; blank in older rows means `SHIFT`). **`_IMPORT_LOG`** adds Meetings Imported and Meetings Excluded. **`_STAFF_FIELDS`** adds **Display Order**.
+
 **`_STAFF_FIELDS`** (v1.1): key `Field Key` (permanent).
 
 | Column | Contents |
@@ -325,3 +338,97 @@ Status flags: `OK`, Overnight, Overlap, Unknown employee, Name match, Long shift
 - **Shift-type matching is exact.** "Customer Support" and "customer support" are different types, by design. New spellings appear as *new* shift types in the preview.
 - **Header layout profile.** The header row and first data row are stored in the mapping profile, so teams that share a profile share the layout.
 - **Overnight shifts in a one-day export** are dated on the schedule date. A shift that started the day before cannot be recognized from times alone.
+- **Meeting detection** depends on the shift/activity type text in the export. Meetings that Quinyx exports as part of a shift row (rather than as their own row) cannot be separated.
+- **Directory routing** matches by Employee ID, or by a unique exact name using the global name strategy. A team's alternative match key is not used for routing.
+- **Slack payloads** are normalized sheet rows. The Slack Workflow input schema has not been verified, so no specific schema is claimed (see §9).
+- **Display Order** sets the order of new columns and of fields in the dialogs. Existing staff-sheet columns are never moved.
+
+## 8. Meetings, shared directories and routing (v1.1.1)
+
+### Meetings
+
+- **Configuration.** A team lists its **meeting types**: shift/activity types, matched exactly after whitespace normalization, against the shift type column or, if there is none, the activity column. **Import meetings** turns them on.
+- **Import meetings on:** matching rows are stored as separate assignments with `Activity Category = MEETING`. Their key includes their own times and type, so several meetings per employee per day never collide.
+- **Import meetings off:** matching rows are excluded before validation and counted (*Meetings excluded*, also in `_IMPORT_LOG`).
+- **Unknown types** are never meetings.
+- **Overlaps of the same employee** are classified pairwise:
+
+| Pair | Result |
+|---|---|
+| Meeting entirely inside a shift | Expected. Shown as *Meeting (in shift)*, not a conflict. |
+| Meeting before or after a shift (touching or apart) | No overlap. Shown as *Meeting (outside shift)*. |
+| Shift + shift, meeting + meeting, or a meeting partly outside a shift | **Conflict** (*Overlap*) |
+| Identical source rows | Duplicate in the file; skipped |
+
+**Working hours (documented rule).** For each employee and day: the net minutes of every shift (gross minus recorded break), plus only the part of each meeting that no shift covers. Activity durations and source hours (column F) are stored unchanged. The view's *Scheduled Hours* shows the source value per row.
+
+### Shared staff directories and membership
+
+- **Directory = staff sheet** (by sheet ID). A team uses either a **dedicated** sheet or **shares** another team's sheet. Only sheets registered as some team's staff sheet can be shared.
+- **One record per employee.** Each employee exists once per directory. Updates are visible to every team using it.
+- **Membership:**
+
+| Directory | Who is a member of team T |
+|---|---|
+| Dedicated (one team) | Everyone in the sheet (implicit, unchanged from earlier versions) |
+| Shared (2+ teams) | Only employees with an ACTIVE row (Employee ID, T) in `_TEAM_MEMBERSHIP`; a team-specific role is optional |
+
+- **Backfill.** When a directory becomes shared, its current employees get explicit memberships for the team(s) that already used it, so nothing changes for them. The joining team gets members only if the administrator ticks *Make all current employees members*.
+- **Staff added for a team** in a shared directory become members of that team only.
+- **Moving between teams** means changing memberships (Staff sidebar); stored schedules keep the team they were imported for.
+- **In the daily view,** employees who are in the directory but not members of the team are flagged *Not a team member*.
+
+### Routing by staff directory membership
+
+This is the import mode **Route by staff directory membership**. It covers all READY teams with *Use staff directory for employee matching and team routing* enabled. For each row:
+
+1. **Identify the employee:** Employee ID if mapped, otherwise a unique exact name (global name strategy).
+2. **Resolve them** against the routing teams' directories.
+3. **Collect candidate teams** where the employee is an active member.
+4. **Narrow the candidates:** first by the export's team column (if mapped and recognized), then by the teams' shift-type and meeting settings.
+5. **Route only when exactly one team remains.**
+   - **Ambiguous** rows (several teams) and **unroutable** rows (unknown employee, ambiguous name, or no membership) are rejected and listed in the preview's routing table.
+   - The administrator assigns each one to a team or skips it, then re-analyzes. These decisions are part of the plan token.
+   - Nothing is ever copied into several teams.
+
+The preview's routing table shows the Quinyx name, matched Employee ID, staff name, match method, membership status, resolved team and routing status for every row, problems first.
+
+## 9. Slack Workflow payloads and dashboard URLs (v1.1.1)
+
+**Source.** Payloads are built only from ACTIVE records in `_SCHEDULE_DATA` and the authoritative staff directories. Quinyx files are never re-parsed and schedule data is never modified.
+
+**Pipeline.** `buildPayloadPlan_` is pure and unit-tested:
+
+1. **Retrieve and validate.**
+   - Records are filtered by the selected teams and dates (by the shift's start date, so overnight shifts belong to the day they start), by activity types, and by meeting inclusion.
+   - Employees are resolved in the team's directory and membership is checked.
+   - Unresolved employees, non-members and inactive employees are excluded or kept with a status, per configuration. Every exclusion is counted.
+2. **Group into blocks** (`groupIntoBlocks_`).
+   - Records are sorted by the grouping keys (team / date / employee / activity), and groups are kept together.
+   - **Without a records-per-block limit:** groups are spread over at most *N* blocks, combining consecutive groups when needed.
+   - **With a limit:** blocks hold at most *M* records, and a group larger than *M* is split (with a warning). If more than *N* blocks would be needed, generation is **refused**; records are never dropped.
+   - An internal check verifies that the record count is preserved.
+3. **Serialize** with `PAYLOAD_SERIALIZERS.ROWS`, one `_SLACK_PAYLOADS` row per record. A serializer for a verified Slack schema can be added without touching stages 1–2.
+
+**Records.** Every shift and meeting becomes its own record. Each record carries: Payload ID (`GEN_…-0001`), Generation ID and time, Schedule Date, Employee ID, name, display value, Team ID/Name, activity type and category, start/end date-time and time, Dashboard ID and URL, block number, group key, source Schedule Record Key, source Import ID, status, message, a rendered line text, an optional Slack user ID, and a content hash.
+
+**Employee display.** The template defaults to `@{EMPLOYEE_NAME}`, built from the staff record (e.g. "@Bence Valentinyi"). This is a **display string**, not a Slack mention: a real mention needs a Slack user ID (`<@U…>`). If a staff field holding Slack user IDs is selected, its value is written to *Slack User ID*. No IDs are ever invented.
+
+**Dashboard URL.**
+
+| Setting | Behaviour |
+|---|---|
+| Template | Literal text plus supported placeholders only: `{EMPLOYEE_ID}`, `{EMPLOYEE_NAME}`, `{TEAM_ID}`, `{TEAM_NAME}`, `{DATE}`, `{START_TIME}`, `{END_TIME}`. Anything else makes the URL invalid. Templates are text; nothing is evaluated. |
+| `{EMPLOYEE_ID}` | Becomes *text before* + identifier + *text after*. The identifier comes from the configured field (Employee ID or any staff field). The text before and after is inserted exactly, so custom delimiters such as `"…"%2"…"` are preserved. |
+| Encoding | `COMPONENT` encodes each inserted value; `NONE` inserts values unchanged. The template itself and the text before/after are never encoded or altered. |
+| Validation | **Invalid:** not http(s), whitespace, or leftover placeholders. The URL is left blank and the record is flagged. **Warning:** characters that are usually encoded, malformed `%` escapes, non-ASCII. These are kept as configured and flagged. |
+| Missing identifier | Blank URL + warning, skip the record (counted), or block generation. |
+| Preview | Uses the same `buildDashboardUrl_` as generation, so the preview always matches the generated URL. |
+
+**Output modes.**
+- **Replace** removes earlier payload rows of the selected teams within the selected dates, and keeps everything else.
+- **Append** adds a new generation. Content identical to an earlier generation (same hash) needs explicit confirmation.
+
+Generation always follows a preview: the plan token must match, and runs under the document lock.
+
+**Automation.** None. No triggers are created by setup, the upgrade, or this module. A future scheduled run would need explicit administrator activation.

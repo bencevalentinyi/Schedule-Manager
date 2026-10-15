@@ -74,7 +74,7 @@ check('import history kept', run('readImportLog_().length') === logRowsBefore);
 check('team keeps its 07:00–19:00 hours as STANDARD', run('var d = listTeams_()[0].settings.display; d.operatingHoursMode + " " + d.operatingHoursStart + "-" + d.operatingHoursEnd') === 'STANDARD 07:00-19:00');
 check('team keeps its staff fields (Email not removed)', run('listTeams_()[0].settings.staffFields.indexOf("email") >= 0'));
 check('existing staff ID with leading zeros intact', run('readStaff_(listTeams_()[0]).rows[0].employeeId') === '00042');
-check('untouched starter type gets the new 8 default staff columns', run('listTeamTypes_(true)[0].staffFields.join(",")') === run('DEFAULT_STAFF_FIELDS.join(",")'));
+check('untouched starter type gets the current default staff columns', run('listTeamTypes_(true)[0].staffFields.join(",")') === run('DEFAULT_STAFF_FIELDS.join(",")'));
 check('Daily Schedule profile created', run('!!getProfile_(QUINYX_DAILY_PROFILE_ID)'));
 
 // 5) Second run must not change anything structural.
@@ -82,7 +82,70 @@ const actions2 = run('initializeSystem_().actions');
 const structural = actions2.filter((a) => !/^Refreshed the/.test(a));
 check('second upgrade run changes nothing', structural.length === 0, structural.join(' | '));
 check('no duplicate columns', (() => { const h = header(ss.getSheetByName('_SCHEDULE_DATA')).filter(Boolean); return h.length === new Set(h).size; })());
-check('no duplicate staff fields', run('listStaffFields_().length') === 3);
+check('no staff fields created automatically', run('listStaffFields_().length') === 0);
+
+/* ------------------------------------------------------------------------ */
+/* Scenario B: v1.1.0 -> v1.1.1                                              */
+/* ------------------------------------------------------------------------ */
+console.log('v1.1.0 -> ' + run('APP.VERSION'));
+const g2 = makeGlobals('Europe/Stockholm');
+const ss2 = g2.spreadsheet;
+const ctx2 = vm.createContext(g2.globals);
+fs.readdirSync(SRC).filter((f) => f.endsWith('.gs')).sort().forEach((f) => vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx2, { filename: f }));
+const run2 = (code) => vm.runInContext(code, ctx2);
+run2(`
+  initializeSystem_();
+  // v1.1.0 seeded three identifier fields; recreate them as user data.
+  ['Converse ID', 'Aircall ID', 'AstraID'].forEach(function (n) { saveStaffField_({ displayName: n, fieldType: 'IDENTIFIER' }); });
+  var type = listTeamTypes_(false)[0];
+  var team = createTeam_({ teamName: 'Support', typeMode: 'EXISTING', teamTypeId: type.typeId,
+    staffFields: LEGACY_DEFAULT_STAFF_FIELDS_V110.slice() }).team;
+  var v = {}; v['Employee ID'] = 'E1'; v['Employee Name'] = 'Ann Lee'; v['Converse ID'] = '000777'; upsertStaff_(team, v, '');
+  itImport_({ teams: {}, imports: [] }, 'Employee ID,Employee Name,Date,Start,End\\nE1,Ann Lee,2026-10-15,08:00,16:00', team.teamId, 'UPDATE');
+`);
+const before2 = run2('JSON.stringify(readAllScheduleRecords_().records.map(function (r) { return [r.recordKey, r.shiftStart]; }))');
+// Rewind to the v1.1.0 layout.
+const header2 = (sheet) => sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+const drop2 = (name, labels) => {
+  const sh = ss2.getSheetByName(name);
+  header2(sh).forEach((h, i) => { if (labels.indexOf(h) >= 0) for (let r = 1; r <= sh.getLastRow(); r++) sh.put(r, i + 1, { v: '' }); });
+};
+drop2('_SCHEDULE_DATA', ['Activity Category']);
+drop2('_IMPORT_LOG', ['Meetings Imported', 'Meetings Excluded']);
+drop2('_STAFF_FIELDS', ['Display Order']);
+ss2.deleteSheet(ss2.getSheetByName('_TEAM_MEMBERSHIP'));
+ss2.deleteSheet(ss2.getSheetByName('_SLACK_PAYLOADS'));
+run2(`
+  setConfigValues_({ SYSTEM_VERSION: '1.1.0' });
+  var t = readTable_(T_TEAMS).rows[0];
+  var s = JSON.parse(JSON.stringify(t.settings));
+  delete s.import.importMeetings; delete s.import.meetingTypes; delete s.import.useStaffDirectoryRouting;
+  t.settings = s; updateObject_(T_TEAMS, t);
+  var ty = readTable_(T_TEAM_TYPES).rows[0];
+  ty.staffFields = LEGACY_DEFAULT_STAFF_FIELDS_V110; updateObject_(T_TEAM_TYPES, ty);
+  resetConfigMemo_();
+`);
+let code2 = '';
+try { run2('requireInitialized_()'); } catch (e) { code2 = e.code; }
+check('v1.1.0 spreadsheet asks for the upgrade', code2 === 'NEEDS_UPGRADE', code2);
+const acts = run2('initializeSystem_().actions');
+console.log('    upgrade actions:\n      - ' + acts.join('\n      - '));
+check('new sheets _TEAM_MEMBERSHIP and _SLACK_PAYLOADS created', !!ss2.getSheetByName('_TEAM_MEMBERSHIP') && !!ss2.getSheetByName('_SLACK_PAYLOADS'));
+check('new columns added', header2(ss2.getSheetByName('_SCHEDULE_DATA')).indexOf('Activity Category') >= 0 && header2(ss2.getSheetByName('_STAFF_FIELDS')).indexOf('Display Order') >= 0);
+check('schedule records unchanged', before2 === run2('JSON.stringify(readAllScheduleRecords_().records.map(function (r) { return [r.recordKey, r.shiftStart]; }))'));
+check('existing team keeps its identifier columns and values', run2('var t = listTeams_()[0]; var st = readStaff_(t); st.rows[0].values["Converse ID"]') === '000777');
+const fieldNames = run2('listStaffFields_().map(function (f) { return f.displayName; }).join(",")');
+check('existing identifier fields kept as user data, in their original order', fieldNames === 'Converse ID,Aircall ID,AstraID', fieldNames);
+check('team gets explicit meeting/routing settings (off)', run2('var i = listTeams_()[0].settings.import; i.importMeetings === false && i.useStaffDirectoryRouting === false'));
+check('untouched starter type now defaults to the 5 columns', run2('listTeamTypes_(true)[0].staffFields.join(",")') === 'employeeId,employeeName,active,role,notes');
+const reimport = run2(`itImport_({ teams: {}, imports: [] }, 'Employee ID,Employee Name,Date,Start,End\\nE1,Ann Lee,2026-10-15,08:00,16:00', listTeams_()[0].teamId, 'UPDATE')`);
+check('re-importing v1.1.0 data after the upgrade changes nothing', reimport.inserted === 0 && reimport.updated === 0 && reimport.unchanged === 1, JSON.stringify(reimport));
+const acts2 = run2('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
+check('second upgrade run changes nothing', acts2.length === 0, acts2.join(' | '));
+check('no duplicate columns or sheets', (() => {
+  const h = header2(ss2.getSheetByName('_SCHEDULE_DATA')).filter(Boolean);
+  return h.length === new Set(h).size && ss2.getSheets().filter((s) => s.getName() === '_TEAM_MEMBERSHIP').length === 1;
+})());
 
 console.log(failed ? failed + ' migration check(s) FAILED' : 'Migration test: all checks passed');
 process.exit(failed ? 1 : 0);
