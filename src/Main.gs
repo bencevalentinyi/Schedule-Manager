@@ -61,6 +61,40 @@ function onEdit(e) {
   }
 }
 
+/**
+ * Installation self-check. Select "checkInstall" in the Apps Script editor and
+ * click Run: the log lists every missing or broken project file.
+ * Uses no other project file, so it works even when some files are missing.
+ */
+function checkInstall() {
+  var g = (function () { return this; })() || globalThis;
+  var scripts = {
+    Schema: 'APP', Utils: 'logError_', SheetStore: 'readTable_', ConfigService: 'getConfig_', Setup: 'initializeSystem_',
+    TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
+    ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
+    ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
+    AuditService: 'readImportLog_', Main: 'onOpen', Tests: 'runUnitTests'
+  };
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'TeamTypeDialog', 'StaffFieldsDialog',
+    'SettingsDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
+  var problems = [];
+  Object.keys(scripts).forEach(function (file) {
+    if (typeof g[scripts[file]] === 'undefined') problems.push('Script file "' + file + '" is missing, empty, incomplete or contains another file\'s code (expected to define ' + scripts[file] + ').');
+  });
+  html.forEach(function (file) {
+    try {
+      var content = HtmlService.createHtmlOutputFromFile(file).getContent();
+      if (!content || content.length < 50) problems.push('HTML file "' + file + '" is empty.');
+    } catch (e) {
+      problems.push('HTML file "' + file + '" is missing or misnamed (create it with + → HTML, exact name "' + file + '").');
+    }
+  });
+  if (typeof g.APP !== 'undefined' && g.APP.VERSION) console.log('Code version: ' + g.APP.VERSION);
+  if (problems.length) problems.forEach(function (p) { console.log('PROBLEM: ' + p); });
+  else console.log('All 18 script files and 14 HTML files are present. If something still fails, check Executions for the error message.');
+  return problems;
+}
+
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                   */
 /* ------------------------------------------------------------------------ */
