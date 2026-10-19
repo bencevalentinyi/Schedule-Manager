@@ -44,6 +44,72 @@ function buildRecordKey_(teamId, rec) {
   return rec.shiftType ? key + '|ST:' + normText_(rec.shiftType) : key;
 }
 
+/**
+ * Joins the pieces of one person's shift that Quinyx splits around a meeting or training, e.g.
+ * 08:00–15:00 + Meeting 15:00–16:00 + 16:00–16:20 → one shift 08:00–16:20 (the meeting stays its
+ * own record). Pieces are joined when the gap between them is empty or fully covered by that
+ * person's meeting/training intervals (imported or not). Meetings at the very start or end do not
+ * extend the shift. Only shifts of people found in the staff sheet are joined. Pure.
+ * @param {Object[]} recs normalized records with teamId, activityCategory, startAbs, endAbs, _person, _inStaff
+ * @param {Object} bridges personKey -> [{start, end}] meeting/training intervals (absolute minutes)
+ * @return {{records: Object[], joined: number}} joined = number of pieces absorbed
+ */
+function mergeShiftPieces_(recs, bridges) {
+  var out = [], groups = {}, joined = 0;
+  recs.forEach(function (r) {
+    if (r.activityCategory === ACTIVITY_CATEGORY.MEETING || !r._inStaff || !r._person) { out.push(r); return; }
+    var g = r.teamId + '|' + r._person;
+    (groups[g] = groups[g] || []).push(r);
+  });
+  var covered = function (from, to, intervals) {
+    var pos = from, moved = true;
+    while (pos < to && moved) {
+      moved = false;
+      intervals.forEach(function (iv) { if (iv.start <= pos && iv.end > pos) { pos = iv.end; moved = true; } });
+    }
+    return pos >= to;
+  };
+  var join = function (chain) {
+    if (chain.length === 1) return chain[0];
+    var first = chain[0];
+    var r = {};
+    Object.keys(first).forEach(function (k) { r[k] = first[k]; });
+    var start = first.startAbs, end = chain.reduce(function (m, c) { return Math.max(m, c.endAbs); }, 0);
+    var list = function (f, sep) { return uniq_(chain.map(function (c) { return str_(c[f]); }).filter(Boolean)).join(sep); };
+    r.startAbs = start; r.endAbs = end;
+    r.shiftStart = isoDateTimeFromMinutes_(start); r.shiftEnd = isoDateTimeFromMinutes_(end);
+    r.grossMinutes = end - start;
+    r.overnight = Math.floor(end / 1440) > Math.floor(start / 1440) && end % 1440 !== 0;
+    r.shiftType = list('shiftType', ' / ');
+    r.activity = list('activity', ' / ');
+    r.sourceShiftInfo = chain.map(function (c) { return str_(c.sourceShiftInfo); }).filter(Boolean).join(' + ');
+    r.sourceHours = chain.map(function (c) { return str_(c.sourceHours); }).filter(Boolean).join(' + ');
+    // Scheduled hours: the pieces plus the meeting time between them, so a whole shift is not flagged "Hours differ".
+    var allSched = chain.every(function (c) { return c.scheduledMinutes !== '' && c.scheduledMinutes !== null && c.scheduledMinutes !== undefined && isFinite(c.scheduledMinutes); });
+    var pieceMinutes = chain.reduce(function (n, c) { return n + (c.endAbs - c.startAbs); }, 0);
+    r.scheduledMinutes = allSched ? chain.reduce(function (n, c) { return n + Number(c.scheduledMinutes); }, 0) + (r.grossMinutes - pieceMinutes) : '';
+    r.extra = {};
+    chain.forEach(function (c) { Object.keys(c.extra || {}).forEach(function (k) { if (r.extra[k] === undefined) r.extra[k] = c.extra[k]; }); });
+    r.extra['Joined rows'] = chain.map(function (c) { return c.sourceRow; }).join(', ');
+    r.warnings = [];
+    r._joinedFrom = chain.length;
+    joined += chain.length - 1;
+    return r;
+  };
+  Object.keys(groups).forEach(function (g) {
+    var list = groups[g].slice().sort(function (a, b) { return a.startAbs - b.startAbs || a.endAbs - b.endAbs; });
+    var intervals = bridges[list[0]._person] || [];
+    var chain = [list[0]], end = list[0].endAbs;
+    for (var i = 1; i < list.length; i++) {
+      var nx = list[i];
+      if (nx.startAbs >= end && covered(end, nx.startAbs, intervals)) { chain.push(nx); end = Math.max(end, nx.endAbs); }
+      else { out.push(join(chain)); chain = [nx]; end = nx.endAbs; }
+    }
+    out.push(join(chain));
+  });
+  return { records: out, joined: joined };
+}
+
 /** Converts a normalized row into the stored record shape (without import metadata). */
 function toStoredRecord_(rec) {
   return {
@@ -125,7 +191,9 @@ function emptySummary_() {
     normalShifts: 0, meetingsDetected: 0, meetingsSelected: 0, meetingsExcluded: 0, meetingsImported: 0,
     meetingsInShift: 0,
     // employees held back for review, and rows skipped by a decision
-    heldPeople: [], heldRows: 0, skippedByDecision: 0
+    heldPeople: [], heldRows: 0, skippedByDecision: 0,
+    // shift pieces joined around meetings, and older stored pieces replaced by the whole shift
+    joinedPieces: 0, replacedPieces: 0
   };
 }
 
@@ -285,6 +353,8 @@ function buildImportPlan_(input) {
 
   // ---- employees held back for review (not in a staff sheet, or in several) ----
   var held = {};
+  var bridges = {}; // personKey -> meeting/training intervals, used to join split shift pieces
+  var addBridge = function (who, rec) { (bridges[who.key] = bridges[who.key] || []).push({ start: rec.startAbs, end: rec.endAbs }); };
   var personOf = function (row) {
     var g = function (fld) { var c = resolved.columns[fld]; return c === undefined ? '' : str_(row[c]); };
     var id = normalizeEmployeeId_(g('employeeId'), toBool_(cfg.STRIP_LEADING_ZEROS));
@@ -374,6 +444,9 @@ function buildImportPlan_(input) {
       if (!filter.importMeetings) {
         S.meetingsExcluded++;
         if (ts) ts.excluded++;
+        // Not imported, but its time still connects the shift pieces around it.
+        var mx = normalizeRow_(row, headers, resolved.columns, nopts);
+        if (!mx.errors.length) addBridge(who, mx);
         return;
       }
       S.meetingsSelected++;
@@ -417,6 +490,9 @@ function buildImportPlan_(input) {
     var altKey = !!idx && idx.matchField && idx.matchField !== 'employeeId';
     var m = matchEmployee_(idx, rec.employeeId, rec.employeeName, (idx && idx.nameMatch) || cfg.NAME_MATCH_STRATEGY);
     var notInSheet = m.status === STAFF_MATCH.UNKNOWN || m.status === STAFF_MATCH.AMBIGUOUS;
+    rec._person = who.key;       // for joining split shift pieces (not stored)
+    rec._inStaff = !notInSheet;
+    if (meeting) addBridge(who, rec);
     rec.staffMatch = m.status;
     if (m.staff && (m.status === STAFF_MATCH.NAME || altKey)) rec.resolvedEmployeeId = m.staff.employeeId;
     else rec.resolvedEmployeeId = altKey ? '' : rec.employeeId;
@@ -447,6 +523,23 @@ function buildImportPlan_(input) {
     if (meeting) S.meetingsImported++; else S.normalShifts++;
     valid.push(rec);
   });
+
+  // ---- join shift pieces split around meetings / trainings into the person's real shift ----
+  var joinedRes = mergeShiftPieces_(valid, bridges);
+  if (joinedRes.joined) {
+    var keyed = {};
+    valid = joinedRes.records.filter(function (r) {
+      if (r._joinedFrom) r.key = buildRecordKey_(r.teamId, r);
+      if (keyed[r.key]) {
+        plan.rowWarnings.push({ row: r.sourceRow, messages: ['The same shift is also built from rows ' + (r.extra['Joined rows'] || r.sourceRow) + '; skipped.'] });
+        return false;
+      }
+      keyed[r.key] = true;
+      return true;
+    });
+    S.joinedPieces = joinedRes.joined;
+    S.normalShifts -= joinedRes.joined;
+  }
 
   // ---- diff against stored records ----
   var existing = input.existing || [];
@@ -488,6 +581,21 @@ function buildImportPlan_(input) {
   });
   Object.keys(rejectedByTeam).forEach(function (t) { stat(t).rejected = rejectedByTeam[t]; });
 
+  // Pieces of a joined shift stored by an earlier import are replaced by the whole shift (any strategy).
+  var removedKeys = {};
+  valid.forEach(function (rec) {
+    if (!rec._joinedFrom) return;
+    var who = employeeIdentity_(toStoredRecord_(rec));
+    existing.forEach(function (ex) {
+      if (removedKeys[ex.recordKey] || incomingKeys[ex.recordKey] || ex.recordStatus !== RECORD_STATUS.ACTIVE || ex.teamId !== rec.teamId) return;
+      if (activityCategoryOf_(ex) !== ACTIVITY_CATEGORY.SHIFT || employeeIdentity_(ex) !== who) return;
+      if (!(ex.shiftStart >= rec.shiftStart && ex.shiftEnd <= rec.shiftEnd)) return;
+      plan.actions.push({ type: 'REMOVE', key: ex.recordKey, teamId: ex.teamId, before: ex });
+      removedKeys[ex.recordKey] = true;
+      S.remove++; stat(ex.teamId).remove++; S.replacedPieces++;
+    });
+  });
+
   if (strategy === 'REPLACE_RANGE') {
     Object.keys(teamStats).forEach(function (t) {
       if (rejectedByTeam[t] && teamStats[t].rows) {
@@ -495,7 +603,7 @@ function buildImportPlan_(input) {
       }
     });
     existing.forEach(function (ex) {
-      if (ex.recordStatus !== RECORD_STATUS.ACTIVE || incomingKeys[ex.recordKey]) return;
+      if (ex.recordStatus !== RECORD_STATUS.ACTIVE || incomingKeys[ex.recordKey] || removedKeys[ex.recordKey]) return;
       var st = teamStats[ex.teamId];
       if (!st || !st.rows || ex.shiftDate < st.dateFrom || ex.shiftDate > st.dateTo) return;
       // With a shift-type selection, only shifts of the selected types are replaced.
@@ -582,6 +690,8 @@ function buildImportPlan_(input) {
   if (S.unknownEmployeeCount) rep.warnings.push(S.unknownEmployeeCount + ' employee(s) are not in their team\'s staff directory. Their shifts are imported and flagged "Unknown employee". You can add them later from View Staff Directory.');
   if (S.heldRows) rep.warnings.push(S.heldPeople.length + ' employee(s) with ' + S.heldRows + ' row(s) are held back: they are not in the staff sheet of their team, or are in several staff sheets. Choose a team or Skip for each of them.');
   if (S.skippedByDecision) rep.info.push(S.skippedByDecision + ' row(s) skipped by your decision.');
+  if (S.joinedPieces) rep.info.push(S.joinedPieces + ' shift piece(s) split around a meeting or training were joined, so each person shows their whole shift (the meeting stays a separate row).' +
+    (S.replacedPieces ? ' ' + S.replacedPieces + ' older stored piece(s) are replaced by the whole shift.' : ''));
   if (S.nameMatched) rep.info.push(S.nameMatched + ' row(s) were matched to the staff sheet by name (the file has no Employee ID).');
   if (S.nameMismatches) rep.info.push(S.nameMismatches + ' row(s) have a name that differs from the staff directory for the same Employee ID.');
   if (S.inactiveStaff) rep.warnings.push(S.inactiveStaff + ' row(s) belong to employees marked Inactive.');

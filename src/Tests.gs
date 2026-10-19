@@ -776,6 +776,56 @@ function unitTestsThemes_() {
   ];
 }
 
+function unitTestsSplitShifts_() {
+  var day = [
+    ['Daily schedule 2026-10-15', '', '', '', '', ''],
+    ['SHIFT TYPE', 'Employee Name', 'Shift', 'D', 'E', 'Hours'],
+    ['Customer Support', 'Ann Lee', '08:00 - 15:00', '', '', '7'],
+    ['Training', 'Ann Lee', '15:00 - 16:00', '', '', '1'],
+    ['Customer Support', 'Ann Lee', '16:00 - 16:20', '', '', '0:20'],
+    ['Customer Support', 'Bob Ray', '08:00 - 12:00', '', '', '4'],
+    ['Customer Support', 'Bob Ray', '12:30 - 16:00', '', '', '3.5'],
+    ['Customer Support', 'Zed New', '08:00 - 10:00', '', '', '2'],
+    ['Training', 'Zed New', '10:00 - 11:00', '', '', '1'],
+    ['Customer Support', 'Zed New', '11:00 - 12:00', '', '', '1']
+  ];
+  var filter = function (importMeetings) {
+    return { mode: 'SELECTED', types: ['Customer Support'], known: ['Customer Support', 'Training'], importMeetings: importMeetings, meetingTypes: ['Training'] };
+  };
+  var shifts = function (p) {
+    return p.actions.filter(function (a) { return a.record.activityCategory !== 'MEETING'; })
+      .map(function (a) { return a.record.employeeName + ' ' + a.record.shiftStart.substr(11) + '-' + a.record.shiftEnd.substr(11); }).sort();
+  };
+  return [
+    ['Split shifts: pieces around a meeting/training become the person\'s whole shift; the training stays its own row', function () {
+      var p = planFromDaily_(day, filter(true));
+      assertEq_(p.report.fatal, []);
+      assertEq_(shifts(p), ['Ann Lee 08:00-16:20', 'Bob Ray 08:00-12:00', 'Bob Ray 12:30-16:00', 'Zed New 08:00-10:00', 'Zed New 11:00-12:00'],
+        'Ann joined; Bob\'s gap has no meeting; Zed is not in the staff sheet');
+      var ann = p.actions.filter(function (a) { return a.record.employeeName === 'Ann Lee' && a.record.activityCategory !== 'MEETING'; })[0].record;
+      assertEq_([ann.grossMinutes, ann.scheduledMinutes], [500, 500], '8h 20m, and the scheduled hours include the training');
+      assert_(p.actions.some(function (a) { return a.record.activityCategory === 'MEETING' && a.record.shiftStart.substr(11) === '15:00'; }), 'training imported separately');
+      assertEq_(p.summary.joinedPieces, 1, 'one piece absorbed');
+    }],
+    ['Split shifts: pieces are joined even when the training itself is not imported; re-import changes nothing', function () {
+      var off = planFromDaily_(day, filter(false));
+      assert_(shifts(off).indexOf('Ann Lee 08:00-16:20') >= 0, 'joined without importing the training');
+      var stored = applyPlanInMemory_([], planFromDaily_(day, filter(true)), 'IMP_1');
+      var again = planFromDaily_(day, filter(true), { existing: stored });
+      assertEq_([again.actions.length, again.summary.joinedPieces], [0, 1]);
+    }],
+    ['Split shifts: pieces stored by an earlier import are replaced by the whole shift', function () {
+      var old = [
+        { recordKey: 'OLD1', teamId: 'TEAM_001', employeeId: 'E1', employeeName: 'Ann Lee', shiftDate: '2026-10-15', shiftStart: '2026-10-15 08:00', shiftEnd: '2026-10-15 15:00', recordStatus: 'ACTIVE', activityCategory: 'SHIFT' },
+        { recordKey: 'OLD2', teamId: 'TEAM_001', employeeId: 'E1', employeeName: 'Ann Lee', shiftDate: '2026-10-15', shiftStart: '2026-10-15 16:00', shiftEnd: '2026-10-15 16:20', recordStatus: 'ACTIVE', activityCategory: 'SHIFT' }
+      ];
+      var p = planFromDaily_(day, filter(true), { existing: old });
+      assertEq_(p.actions.filter(function (a) { return a.type === 'REMOVE'; }).map(function (a) { return a.key; }).sort(), ['OLD1', 'OLD2']);
+      assertEq_(p.summary.replacedPieces, 2);
+    }]
+  ];
+}
+
 function unitTestsIdImport_() {
   var report = [['Custom report', ''], ['Badge no.', 'Name as First name, Last name'],
     ['0123', 'Ann, Lee'], ['555', 'Bob Ray'], ['777', 'Fox, Dee'], ['900', 'Zed New'], ['', 'No Badge'], ['555', 'Cy Moe']];
@@ -814,7 +864,7 @@ function unitTestsIdImport_() {
 
 function runUnitTests() {
   return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_())
-    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()));
+    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()).concat(unitTestsSplitShifts_()));
 }
 
 /** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */
