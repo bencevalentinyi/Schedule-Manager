@@ -56,7 +56,6 @@ function normalizeTeamImport_(imp) {
   out.importMeetings = imp.importMeetings === undefined ? false : toBool_(imp.importMeetings);
   out.meetingTypes = uniq_((Array.isArray(imp.meetingTypes) ? imp.meetingTypes : []).map(normShiftType_).filter(Boolean));
   out.knownShiftTypes = uniq_(out.knownShiftTypes.concat(out.meetingTypes));
-  out.useStaffDirectoryRouting = imp.useStaffDirectoryRouting === undefined ? false : toBool_(imp.useStaffDirectoryRouting);
   return out;
 }
 
@@ -135,7 +134,6 @@ function effectiveScheduleFields_(team) {
   fields = fields.filter(function (f) {
     if (!DISPLAY_FIELDS[f]) return d.showTeamFields;
     var g = DISPLAY_FIELDS[f].group;
-    if (g === 'breaks') return d.showBreaks;
     if (g === 'durations') return d.showDurations;
     return true;
   });
@@ -218,8 +216,10 @@ function validateTeamForm_(form, existing) {
       if (normKey_(t.typeName) === normKey_(tn)) rep.fatal.push('A team type named "' + t.typeName + '" already exists. Select it instead.');
     });
   } else {
-    type = getTeamType_(str_(form.teamTypeId) || (existing ? existing.teamTypeId : ''));
-    if (!type) rep.fatal.push('Select a team type.');
+    var typeId = str_(form.teamTypeId) || (existing ? existing.teamTypeId : '');
+    type = (typeId && getTeamType_(typeId)) || defaultTeamType_();
+    if (!type) rep.fatal.push('There is no team type yet. Run Setup / Configure Spreadsheet first.');
+    else if (typeId && type.typeId !== typeId) rep.warnings.push('Team type "' + typeId + '" no longer exists; the team will use "' + type.typeName + '".');
     else if (!type.enabled && !(existing && existing.teamTypeId === type.typeId)) rep.fatal.push('Team type "' + type.typeName + '" is disabled.');
   }
 
@@ -255,20 +255,6 @@ function validateTeamForm_(form, existing) {
   if (both.length) rep.info.push('"' + both.join('", "') + '" is selected as a shift type and as a meeting type; it is treated as a meeting.');
   if (!imp.importMeetings && imp.meetingTypes.length) rep.info.push('Meeting types are configured but meeting import is disabled: those rows will be excluded and reported.');
 
-  // Staff directory: dedicated sheet or an existing (shared) staff sheet of another team.
-  var staffMode = form.staffMode === 'SHARED' ? 'SHARED' : (form.staffMode === 'DEDICATED' ? 'DEDICATED'
-    : (existing && isSharedDirectory_(existing, teams) ? 'SHARED' : 'DEDICATED'));
-  var sharedSheet = null;
-  if (staffMode === 'SHARED') {
-    var wanted = str_(form.sharedStaffSheetId || (existing ? existing.settings.staffSheetId : ''));
-    var dirs = listStaffDirectories_(existing ? existing.teamId : null);
-    sharedSheet = dirs.filter(function (d) { return String(d.sheetId) === wanted; })[0] || null;
-    if (!sharedSheet && !(existing && String(existing.settings.staffSheetId) === wanted)) {
-      rep.fatal.push('Select an existing staff directory to share (only staff sheets of other teams can be shared; system and schedule sheets are not allowed).');
-    }
-    if (sharedSheet) rep.info.push('Shared staff directory "' + sharedSheet.sheetName + '" (also used by ' + sharedSheet.teams.map(function (t) { return t.teamName; }).join(', ') +
-      '). Membership is explicit: employees belong to this team only when marked as members.');
-  }
   if (imp.shiftTypeMode === 'NOT_CONFIGURED') rep.info.push('No shift-type selection yet. An import that contains shift types will ask you to choose before anything is written.');
   if (imp.matchField !== 'employeeId') {
     var mk = imp.matchField.substr(STAFF_REGISTRY_PREFIX.length);
@@ -277,11 +263,11 @@ function validateTeamForm_(form, existing) {
     else if (staffFields.indexOf(imp.matchField) < 0) rep.fatal.push('The match key "' + mf.displayName + '" must also be selected as a staff field.');
     else rep.info.push('Imports will match the export\'s Employee ID column against "' + mf.displayName + '" instead of Employee ID.');
   }
+  // The team dialog no longer chooses a profile: keep the current one, or the type's default for a new team.
   var profileId = str_(form.importProfileId);
-  if (form.importProfileId === undefined && existing) profileId = existing.importProfileId;
+  if (form.importProfileId === undefined) profileId = existing ? existing.importProfileId : (type ? type.defaultImportProfileId : '');
   var profile = profileId ? getProfile_(profileId) : null;
-  if (profileId && !profile) rep.fatal.push('The selected import profile no longer exists.');
-  if (!profileId) rep.info.push('No import profile selected: imports for this team will detect the format automatically.');
+  if (profileId && !profile) profileId = '';
   var profileLayout = null;
   if (form.profileLayout && profile && profile.options.format === 'QUINYX_DAILY') {
     var hr = toNumber_(form.profileLayout.headerRow, NaN), fr = toNumber_(form.profileLayout.firstDataRow, NaN);
@@ -321,8 +307,7 @@ function validateTeamForm_(form, existing) {
     } else {
       plan.scheduleSheet = uniqueSheetName_(genSched, taken);
       taken.push(plan.scheduleSheet.toLowerCase());
-      plan.staffSheet = sharedSheet ? sharedSheet.sheetName : uniqueSheetName_(genStaff, taken);
-      if (sharedSheet) genStaff = plan.staffSheet;
+      plan.staffSheet = uniqueSheetName_(genStaff, taken);
       if (plan.scheduleSheet !== genSched) rep.warnings.push('A sheet named "' + genSched + '" already exists; the schedule sheet will be named "' + plan.scheduleSheet + '".');
       if (plan.staffSheet !== genStaff) rep.warnings.push('A sheet named "' + genStaff + '" already exists; the staff sheet will be named "' + plan.staffSheet + '".');
     }
@@ -348,11 +333,7 @@ function validateTeamForm_(form, existing) {
       import: imp,
       importProfileId: profileId,
       importAliases: aliases.join(', '),
-      profileLayout: profileLayout,
-      staffMode: staffMode,
-      sharedStaffSheetId: sharedSheet ? sharedSheet.sheetId : null,
-      sharedStaffSheetName: sharedSheet ? sharedSheet.sheetName : '',
-      addAllMembers: !!form.addAllMembers
+      profileLayout: profileLayout
     }
   };
 }
@@ -434,7 +415,7 @@ function createTeam_(form) {
       extraFields: val.extraFields,
       import: val.import,
       scheduleSheetId: null,
-      staffSheetId: val.staffMode === 'SHARED' ? val.sharedStaffSheetId : null,
+      staffSheetId: null,
       lastError: ''
     },
     createdAt: now,
@@ -450,12 +431,6 @@ function createTeam_(form) {
     team.status = TEAM_STATUS.READY;
     saveTeamRow_(team);
     var warnings = v.report.warnings.slice();
-    if (val.staffMode === 'SHARED') {
-      var sh = onDirectoryShared_(team, val.addAllMembers);
-      warnings.push('Shared staff directory: ' + sh.backfilled + ' existing membership(s) recorded for the teams already using it' +
-        (val.addAllMembers ? ', ' + sh.addedToNew + ' employee(s) added as members of this team.' : '. Mark this team\'s members in View Staff Directory.'));
-      layoutStaffSheet_(resolveTeamSheet_(team, 'staff'), team);
-    }
     rebuildSheetIndex_();
     renderTeamView_(team, { date: todayIso_(getConfig_().TIMEZONE) });
     rebuildDashboardSafe_();
@@ -478,20 +453,10 @@ function createTeam_(form) {
 function buildTeamSheets_(team) {
   var ss = getSs_();
   var created = [];
-  var oldStaffId = team.settings.staffSheetId;
   var staffSh = resolveTeamSheet_(team, 'staff');
   if (!staffSh) {
     staffSh = ss.insertSheet(uniqueSheetName_(team.staffSheet, ss.getSheets().map(function (s) { return s.getName().toLowerCase(); })));
     created.push(staffSh.getName());
-    // A missing SHARED directory is recreated once; every team that used it points to the new sheet.
-    if (oldStaffId) {
-      listTeams_().forEach(function (t) {
-        if (t.teamId === team.teamId || String(t.settings.staffSheetId) !== String(oldStaffId)) return;
-        t.settings.staffSheetId = staffSh.getSheetId();
-        t.staffSheet = staffSh.getName();
-        saveTeamRow_(t);
-      });
-    }
   }
   team.staffSheet = staffSh.getName();
   team.settings.staffSheetId = staffSh.getSheetId();
@@ -543,24 +508,8 @@ function updateTeam_(teamId, form) {
   var schedSh = resolveTeamSheet_(team, 'schedule');
   var staffSh = resolveTeamSheet_(team, 'staff');
   var warnings = v.report.warnings.slice();
-  var wasShared = isSharedDirectory_(team);
-  var joinedDirectory = false;
   if (schedSh && v.plan.scheduleSheet !== schedSh.getName()) schedSh.setName(v.plan.scheduleSheet);
-  if (val.staffMode === 'SHARED' && val.sharedStaffSheetId && String(val.sharedStaffSheetId) !== String(team.settings.staffSheetId)) {
-    // Switch to another team's directory. The previous sheet is left untouched.
-    if (staffSh && !wasShared) warnings.push('The previous staff sheet "' + staffSh.getName() + '" is no longer used by this team; it was left unchanged.');
-    team.settings.staffSheetId = val.sharedStaffSheetId;
-    staffSh = findSheetById_(val.sharedStaffSheetId);
-    joinedDirectory = true;
-  } else if (val.staffMode === 'DEDICATED' && wasShared) {
-    // Leave the shared directory: create a dedicated sheet for this team.
-    var taken = getSs_().getSheets().map(function (s) { return s.getName().toLowerCase(); });
-    staffSh = getSs_().insertSheet(uniqueSheetName_(applySheetPattern_(getConfig_().STAFF_SHEET_PATTERN, val.teamName), taken));
-    team.settings.staffSheetId = staffSh.getSheetId();
-    warnings.push('Created the dedicated staff sheet "' + staffSh.getName() + '". Copy this team\'s employees into it; the shared directory was not changed.');
-  } else if (staffSh && !wasShared && v.plan.staffSheet !== staffSh.getName()) {
-    staffSh.setName(v.plan.staffSheet);
-  }
+  if (staffSh && v.plan.staffSheet !== staffSh.getName()) staffSh.setName(v.plan.staffSheet);
 
   team.teamName = val.teamName;
   team.description = val.description;
@@ -577,11 +526,6 @@ function updateTeam_(teamId, form) {
   team.settings.import = val.import;
   applyProfileLayout_(val.importProfileId, val.profileLayout);
   saveTeamRow_(team);
-  if (joinedDirectory) {
-    var shr = onDirectoryShared_(team, val.addAllMembers);
-    warnings.push('Now sharing the staff directory "' + team.staffSheet + '": ' + shr.backfilled + ' membership(s) recorded for the other team(s)' +
-      (val.addAllMembers ? ', ' + shr.addedToNew + ' employee(s) added to this team.' : '. Mark this team\'s members in View Staff Directory.'));
-  }
 
   if (team.status === TEAM_STATUS.READY) {
     if (staffSh) layoutStaffSheet_(staffSh, team);
@@ -602,15 +546,10 @@ function deleteTeam_(teamId, confirmName, deleteSheets) {
   if (str_(confirmName) !== team.teamName) {
     fail_('CONFIRMATION', 'Type the exact team name ("' + team.teamName + '") to confirm deletion.');
   }
-  var deleted = [], kept = '';
+  var deleted = [];
   if (deleteSheets) {
-    var sharedWith = teamsUsingStaffSheet_(team.settings.staffSheetId).filter(function (t) { return t.teamId !== team.teamId; });
     ['schedule', 'staff'].forEach(function (k) {
       var sh = resolveTeamSheet_(team, k);
-      if (k === 'staff' && sharedWith.length) {
-        kept = ' The shared staff directory was kept because it is also used by ' + sharedWith.map(function (t) { return t.teamName; }).join(', ') + '.';
-        return;
-      }
       if (sh && getSs_().getSheets().length > 1) { deleted.push(sh.getName()); getSs_().deleteSheet(sh); }
     });
   }
@@ -620,7 +559,7 @@ function deleteTeam_(teamId, confirmName, deleteSheets) {
   return {
     deletedTeam: team.teamName,
     deletedSheets: deleted,
-    note: 'Schedule records of this team were kept in _SCHEDULE_DATA for history (Team ID ' + team.teamId + ').' + kept
+    note: 'Schedule records of this team were kept in _SCHEDULE_DATA for history (Team ID ' + team.teamId + ').'
   };
 }
 
@@ -641,7 +580,6 @@ function teamSummaryForClient_(team, typeNames) {
     description: team.description,
     lastError: team.settings.lastError,
     hoursLabel: operatingWindow_(team.settings.display).label,
-    sharedStaff: isSharedDirectory_(team),
     meetings: team.settings.import.importMeetings ? 'meetings: ' + (team.settings.import.meetingTypes.join(', ') || '—') : 'meetings off',
     shiftTypes: team.settings.import.shiftTypeMode === 'SELECTED' ? team.settings.import.shiftTypes.join(', ')
       : (team.settings.import.shiftTypeMode === 'ALL' ? 'all' : 'not configured')
@@ -661,34 +599,19 @@ function typeNameMap_() {
 function apiTeamDialogBootstrap(teamId) {
   return apiCall_('apiTeamDialogBootstrap', function () {
     requireInitialized_();
-    var cfg = getConfig_();
     var team = teamId ? requireTeam_(teamId) : null;
+    var type = defaultTeamType_();
     var known = getKnownShiftTypes_();
     if (team) known = uniq_(known.concat(team.settings.import.knownShiftTypes));
-    var allTeams = listTeams_();
     return {
       team: team,
-      staffShared: team ? isSharedDirectory_(team, allTeams) : false,
-      staffDirectories: listStaffDirectories_(team ? team.teamId : null),
-      types: listTeamTypes_(true),
-      profiles: listProfiles_().map(function (p) {
-        return { profileId: p.profileId, profileName: p.profileName, description: p.description, format: p.options.format, dailyLayout: p.options.dailyLayout };
-      }),
-      displayFields: DISPLAY_FIELDS,
+      importProfileId: team ? team.importProfileId : (type ? type.defaultImportProfileId : ''),
       staffFieldDefs: STAFF_FIELD_DEFS,
       staffRegistry: listStaffFields_(),
-      views: Object.keys(VIEW_REGISTRY).map(function (k) { return { key: k, label: VIEW_REGISTRY[k].label }; }),
       operatingModes: OPERATING_HOURS_MODES,
-      defaultDateModes: DEFAULT_DATE_MODES,
       shiftTypeModes: SHIFT_TYPE_MODES,
-      importFormats: IMPORT_FORMATS,
-      strategies: DUPLICATE_STRATEGIES,
-      nameMatchStrategies: NAME_MATCH_STRATEGIES,
       knownShiftTypes: known.sort(),
-      globalNameMatch: cfg.NAME_MATCH_STRATEGY,
-      globalStrategy: cfg.DEFAULT_DUPLICATE_STRATEGY,
-      patterns: { schedule: cfg.SCHEDULE_SHEET_PATTERN, staff: cfg.STAFF_SHEET_PATTERN },
-      defaults: { scheduleFields: DEFAULT_SCHEDULE_FIELDS, staffFields: DEFAULT_STAFF_FIELDS, display: DEFAULT_DISPLAY, import: DEFAULT_TEAM_IMPORT }
+      defaults: { staffFields: type ? type.staffFields : DEFAULT_STAFF_FIELDS, display: type ? type.display : DEFAULT_DISPLAY, import: DEFAULT_TEAM_IMPORT }
     };
   });
 }
@@ -698,23 +621,13 @@ function apiPreviewTeam(form, teamId) {
     requireInitialized_();
     var existing = teamId ? requireTeam_(teamId) : null;
     var v = validateTeamForm_(form, existing);
-    var profile = v.value.importProfileId ? getProfile_(v.value.importProfileId) : null;
     var registry = getStaffFieldMap_();
-    var imp = v.value.import;
     return {
       report: v.report,
       plan: v.plan,
       value: v.value,
-      profileName: profile ? profile.profileName : '(auto-detect)',
       hoursLabel: OPERATING_HOURS_MODES[v.value.display.operatingHoursMode] + ' · ' + operatingWindow_(v.value.display).label,
-      scheduleLabels: v.value.scheduleFields.map(function (f) { return DISPLAY_FIELDS[f] ? DISPLAY_FIELDS[f].label : f; }),
-      staffLabels: v.value.staffFields.map(function (f) { return staffFieldLabel_(f, registry); }),
-      importLabel: IMPORT_FORMATS[imp.scheduleType] + ' · shift types: ' +
-        (imp.shiftTypeMode === 'SELECTED' ? imp.shiftTypes.join(', ') : SHIFT_TYPE_MODES[imp.shiftTypeMode]) +
-        ' · meetings: ' + (imp.importMeetings ? 'imported (' + imp.meetingTypes.join(', ') + ')' : 'not imported') +
-        (imp.useStaffDirectoryRouting ? ' · staff-directory routing on' : '') +
-        ' · match key: ' + staffFieldLabel_(imp.matchField, registry) +
-        ' · duplicates: ' + (imp.duplicateStrategy ? imp.duplicateStrategy : 'global default')
+      staffLabels: v.value.staffFields.map(function (f) { return staffFieldLabel_(f, registry); })
     };
   });
 }

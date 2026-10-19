@@ -1,5 +1,5 @@
 /**
- * Static checks of the HTML user interface (v1.1.2). No browser needed.
+ * Static checks of the HTML user interface. No browser needed.
  *
  * For every page in src/*.html (with its includes):
  *  - every include('X') exists, and full pages include Styles and ClientCore;

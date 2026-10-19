@@ -24,9 +24,9 @@
  */
 
 var COMPARE_FIELDS_ = ['teamId', 'shiftDate', 'employeeId', 'employeeName', 'activity', 'role',
-  'shiftStart', 'shiftEnd', 'breakStart', 'breakEnd', 'breakMinutes', 'shiftStatus', 'sourceShiftId', 'comment',
+  'shiftStart', 'shiftEnd', 'shiftStatus', 'sourceShiftId', 'comment',
   'shiftType', 'sourceShiftInfo', 'sourceHours', 'scheduledMinutes'];
-var NUMERIC_COMPARE_FIELDS_ = ['breakMinutes', 'scheduledMinutes'];
+var NUMERIC_COMPARE_FIELDS_ = ['scheduledMinutes'];
 var MAX_IMPORT_ROWS_ = 20000;
 
 /* ======================================================================== */
@@ -44,6 +44,82 @@ function buildRecordKey_(teamId, rec) {
   return rec.shiftType ? key + '|ST:' + normText_(rec.shiftType) : key;
 }
 
+/**
+ * Joins the pieces of one person's shift that Quinyx splits around a meeting or training, e.g.
+ * 08:00–15:00 + Meeting 15:00–16:00 + 16:00–16:20 → one shift 08:00–16:20 (the meeting stays its
+ * own record). Pieces are joined when the gap between them is empty or fully covered by that
+ * person's meeting/training intervals (imported or not). A meeting touching the start or end is part of
+ * the shift too (09:00–14:15 + Training 14:15–15:00 → 09:00–15:00). Applies to everyone, also people not (yet) in a staff sheet. Pure.
+ * @param {Object[]} recs normalized records with teamId, activityCategory, startAbs, endAbs, _person
+ * @param {Object} bridges personKey -> [{start, end}] meeting/training intervals (absolute minutes)
+ * @return {{records: Object[], joined: number, extended: number}} joined = pieces absorbed, extended = shifts grown by a touching meeting
+ */
+function mergeShiftPieces_(recs, bridges) {
+  var out = [], groups = {}, joined = 0, extended = 0;
+  recs.forEach(function (r) {
+    if (r.activityCategory === ACTIVITY_CATEGORY.MEETING || !r._person) { out.push(r); return; }
+    var g = r.teamId + '|' + r._person;
+    (groups[g] = groups[g] || []).push(r);
+  });
+  var covered = function (from, to, intervals) {
+    var pos = from, moved = true;
+    while (pos < to && moved) {
+      moved = false;
+      intervals.forEach(function (iv) { if (iv.start <= pos && iv.end > pos) { pos = iv.end; moved = true; } });
+    }
+    return pos >= to;
+  };
+  var join = function (chain, intervals) {
+    var first = chain[0];
+    var start = first.startAbs, end = chain.reduce(function (m, c) { return Math.max(m, c.endAbs); }, 0);
+    // Quinyx also cuts a meeting/training out of the start or end of a shift: a touching one extends it.
+    var grown = true;
+    while (grown) {
+      grown = false;
+      intervals.forEach(function (iv) {
+        if (iv.start < start && iv.end >= start) { start = iv.start; grown = true; }
+        if (iv.end > end && iv.start <= end) { end = iv.end; grown = true; }
+      });
+    }
+    if (chain.length === 1 && start === first.startAbs && end === first.endAbs) return first;
+    var r = {};
+    Object.keys(first).forEach(function (k) { r[k] = first[k]; });
+    var list = function (f, sep) { return uniq_(chain.map(function (c) { return str_(c[f]); }).filter(Boolean)).join(sep); };
+    r.startAbs = start; r.endAbs = end;
+    r.shiftStart = isoDateTimeFromMinutes_(start); r.shiftEnd = isoDateTimeFromMinutes_(end);
+    r.grossMinutes = end - start;
+    r.overnight = Math.floor(end / 1440) > Math.floor(start / 1440) && end % 1440 !== 0;
+    r.shiftType = list('shiftType', ' / ');
+    r.activity = list('activity', ' / ');
+    r.sourceShiftInfo = chain.map(function (c) { return str_(c.sourceShiftInfo); }).filter(Boolean).join(' + ');
+    r.sourceHours = chain.map(function (c) { return str_(c.sourceHours); }).filter(Boolean).join(' + ');
+    // Scheduled hours: the pieces plus the meeting time between them, so a whole shift is not flagged "Hours differ".
+    var allSched = chain.every(function (c) { return c.scheduledMinutes !== '' && c.scheduledMinutes !== null && c.scheduledMinutes !== undefined && isFinite(c.scheduledMinutes); });
+    var pieceMinutes = chain.reduce(function (n, c) { return n + (c.endAbs - c.startAbs); }, 0);
+    r.scheduledMinutes = allSched ? chain.reduce(function (n, c) { return n + Number(c.scheduledMinutes); }, 0) + (r.grossMinutes - pieceMinutes) : '';
+    r.extra = {};
+    chain.forEach(function (c) { Object.keys(c.extra || {}).forEach(function (k) { if (r.extra[k] === undefined) r.extra[k] = c.extra[k]; }); });
+    if (chain.length > 1) r.extra['Joined rows'] = chain.map(function (c) { return c.sourceRow; }).join(', ');
+    r.warnings = [];
+    r._joinedFrom = chain.length;
+    joined += chain.length - 1;
+    if (start < first.startAbs || end > chain.reduce(function (m, c) { return Math.max(m, c.endAbs); }, 0)) extended++;
+    return r;
+  };
+  Object.keys(groups).forEach(function (g) {
+    var list = groups[g].slice().sort(function (a, b) { return a.startAbs - b.startAbs || a.endAbs - b.endAbs; });
+    var intervals = bridges[list[0]._person] || [];
+    var chain = [list[0]], end = list[0].endAbs;
+    for (var i = 1; i < list.length; i++) {
+      var nx = list[i];
+      if (nx.startAbs >= end && covered(end, nx.startAbs, intervals)) { chain.push(nx); end = Math.max(end, nx.endAbs); }
+      else { out.push(join(chain, intervals)); chain = [nx]; end = nx.endAbs; }
+    }
+    out.push(join(chain, intervals));
+  });
+  return { records: out, joined: joined, extended: extended };
+}
+
 /** Converts a normalized row into the stored record shape (without import metadata). */
 function toStoredRecord_(rec) {
   return {
@@ -58,11 +134,7 @@ function toStoredRecord_(rec) {
     role: rec.role || '',
     shiftStart: rec.shiftStart,
     shiftEnd: rec.shiftEnd,
-    breakStart: rec.breakStart || '',
-    breakEnd: rec.breakEnd || '',
-    breakMinutes: rec.breakMinutes || 0,
     grossMinutes: rec.grossMinutes,
-    netMinutes: rec.netMinutes,
     shiftStatus: rec.shiftStatus || '',
     recordStatus: RECORD_STATUS.ACTIVE,
     sourceShiftId: rec.shiftId || '',
@@ -121,24 +193,25 @@ function emptySummary_() {
     nameMatched: 0, nameMismatches: 0, inactiveStaff: 0, overnight: 0, overlapsCount: 0,
     unknownEmployeeCount: 0, dateFrom: '', dateTo: '', teams: [], unknownEmployees: [], overlaps: [],
     potentialDuplicates: 0,
-    // v1.1
     scheduleDate: '', shiftTypes: [], excludedByShiftType: 0, newShiftTypes: [], missingEmployee: 0,
     unparseableShiftInfo: 0, invalidTimes: 0, hoursMissing: 0, hoursInvalid: 0, hoursDiscrepancies: 0,
     nonShiftRows: 0, shiftTypeFilters: [],
-    // v1.1.1
     normalShifts: 0, meetingsDetected: 0, meetingsSelected: 0, meetingsExcluded: 0, meetingsImported: 0,
-    meetingsInShift: 0, ambiguousRouting: 0, unroutable: 0, skippedByAdmin: 0, manuallyAssigned: 0, nonMembers: 0
+    meetingsInShift: 0,
+    // employees held back for review, and rows skipped by a decision
+    heldPeople: [], heldRows: 0, skippedByDecision: 0,
+    // shift pieces joined around meetings, and older stored pieces replaced by the whole shift
+    joinedPieces: 0, extendedShifts: 0, replacedPieces: 0
   };
 }
 
 /**
  * Analyses a staged table against existing data. Pure: all data is injected.
- * @param {Object} input {table, headerRow (0-based), fieldMap, options {dateOrder, breakUnit, hoursUnit},
+ * @param {Object} input {table, headerRow (0-based), fieldMap, options {dateOrder, hoursUnit},
  *   teamMode, teamId, strategy, allowPartial, teams, profileOptions, existing (records),
  *   getStaffIndex(teamId) -> index|null,
  *   getShiftTypeFilter(teamId) -> {mode, types, known, importMeetings, meetingTypes},
- *   getDirectoryRouter() -> router (teamMode DIRECTORY only, see buildDirectoryRouter_),
- *   routingOverrides?: {sourceRow: teamId | 'SKIP'},
+ *   decisions?: {personKey: teamId | 'SKIP'} for held-back employees, reviewUnknown?: bool,
  *   sourceRowNumbers?: number[] (original row of each data row), preReport?: report, scheduleDate?: string, cfg}
  * @return {Object} plan {report, summary, actions, rejected, rowWarnings, token, canCommit, blockers, ...}
  */
@@ -180,7 +253,7 @@ function buildImportPlan_(input) {
   var order = opts.dateOrder || 'AUTO';
   if (order === 'AUTO') {
     var samples = [];
-    ['date', 'endDate', 'start', 'end', 'breakStart', 'breakEnd'].forEach(function (f) {
+    ['date', 'endDate', 'start', 'end'].forEach(function (f) {
       var i = resolved.columns[f];
       if (i === undefined) return;
       dataRows.forEach(function (r) { if (str_(r[i])) samples.push(str_(r[i])); });
@@ -189,7 +262,7 @@ function buildImportPlan_(input) {
     if (det.order === 'CONFLICT') {
       rep.fatal.push('The file mixes day/month orders (e.g. "' + det.example + '"). Fix the export or set the date order explicitly.');
     } else if (det.order === 'AMBIGUOUS') {
-      rep.fatal.push('The date format is ambiguous: "' + det.example + '" could be day/month or month/day, and no value in the file settles it. Choose the date order (DMY or MDY) in the mapping step and save it in the profile.');
+      rep.fatal.push('The date format is ambiguous: "' + det.example + '" could be day/month or month/day, and no value in the file settles it. Go back to the column step, open "Row of column names, date format" and choose what dates like 03/04/2026 mean.');
     } else {
       if (det.order !== 'NONE') rep.info.push('Detected date order ' + det.order + ' (from "' + det.example + '").');
       order = det.order === 'NONE' ? 'DMY' : det.order;
@@ -220,23 +293,17 @@ function buildImportPlan_(input) {
   if ((mode === 'EXPLICIT' || mode === 'FILTER') && !target) rep.fatal.push(targetId ? 'The selected team no longer exists.' : 'Select the target team.');
   if ((mode === 'SPLIT' || mode === 'FILTER') && teamCol === undefined) rep.fatal.push('Map the "Team / Unit" column to split or filter rows by team.');
   if (target && target.status !== TEAM_STATUS.READY) rep.fatal.push('Team "' + target.teamName + '" is ' + target.status + ' (its sheets are incomplete). Run Manage Existing Teams → Rebuild sheets first.');
-  var router = null;
-  if (mode === 'DIRECTORY') {
-    router = input.getDirectoryRouter ? input.getDirectoryRouter() : null;
-    if (!router || !router.teamIds.length) {
-      rep.fatal.push('Routing by staff directory needs at least one ready team with "Use staff directory for employee matching and team routing" enabled (Manage Existing Teams → Edit → Import).');
-    } else {
-      rep.info.push('Routing by staff directory membership across: ' + router.teamIds.map(function (t) { return teamsById[t] ? teamsById[t].teamName : t; }).join(', ') + '.');
-    }
-  }
-  var overrides = input.routingOverrides || {};
-  plan.routing = [];
+  if (!TEAM_MODES[mode]) rep.fatal.push('Unknown team mode "' + mode + '".');
+  // STAFF: every row goes to the team whose staff sheet lists the employee (active, READY teams).
+  var staffTeams = (input.teams || []).filter(function (t) { return t.status === TEAM_STATUS.READY && t.active !== false; }).map(function (t) { return t.teamId; });
+  if (mode === 'STAFF' && !staffTeams.length) rep.fatal.push('There is no active, ready team whose staff sheet can be searched.');
+  // Decisions for held-back employees: personKey -> teamId (import there) | 'SKIP'.
+  var decisions = input.decisions || {};
   if (rep.fatal.length) return finalizePlan_(plan, input);
 
   var resolver = buildTeamResolver_(input.teams || [], profOpts.teamValueMap || {});
   var nopts = {
     dateOrder: order,
-    breakUnit: opts.breakUnit || 'MINUTES',
     hoursUnit: opts.hoursUnit || 'HOURS',
     stripZeros: toBool_(cfg.STRIP_LEADING_ZEROS),
     maxShiftMinutes: toNumber_(cfg.MAX_SHIFT_HOURS, 16) * 60,
@@ -268,7 +335,7 @@ function buildImportPlan_(input) {
   };
 
   // ---- shift-type / meeting filter (per team; never "all" unless explicitly chosen) ----
-  var stCol = resolved.columns.shiftType, actCol = resolved.columns.activity, empIdCol = resolved.columns.employeeId;
+  var stCol = resolved.columns.shiftType, actCol = resolved.columns.activity;
   var filterCache = {}, typeStats = {}, needsChoice = {}, cannotFilter = {}, newTypes = {};
   var filterFor = function (teamId) {
     if (!filterCache[teamId]) {
@@ -291,9 +358,29 @@ function buildImportPlan_(input) {
     if (stCol === undefined || f.mode !== 'SELECTED') return true;
     return f.types.indexOf(cls) >= 0;
   };
-  var rawNameOf = function (row) {
+
+  // ---- employees held back for review (not in a staff sheet, or in several) ----
+  var held = {};
+  var bridges = {}; // personKey -> meeting/training intervals, used to join split shift pieces
+  var addBridge = function (who, rec) { (bridges[who.key] = bridges[who.key] || []).push({ start: rec.startAbs, end: rec.endAbs }); };
+  var personOf = function (row) {
     var g = function (fld) { var c = resolved.columns[fld]; return c === undefined ? '' : str_(row[c]); };
-    return (g('employeeName') || (g('firstName') + ' ' + g('lastName'))).replace(/\s+/g, ' ').trim();
+    var id = normalizeEmployeeId_(g('employeeId'), toBool_(cfg.STRIP_LEADING_ZEROS));
+    var name = (g('employeeName') || (g('firstName') + ' ' + g('lastName'))).replace(/\s+/g, ' ').trim();
+    return { key: id ? 'ID:' + idKey_(id) : 'NM:' + normName_(name), employeeId: id, employeeName: name };
+  };
+  /** Teams (of staffTeams) whose staff sheet contains the person. */
+  var teamsListing = function (who) {
+    return staffTeams.filter(function (t) {
+      var ix = getStaff(t);
+      var m = matchEmployee_(ix, who.employeeId, who.employeeName, (ix && ix.nameMatch) || cfg.NAME_MATCH_STRATEGY);
+      return m.status === STAFF_MATCH.ID || m.status === STAFF_MATCH.NAME;
+    });
+  };
+  var hold = function (who, reason, candidateIds, foundIn) {
+    var h = held[who.key] = held[who.key] || { key: who.key, employeeId: who.employeeId, employeeName: who.employeeName, reason: reason, rows: 0,
+      foundIn: (foundIn || []).slice(), candidates: candidateIds.map(function (t) { return { teamId: t, teamName: teamsById[t] ? teamsById[t].teamName : t, inStaffSheet: (foundIn || []).indexOf(t) >= 0 }; }) };
+    h.rows++;
   };
   var teamName = function (t) { return teamsById[t] ? teamsById[t].teamName : t; };
 
@@ -304,48 +391,20 @@ function buildImportPlan_(input) {
     var teamValue = teamCol !== undefined ? str_(row[teamCol]) : '';
     var teamId = null;
     var cls = classOf(row);
-    var route = null;
-    if (mode === 'DIRECTORY') {
-      // 1) identify the employee, 2) resolve against the staff directories, 3) memberships,
-      // 4) narrow by the source team column and the teams' shift-type settings, 5) route only if unambiguous.
-      var rawId = empIdCol !== undefined ? normalizeEmployeeId_(row[empIdCol], toBool_(cfg.STRIP_LEADING_ZEROS)) : '';
-      var rawNm = rawNameOf(row);
-      var rr = router.resolve(rawId, rawNm);
-      var candIds = rr.candidates.map(function (c) { return c.teamId; });
-      if (candIds.length > 1 && teamValue) {
-        var rt2 = resolver(teamValue);
-        if (rt2.teamId && candIds.indexOf(rt2.teamId) >= 0) candIds = [rt2.teamId];
+    var who = personOf(row);
+    var decision = decisions[who.key];
+    if (decision === 'SKIP') { S.skippedByDecision++; return; }
+    if (mode === 'STAFF') {
+      if (!who.employeeId && !who.employeeName) { reject(sourceRow, ['The row has no employee.'], null, ['EMPLOYEE']); return; }
+      if (decision && teamsById[decision]) teamId = decision;
+      else {
+        var listing = teamsListing(who);
+        if (listing.length !== 1) { hold(who, listing.length ? 'IN_SEVERAL' : 'NOT_IN_STAFF', listing.length ? listing : staffTeams, listing); return; }
+        teamId = listing[0];
       }
-      if (candIds.length > 1) {
-        var acc = candIds.filter(function (t) { return acceptsFor(filterFor(t), cls); });
-        if (acc.length) candIds = acc;
-      }
-      route = { row: sourceRow, sourceName: rawNm, sourceId: rawId, employeeId: rr.staff ? rr.staff.employeeId : '',
-        staffName: rr.staff ? rr.staff.employeeName : '', method: rr.method, membership: '', teamId: '', team: '', status: '',
-        candidates: candIds.map(function (t) { return { teamId: t, teamName: teamName(t) }; }), note: rr.note || '' };
-      var ov = overrides[String(sourceRow)];
-      if (ov === 'SKIP') { S.skippedByAdmin++; route.status = 'SKIPPED'; plan.routing.push(route); return; }
-      if (ov && teamsById[ov]) { teamId = ov; route.status = 'ASSIGNED_MANUALLY'; S.manuallyAssigned++; }
-      else if (candIds.length === 1) { teamId = candIds[0]; route.status = 'ROUTED'; }
-      else if (candIds.length > 1) {
-        S.ambiguousRouting++; route.status = 'AMBIGUOUS'; plan.routing.push(route);
-        reject(sourceRow, ['Ambiguous team: ' + (rr.staff ? rr.staff.employeeName : rawNm) + ' is a member of ' + candIds.map(teamName).join(' and ') +
-          ', and the export does not say which. Choose the team in the routing table (or skip the row).'], null, ['AMBIGUOUS']);
-        return;
-      } else {
-        S.unroutable++;
-        route.status = rr.staff ? 'NO_MEMBERSHIP' : (rr.method === 'AMBIGUOUS_NAME' ? 'AMBIGUOUS_NAME' : 'UNKNOWN_EMPLOYEE');
-        plan.routing.push(route);
-        reject(sourceRow, [rr.staff ? (rr.staff.employeeName + ' is in a staff directory but not an active member of any routing team. Add a membership, or assign the row manually.')
-          : (route.status === 'AMBIGUOUS_NAME' ? 'Several staff records share the name "' + rawNm + '"; not matched.' : 'Employee "' + (rawNm || rawId) + '" was not found in any routing staff directory.') +
-          ' Add the employee, assign the row to a team, or skip it.'], null, ['ROUTING']);
-        return;
-      }
-      var cm = rr.candidates.filter(function (c) { return c.teamId === teamId; })[0];
-      route.membership = cm ? cm.membership : 'NONE';
-      route.teamId = teamId; route.team = teamName(teamId);
     } else if (mode === 'EXPLICIT') {
-      teamId = target.teamId;
+      // A decision for a held-back person may send their rows to another team.
+      teamId = decision && teamsById[decision] ? decision : target.teamId;
       if (teamValue) {
         var rt = resolver(teamValue);
         if (rt.teamId && rt.teamId !== teamId) otherTeamValues[teamValue] = (otherTeamValues[teamValue] || 0) + 1;
@@ -388,13 +447,14 @@ function buildImportPlan_(input) {
       if (cls && seen.indexOf(cls) < 0) seen.push(cls);
       if (filter.known.indexOf(cls) < 0 && filter.types.indexOf(cls) < 0 && !meeting) { ts.isNew = true; newTypes[cls || '(blank)'] = true; }
     }
-    var excludeRoute = function (status) { if (route) { route.status = status; plan.routing.push(route); } };
     if (meeting) {
       S.meetingsDetected++;
       if (!filter.importMeetings) {
         S.meetingsExcluded++;
         if (ts) ts.excluded++;
-        excludeRoute('MEETING_EXCLUDED');
+        // Not imported, but its time still connects the shift pieces around it.
+        var mx = normalizeRow_(row, headers, resolved.columns, nopts);
+        if (!mx.errors.length) addBridge(who, mx);
         return;
       }
       S.meetingsSelected++;
@@ -403,16 +463,29 @@ function buildImportPlan_(input) {
       if (filter.mode === 'NOT_CONFIGURED') needsChoice[teamId] = true;
       else if (filter.mode === 'SELECTED' && filter.types.indexOf(cls) < 0) {
         ts.excluded++; S.excludedByShiftType++;
-        excludeRoute('EXCLUDED_SHIFT_TYPE');
         return;
       }
       ts.included++;
     } else if (filter.mode === 'SELECTED') {
       cannotFilter[teamId] = true;
     }
+    // Held back for review (the dialog always asks): someone missing from the team's staff sheet is not
+    // imported until a decision is made for that person. Checked after the shift-type filter, so rows
+    // that would be excluded anyway never need a decision.
+    if ((input.reviewUnknown || mode === 'STAFF') && !decision) {
+      var ixh = getStaff(teamId);
+      var mh = matchEmployee_(ixh, who.employeeId, who.employeeName, (ixh && ixh.nameMatch) || cfg.NAME_MATCH_STRATEGY);
+      if (mh.status === STAFF_MATCH.UNKNOWN || mh.status === STAFF_MATCH.AMBIGUOUS) {
+        if (meeting) S.meetingsSelected--;
+        if (ts) ts.included--;
+        // Any active team can be chosen; teams whose staff sheet lists the person are suggested.
+        hold(who, 'NOT_IN_TEAM', [teamId].concat(staffTeams.filter(function (t) { return t !== teamId; })), teamsListing(who));
+        return;
+      }
+    }
     var rec = normalizeRow_(row, headers, resolved.columns, nopts);
     if (rec.tzIgnored) tzIgnored = true;
-    if (rec.errors.length) { excludeRoute('INVALID'); reject(sourceRow, rec.errors, teamId, rec.errorCodes); return; }
+    if (rec.errors.length) { reject(sourceRow, rec.errors, teamId, rec.errorCodes); return; }
     rec.teamId = teamId;
     rec.sourceRow = sourceRow;
     rec.activityCategory = meeting ? ACTIVITY_CATEGORY.MEETING : ACTIVITY_CATEGORY.SHIFT;
@@ -424,28 +497,20 @@ function buildImportPlan_(input) {
     var idx = getStaff(teamId);
     var altKey = !!idx && idx.matchField && idx.matchField !== 'employeeId';
     var m = matchEmployee_(idx, rec.employeeId, rec.employeeName, (idx && idx.nameMatch) || cfg.NAME_MATCH_STRATEGY);
+    var notInSheet = m.status === STAFF_MATCH.UNKNOWN || m.status === STAFF_MATCH.AMBIGUOUS;
+    rec._person = who.key;       // for joining split shift pieces (not stored)
+    if (meeting) addBridge(who, rec);
     rec.staffMatch = m.status;
     if (m.staff && (m.status === STAFF_MATCH.NAME || altKey)) rec.resolvedEmployeeId = m.staff.employeeId;
     else rec.resolvedEmployeeId = altKey ? '' : rec.employeeId;
     if (altKey && rec.employeeId) rec.extra['Source ' + idx.matchFieldLabel] = rec.employeeId;
     if (!rec.employeeName && m.staff) rec.employeeName = m.staff.employeeName;
-    var membership = m.staff && idx && idx.isMember ? idx.isMember(m.staff) : { member: !!m.staff, status: m.staff ? 'DIRECTORY' : 'NONE' };
-    if (m.staff && !membership.member) {
-      S.nonMembers++;
-      rec.warnings.push(m.staff.employeeName + ' is in the shared staff directory but not an active member of "' + team.teamName + '".');
-    }
-    if (!route) {
-      route = { row: sourceRow, sourceName: rec.employeeName, sourceId: rec.employeeId, employeeId: m.staff ? m.staff.employeeId : '',
-        staffName: m.staff ? m.staff.employeeName : '', method: m.status, membership: membership.status, teamId: teamId, team: team.teamName,
-        status: mode === 'EXPLICIT' ? 'SELECTED_TEAM' : 'TEAM_COLUMN', candidates: [], note: m.note || '' };
-    }
-    plan.routing.push(route);
-    if (m.status === STAFF_MATCH.UNKNOWN || m.status === STAFF_MATCH.AMBIGUOUS) {
+    if (notInSheet) {
       var uk = teamId + '|' + (rec.employeeId ? idKey_(rec.employeeId) : normName_(rec.employeeName));
       if (!unknownEmp[uk]) unknownEmp[uk] = { team: team.teamName, employeeId: rec.employeeId, employeeName: rec.employeeName, rows: 0, reason: m.note };
       unknownEmp[uk].rows++;
     }
-    if (m.status === STAFF_MATCH.NAME) { S.nameMatched++; rec.warnings.push('Employee matched by name only ("' + rec.employeeName + '" → ' + m.staff.employeeId + ').'); }
+    if (m.status === STAFF_MATCH.NAME) S.nameMatched++;
     if (m.status === STAFF_MATCH.ID && m.note) { S.nameMismatches++; rec.warnings.push(m.note); }
     if (m.staff && !m.staff.active) { S.inactiveStaff++; rec.warnings.push('Employee ' + (m.staff.employeeId || m.staff.employeeName) + ' is marked Inactive in the staff directory.'); }
 
@@ -465,6 +530,24 @@ function buildImportPlan_(input) {
     if (meeting) S.meetingsImported++; else S.normalShifts++;
     valid.push(rec);
   });
+
+  // ---- join shift pieces split around meetings / trainings into the person's real shift ----
+  var joinedRes = mergeShiftPieces_(valid, bridges);
+  if (joinedRes.joined || joinedRes.extended) {
+    var keyed = {};
+    valid = joinedRes.records.filter(function (r) {
+      if (r._joinedFrom) r.key = buildRecordKey_(r.teamId, r);
+      if (keyed[r.key]) {
+        plan.rowWarnings.push({ row: r.sourceRow, messages: ['The same shift is also built from rows ' + (r.extra['Joined rows'] || r.sourceRow) + '; skipped.'] });
+        return false;
+      }
+      keyed[r.key] = true;
+      return true;
+    });
+    S.joinedPieces = joinedRes.joined;
+    S.extendedShifts = joinedRes.extended;
+    S.normalShifts -= joinedRes.joined;
+  }
 
   // ---- diff against stored records ----
   var existing = input.existing || [];
@@ -506,6 +589,21 @@ function buildImportPlan_(input) {
   });
   Object.keys(rejectedByTeam).forEach(function (t) { stat(t).rejected = rejectedByTeam[t]; });
 
+  // Pieces of a joined shift stored by an earlier import are replaced by the whole shift (any strategy).
+  var removedKeys = {};
+  valid.forEach(function (rec) {
+    if (!rec._joinedFrom) return;
+    var who = employeeIdentity_(toStoredRecord_(rec));
+    existing.forEach(function (ex) {
+      if (removedKeys[ex.recordKey] || incomingKeys[ex.recordKey] || ex.recordStatus !== RECORD_STATUS.ACTIVE || ex.teamId !== rec.teamId) return;
+      if (activityCategoryOf_(ex) !== ACTIVITY_CATEGORY.SHIFT || employeeIdentity_(ex) !== who) return;
+      if (!(ex.shiftStart >= rec.shiftStart && ex.shiftEnd <= rec.shiftEnd)) return;
+      plan.actions.push({ type: 'REMOVE', key: ex.recordKey, teamId: ex.teamId, before: ex });
+      removedKeys[ex.recordKey] = true;
+      S.remove++; stat(ex.teamId).remove++; S.replacedPieces++;
+    });
+  });
+
   if (strategy === 'REPLACE_RANGE') {
     Object.keys(teamStats).forEach(function (t) {
       if (rejectedByTeam[t] && teamStats[t].rows) {
@@ -513,7 +611,7 @@ function buildImportPlan_(input) {
       }
     });
     existing.forEach(function (ex) {
-      if (ex.recordStatus !== RECORD_STATUS.ACTIVE || incomingKeys[ex.recordKey]) return;
+      if (ex.recordStatus !== RECORD_STATUS.ACTIVE || incomingKeys[ex.recordKey] || removedKeys[ex.recordKey]) return;
       var st = teamStats[ex.teamId];
       if (!st || !st.rows || ex.shiftDate < st.dateFrom || ex.shiftDate > st.dateTo) return;
       // With a shift-type selection, only shifts of the selected types are replaced.
@@ -553,6 +651,8 @@ function buildImportPlan_(input) {
   S.teams = Object.keys(teamStats).map(function (k) { return teamStats[k]; });
   S.unknownEmployees = Object.keys(unknownEmp).map(function (k) { return unknownEmp[k]; }).slice(0, 100);
   S.unknownEmployeeCount = Object.keys(unknownEmp).length;
+  S.heldPeople = Object.keys(held).map(function (k) { return held[k]; }).sort(function (a, b) { return a.employeeName.localeCompare(b.employeeName); });
+  S.heldRows = S.heldPeople.reduce(function (n, h) { return n + h.rows; }, 0);
   S.potentialDuplicates = S.unchanged + S.skippedExisting + S.changedPending + S.duplicatesInFile;
   S.shiftTypes = Object.keys(typeStats).sort().map(function (k) { return typeStats[k]; });
   S.newShiftTypes = Object.keys(newTypes).sort();
@@ -578,14 +678,10 @@ function buildImportPlan_(input) {
     rep.info.push(S.meetingsDetected + ' meeting row(s) detected: ' + S.meetingsSelected + ' selected for import, ' + S.meetingsExcluded +
       ' excluded (meeting import disabled for the team).' + (S.meetingsInShift ? ' ' + S.meetingsInShift + ' meeting(s) fall inside a normal shift (not a conflict; not added to working hours).' : ''));
   }
-  if (S.ambiguousRouting) rep.warnings.push(S.ambiguousRouting + ' row(s) have an ambiguous team (employee belongs to several teams). Resolve them in the routing table.');
-  if (S.unroutable) rep.warnings.push(S.unroutable + ' row(s) could not be routed to a team (unknown employee or no membership). Assign or skip them in the routing table.');
-  if (S.manuallyAssigned || S.skippedByAdmin) rep.info.push(S.manuallyAssigned + ' row(s) assigned manually, ' + S.skippedByAdmin + ' skipped by you.');
-  if (S.nonMembers) rep.warnings.push(S.nonMembers + ' row(s) belong to employees who are not active members of the target team (shared staff directory).');
   if (S.hoursMissing) rep.warnings.push(S.hoursMissing + ' row(s) have no scheduled hours.');
   if (S.hoursInvalid) rep.warnings.push(S.hoursInvalid + ' row(s) have scheduled hours that are not a valid duration.');
   if (S.hoursDiscrepancies) rep.warnings.push(S.hoursDiscrepancies + ' row(s) have scheduled hours that differ from the shift length by more than ' +
-    toNumber_(cfg.HOURS_TOLERANCE_MINUTES, 15) + ' minutes (possible breaks, multiple assignments or rounding). They are imported and flagged "Hours differ".');
+    toNumber_(cfg.HOURS_TOLERANCE_MINUTES, 15) + ' minutes (possible multiple assignments or rounding). They are imported and flagged "Hours differ".');
 
   var listCounts = function (o) { return Object.keys(o).slice(0, 10).map(function (k) { return '"' + k + '" (' + o[k] + ')'; }).join(', '); };
   if (Object.keys(otherTeamValues).length) {
@@ -600,7 +696,13 @@ function buildImportPlan_(input) {
   if (S.teams.length > 1) rep.info.push('The file contains shifts for ' + S.teams.length + ' teams; rows are split by team as shown below.');
   if (tzIgnored) rep.warnings.push('Some date-times carry a time-zone suffix (e.g. Z or +02:00). The suffix was ignored and the times were used as local wall-clock times.');
   if (S.unknownEmployeeCount) rep.warnings.push(S.unknownEmployeeCount + ' employee(s) are not in their team\'s staff directory. Their shifts are imported and flagged "Unknown employee". You can add them later from View Staff Directory.');
-  if (S.nameMatched) rep.warnings.push(S.nameMatched + ' row(s) were matched to staff by exact name only (no Employee ID in the file). Verify them.');
+  if (S.heldRows) rep.warnings.push(S.heldPeople.length + ' employee(s) with ' + S.heldRows + ' row(s) are held back: they are not in the staff sheet of their team, or are in several staff sheets. Choose a team or Skip for each of them.');
+  if (S.skippedByDecision) rep.info.push(S.skippedByDecision + ' row(s) skipped by your decision.');
+  if (S.joinedPieces || S.extendedShifts) rep.info.push((S.joinedPieces ? S.joinedPieces + ' shift piece(s) split around a meeting or training were joined' : '') +
+    (S.joinedPieces && S.extendedShifts ? ' and ' : '') + (S.extendedShifts ? S.extendedShifts + ' shift(s) include a meeting or training at their start or end' : '') +
+    ', so each person shows their whole shift (the meeting stays a separate row).' +
+    (S.replacedPieces ? ' ' + S.replacedPieces + ' older stored piece(s) are replaced by the whole shift.' : ''));
+  if (S.nameMatched) rep.info.push(S.nameMatched + ' row(s) were matched to the staff sheet by name (the file has no Employee ID).');
   if (S.nameMismatches) rep.info.push(S.nameMismatches + ' row(s) have a name that differs from the staff directory for the same Employee ID.');
   if (S.inactiveStaff) rep.warnings.push(S.inactiveStaff + ' row(s) belong to employees marked Inactive.');
   if (S.duplicatesInFile) rep.warnings.push(S.duplicatesInFile + ' exact duplicate row(s) in the file will be skipped.');
@@ -619,13 +721,14 @@ function finalizePlan_(plan, input) {
   if (plan.report.fatal.length) b.push('Resolve the errors listed under "Must fix".');
   if (plan.strategy === 'ASK' && S.changedPending) b.push('Choose how existing shifts with different values are handled.');
   if (S.rejectedRows && !input.allowPartial && !plan.report.fatal.length) b.push(S.rejectedRows + ' row(s) were rejected. Fix the file, or tick "Import the valid rows and skip rejected rows".');
-  if (!plan.report.fatal.length && !S.validRows) b.push('There are no valid rows to import.');
+  if (S.heldPeople.length) b.push(S.heldPeople.length + ' employee(s) are held back for review. Choose a team or Skip for each, then click Re-check.');
+  else if (!plan.report.fatal.length && !S.validRows) b.push('There are no valid rows to import.');
   plan.blockers = b;
   plan.canCommit = b.length === 0;
   plan.token = hashString_([
     plan.strategy, plan.teamMode, plan.dateOrder, S.rejectedRows, S.unchanged, S.skippedExisting,
     S.excludedByShiftType, S.scheduleDate, stableStringify_(S.shiftTypeFilters),
-    S.meetingsExcluded, stableStringify_(input.routingOverrides || {}),
+    S.meetingsExcluded, stableStringify_(input.decisions || {}),
     plan.actions.map(function (a) {
       return a.type + ':' + a.key + ':' + (a.record ? hashString_(stableStringify_(a.record)) : '') +
         ':' + (a.before ? hashString_(stableStringify_(a.before.updatedAt ? String(a.before.updatedAt) : '') + a.before.lastImportId) : '');
@@ -826,8 +929,9 @@ function describeTeamValues_(dataRows, teamCol, options) {
 /**
  * Loads all inputs and builds the plan for a staged import.
  * req: {importId, format, profileId, headerRow, fieldMap, layout, scheduleDate, options{dateOrder,
- *   breakUnit, hoursUnit}, teamMode, teamId, strategy, allowPartial,
- *   shiftTypeOverride?: {teamId, mode, types}, saveShiftTypes?: bool, token?}
+ *   hoursUnit}, teamMode, teamId, strategy, allowPartial,
+ *   shiftTypeOverride?: {teamId, mode, types}, saveShiftTypes?: bool, token?,
+ *   decisions?: {personKey: teamId | 'SKIP'}, reviewUnknown?: bool (hold employees missing from the staff sheet)}
  */
 function analyzeStaged_(req) {
   var cfg = getConfig_();
@@ -852,13 +956,14 @@ function analyzeStaged_(req) {
     fieldMap: req.fieldMap || {},
     options: {
       dateOrder: options.dateOrder || popts.dateOrder || 'AUTO',
-      breakUnit: options.breakUnit || popts.breakUnit || 'MINUTES',
       hoursUnit: options.hoursUnit || popts.hoursUnit || 'HOURS'
     },
     teamMode: req.teamMode || 'AUTO',
     teamId: req.teamId || '',
     strategy: req.strategy || cfg.DEFAULT_DUPLICATE_STRATEGY || 'ASK',
     allowPartial: !!req.allowPartial,
+    decisions: req.decisions || {},
+    reviewUnknown: !!req.reviewUnknown,
     teams: teams,
     profileOptions: profileOptions,
     existing: data.records,
@@ -873,8 +978,6 @@ function analyzeStaged_(req) {
       }
       return base;
     },
-    getDirectoryRouter: function () { return buildDirectoryRouter_(teams, cfg); },
-    routingOverrides: req.routingOverrides || {},
     cfg: cfg
   };
   if (req.format === 'QUINYX_DAILY') {
@@ -900,7 +1003,6 @@ function planForClient_(plan, meta) {
     format: meta.format,
     sheetName: meta.sheetName,
     fileWarnings: meta.warnings || [],
-    previewOnly: !!meta.previewOnly,
     summary: plan.summary,
     report: plan.report,
     rejected: plan.rejected.slice(0, 200),
@@ -909,66 +1011,12 @@ function planForClient_(plan, meta) {
     rowWarningsTotal: plan.rowWarnings.length,
     unmappedColumns: plan.unmappedColumns,
     token: plan.token,
-    canCommit: plan.canCommit && !meta.previewOnly,
+    canCommit: plan.canCommit,
     blockers: plan.blockers,
     teamMode: plan.teamMode,
     dateOrder: plan.dateOrder,
-    strategy: plan.strategy,
-    // Routing table: problem rows first, then the rest (capped).
-    routing: (plan.routing || []).slice().sort(function (a, b) {
-      var w = function (s) { return s === 'AMBIGUOUS' ? 0 : (s === 'UNKNOWN_EMPLOYEE' || s === 'NO_MEMBERSHIP' || s === 'AMBIGUOUS_NAME') ? 1 : 2; };
-      return w(a.status) - w(b.status) || a.row - b.row;
-    }).slice(0, 400),
-    routingTotal: (plan.routing || []).length
+    strategy: plan.strategy
   };
-}
-
-/**
- * Pure router over staff directories (teamMode DIRECTORY).
- * @param {Array<{teamIds: string[], index: Object, checkers: Object}>} directories
- *   index = buildStaffIndex_ of the directory; checkers[teamId] = membershipChecker_ result
- * @param {string} nameStrategy NAME_MATCH_STRATEGY for rows without an employee ID
- * @return {{teamIds: string[], resolve: function(id, name): {staff, method, candidates, note}}}
- */
-function makeDirectoryRouter_(directories, nameStrategy) {
-  var teamIds = [];
-  directories.forEach(function (d) { d.teamIds.forEach(function (t) { if (teamIds.indexOf(t) < 0) teamIds.push(t); }); });
-  return {
-    teamIds: teamIds,
-    resolve: function (employeeId, employeeName) {
-      var staff = null, method = 'UNKNOWN', note = '', candidates = [];
-      directories.forEach(function (d) {
-        var m = matchEmployee_(d.index, employeeId, employeeName, nameStrategy || 'EXACT_FLAGGED');
-        if (!m.staff) { if (m.status === STAFF_MATCH.AMBIGUOUS && method === 'UNKNOWN') { method = 'AMBIGUOUS_NAME'; note = m.note; } return; }
-        if (!staff) { staff = m.staff; method = m.status; note = m.note; }
-        d.teamIds.forEach(function (t) {
-          var c = d.checkers[t](m.staff);
-          if (c.member && !candidates.some(function (x) { return x.teamId === t; })) candidates.push({ teamId: t, membership: c.status });
-        });
-      });
-      return { staff: staff, method: method, candidates: candidates, note: note };
-    }
-  };
-}
-
-/** Builds the router from live data: READY teams with "use staff directory for routing" enabled. */
-function buildDirectoryRouter_(teams, cfg) {
-  var routing = teams.filter(function (t) { return t.status === TEAM_STATUS.READY && t.settings.import.useStaffDirectoryRouting; });
-  var memberships = readMemberships_();
-  var mIdx = membershipIndex_(memberships);
-  var bySheet = {};
-  routing.forEach(function (t) { var k = String(t.settings.staffSheetId); (bySheet[k] = bySheet[k] || []).push(t); });
-  var directories = [];
-  Object.keys(bySheet).forEach(function (k) {
-    var dirTeams = bySheet[k];
-    var st;
-    try { st = readStaff_(dirTeams[0]); } catch (e) { logError_('buildDirectoryRouter_', e); return; }
-    var shared = teamsUsingStaffSheet_(dirTeams[0].settings.staffSheetId, teams).length > 1;
-    var checkers = {};
-    dirTeams.forEach(function (t) { checkers[t.teamId] = membershipChecker_(t.teamId, shared, mIdx); });
-    directories.push({ teamIds: dirTeams.map(function (t) { return t.teamId; }), index: buildStaffIndex_(st.rows), checkers: checkers });
-  });
-  return makeDirectoryRouter_(directories, cfg.NAME_MATCH_STRATEGY);
 }
 
 /** Writes journal rows (before-images) for all non-insert actions plus insert keys. */
@@ -1034,7 +1082,6 @@ function applyActionsToData_(table, actions, importId, now) {
 function commitImport_(req) {
   var a = analyzeStaged_(req);
   var plan = a.plan, meta = a.meta;
-  if (meta.previewOnly) fail_('PREVIEW_ONLY', 'This import was opened with Preview Import, which never writes data. Use Import Quinyx Export to apply it.');
   if (plan.token !== req.token) {
     return { status: 'PLAN_CHANGED', preview: planForClient_(plan, meta),
       message: 'The stored schedule or the settings changed since the preview was created. Review the updated preview and confirm again.' };
@@ -1198,7 +1245,7 @@ function undoImport_(expectedImportId) {
 /* Client API (ImportDialog.html)                                            */
 /* ======================================================================== */
 
-function apiImportBootstrap(previewOnly) {
+function apiImportBootstrap() {
   return apiCall_('apiImportBootstrap', function () {
     requireInitialized_();
     var cfg = getConfig_();
@@ -1209,30 +1256,23 @@ function apiImportBootstrap(previewOnly) {
     });
     var current = teamForSheet_(getSs_().getActiveSheet());
     return {
-      previewOnly: !!previewOnly,
       teams: teams.map(function (t) {
         var imp = t.settings.import;
         return { teamId: t.teamId, teamName: t.teamName, status: t.status, active: t.active, importProfileId: t.importProfileId,
           scheduleType: imp.scheduleType, shiftTypeMode: imp.shiftTypeMode, shiftTypes: imp.shiftTypes,
           knownShiftTypes: imp.knownShiftTypes, duplicateStrategy: imp.duplicateStrategy,
-          importMeetings: !!imp.importMeetings, meetingTypes: imp.meetingTypes || [] }; // v1.1.2: labels meeting types in the wizard
+          importMeetings: !!imp.importMeetings, meetingTypes: imp.meetingTypes || [] }; // labels meeting types in the wizard
       }),
       currentTeamId: current ? current.team.teamId : '',
-      profiles: listProfiles_().map(function (p) {
-        return { profileId: p.profileId, profileName: p.profileName, description: p.description, fieldCount: Object.keys(p.fieldMap).length, format: p.options.format };
-      }),
+      profiles: listProfiles_().map(function (p) { return { profileId: p.profileId, profileName: p.profileName }; }),
       importFields: IMPORT_FIELDS,
-      importFormats: IMPORT_FORMATS,
-      shiftTypeModes: SHIFT_TYPE_MODES,
-      defaultLayout: DEFAULT_DAILY_LAYOUT,
       strategies: DUPLICATE_STRATEGIES,
-      teamModes: TEAM_MODES,
       defaultStrategy: cfg.DEFAULT_DUPLICATE_STRATEGY,
       maxFileMb: cfgNum_(cfg, 'MAX_FILE_MB', 10),
       driveAvailable: typeof Drive !== 'undefined',
       sourceSheets: getSs_().getSheets().filter(function (s) {
         var n = s.getName();
-        return n.charAt(0) !== '_' && !teamSheetIds[s.getSheetId()] && n !== cfg.DASHBOARD_SHEET;
+        return n.charAt(0) !== '_' && !teamSheetIds[s.getSheetId()] && n !== cfg.DASHBOARD_SHEET && n !== LINKS_SHEET_;
       }).map(function (s) { return s.getName(); })
     };
   });
@@ -1253,7 +1293,7 @@ function apiImportUpload(payload) {
       fileName: payload.source === 'SHEET' ? 'Sheet tab: ' + parsed.sheetName : str_(payload.fileName),
       format: parsed.format, sheetName: parsed.sheetName, sheetNames: parsed.sheetNames,
       encoding: parsed.encoding, delimiter: parsed.delimiter, fileHash: parsed.fileHash,
-      warnings: parsed.warnings, previewOnly: !!payload.previewOnly
+      warnings: parsed.warnings
     };
     withLock_(function () {
       purgeOldStaging_(cfgNum_(cfg, 'STAGING_RETENTION_HOURS', 24));

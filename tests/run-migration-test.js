@@ -113,13 +113,11 @@ const drop2 = (name, labels) => {
 drop2('_SCHEDULE_DATA', ['Activity Category']);
 drop2('_IMPORT_LOG', ['Meetings Imported', 'Meetings Excluded']);
 drop2('_STAFF_FIELDS', ['Display Order']);
-ss2.deleteSheet(ss2.getSheetByName('_TEAM_MEMBERSHIP'));
-ss2.deleteSheet(ss2.getSheetByName('_SLACK_PAYLOADS'));
 run2(`
   setConfigValues_({ SYSTEM_VERSION: '1.1.0' });
   var t = readTable_(T_TEAMS).rows[0];
   var s = JSON.parse(JSON.stringify(t.settings));
-  delete s.import.importMeetings; delete s.import.meetingTypes; delete s.import.useStaffDirectoryRouting;
+  delete s.import.importMeetings; delete s.import.meetingTypes;
   t.settings = s; updateObject_(T_TEAMS, t);
   var ty = readTable_(T_TEAM_TYPES).rows[0];
   ty.staffFields = LEGACY_DEFAULT_STAFF_FIELDS_V110; updateObject_(T_TEAM_TYPES, ty);
@@ -130,27 +128,26 @@ try { run2('requireInitialized_()'); } catch (e) { code2 = e.code; }
 check('v1.1.0 spreadsheet asks for the upgrade', code2 === 'NEEDS_UPGRADE', code2);
 const acts = run2('initializeSystem_().actions');
 console.log('    upgrade actions:\n      - ' + acts.join('\n      - '));
-check('new sheets _TEAM_MEMBERSHIP and _SLACK_PAYLOADS created', !!ss2.getSheetByName('_TEAM_MEMBERSHIP') && !!ss2.getSheetByName('_SLACK_PAYLOADS'));
 check('new columns added', header2(ss2.getSheetByName('_SCHEDULE_DATA')).indexOf('Activity Category') >= 0 && header2(ss2.getSheetByName('_STAFF_FIELDS')).indexOf('Display Order') >= 0);
 check('schedule records unchanged', before2 === run2('JSON.stringify(readAllScheduleRecords_().records.map(function (r) { return [r.recordKey, r.shiftStart]; }))'));
 check('existing team keeps its identifier columns and values', run2('var t = listTeams_()[0]; var st = readStaff_(t); st.rows[0].values["Converse ID"]') === '000777');
 const fieldNames = run2('listStaffFields_().map(function (f) { return f.displayName; }).join(",")');
 check('existing identifier fields kept as user data, in their original order', fieldNames === 'Converse ID,Aircall ID,AstraID', fieldNames);
-check('team gets explicit meeting/routing settings (off)', run2('var i = listTeams_()[0].settings.import; i.importMeetings === false && i.useStaffDirectoryRouting === false'));
-check('untouched starter type now defaults to the 5 columns', run2('listTeamTypes_(true)[0].staffFields.join(",")') === 'employeeId,employeeName,active,role,notes');
+check('team gets an explicit meeting setting (off)', run2('listTeams_()[0].settings.import.importMeetings === false'));
+check('untouched starter type now defaults to the 4 columns', run2('listTeamTypes_(true)[0].staffFields.join(",")') === 'employeeId,employeeName,role,notes');
 const reimport = run2(`itImport_({ teams: {}, imports: [] }, 'Employee ID,Employee Name,Date,Start,End\\nE1,Ann Lee,2026-10-15,08:00,16:00', listTeams_()[0].teamId, 'UPDATE')`);
 check('re-importing v1.1.0 data after the upgrade changes nothing', reimport.inserted === 0 && reimport.updated === 0 && reimport.unchanged === 1, JSON.stringify(reimport));
 const acts2 = run2('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
 check('second upgrade run changes nothing', acts2.length === 0, acts2.join(' | '));
 check('no duplicate columns or sheets', (() => {
   const h = header2(ss2.getSheetByName('_SCHEDULE_DATA')).filter(Boolean);
-  return h.length === new Set(h).size && ss2.getSheets().filter((s) => s.getName() === '_TEAM_MEMBERSHIP').length === 1;
+  return h.length === new Set(h).size && new Set(ss2.getSheets().map((s) => s.getName())).size === ss2.getSheets().length;
 })());
 
 /* ------------------------------------------------------------------------ */
-/* Scenario C: v1.1.1 / v1.1.2 -> current (UI release + one new config key; no data migration) */
+/* Scenario C: 1.1.x -> current: one upgrade, no data changes                   */
 /* ------------------------------------------------------------------------ */
-['1.1.1', '1.1.2'].forEach((fromVersion) => {
+['1.1.1', '1.1.2', '1.1.3'].forEach((fromVersion) => {
   console.log('v' + fromVersion + ' -> ' + run('APP.VERSION'));
   const g3 = makeGlobals('Europe/Stockholm');
   const ctx3 = vm.createContext(g3.globals);
@@ -161,8 +158,6 @@ check('no duplicate columns or sheets', (() => {
     var type = listTeamTypes_(false)[0];
     var team = createTeam_({ teamName: 'Current Team', typeMode: 'EXISTING', teamTypeId: type.typeId }).team;
     itImport_({ teams: {}, imports: [] }, 'Employee ID,Employee Name,Date,Start,End\\nE1,Ann Lee,2026-10-15,08:00,16:00', team.teamId, 'UPDATE');
-    var key = readTable_(T_CONFIG).rows.filter(function (r) { return r.key === 'SLACK_MESSAGE_CONFIG'; })[0];
-    deleteSheetRows_(requireSheet_(T_CONFIG.sheet), [key._row]); // that key did not exist before 1.1.3
     setConfigValues_({ SYSTEM_VERSION: '${fromVersion}' });
     resetConfigMemo_();
   `);
@@ -170,21 +165,19 @@ check('no duplicate columns or sheets', (() => {
     teams: readTable_(T_TEAMS).rows.map(function (t) { return [t.teamId, t.settings]; }),
     types: readTable_(T_TEAM_TYPES).rows.map(function (t) { return [t.typeId, t.staffFields, t.display]; }),
     records: readAllScheduleRecords_().records.map(function (r) { return [r.recordKey, r.shiftStart, r.shiftEnd]; }),
-    cfg: readTable_(T_CONFIG).rows.filter(function (r) { return r.key !== 'SYSTEM_VERSION' && r.key !== 'SLACK_MESSAGE_CONFIG'; }).map(function (r) { return [r.key, r.value]; }),
+    cfg: readTable_(T_CONFIG).rows.filter(function (r) { return r.key !== 'SYSTEM_VERSION'; }).map(function (r) { return [r.key, r.value]; }),
     sheets: getSs_().getSheets().map(function (s) { return s.getName(); })
   })`);
   const before3 = snapshot3();
   let code3 = 'OK';
   try { run3('requireInitialized_()'); } catch (e) { code3 = e.code; }
-  check(fromVersion + ' spreadsheet keeps working without an upgrade', code3 === 'OK', code3);
-  check('setup dialog does not ask for an upgrade', run3('getSetupState_().needsUpgrade') === false);
-  check('workflow message works before Setup (starter columns from the default)', run3('loadWorkflowConfig_().columns.length') === 5);
+  check(fromVersion + ' spreadsheet asks for the upgrade once', code3 === 'NEEDS_UPGRADE', code3);
+  check('setup dialog offers the upgrade', run3('getSetupState_().needsUpgrade') === true);
   const acts3 = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
   console.log('    setup actions:\n      - ' + acts3.join('\n      - '));
-  check('setup only adds the new key and records the version', acts3.length === 2 && /^Added 1 missing configuration key/.test(acts3[0]) &&
-    /^Recorded version 1\.1\.3 \(from /.test(acts3[1]), acts3.join(' | '));
-  check('version recorded', run3('getConfig_().SYSTEM_VERSION') === '1.1.3');
-  check('new key added with an empty value', run3('getConfig_().SLACK_MESSAGE_CONFIG') === '{}');
+  check('the upgrade only records the version', acts3.length === 1 && /^Upgraded the system from version 1\.1\.\d to 2\.0\.0\./.test(acts3[0]), acts3.join(' | '));
+  check('version recorded', run3('getConfig_().SYSTEM_VERSION') === '2.0.0');
+  check('no upgrade asked afterwards', run3('getSetupState_().needsUpgrade') === false);
   check('teams, types, records, other configuration and sheets unchanged', snapshot3() === before3);
   const acts3b = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
   check('second setup run changes nothing', acts3b.length === 0, acts3b.join(' | '));

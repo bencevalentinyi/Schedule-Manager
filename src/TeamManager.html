@@ -39,29 +39,27 @@
     function render() {
       if (!teams.length) {
         $('count').textContent = '';
-        $('teams').innerHTML = emptyHtml('▦', 'No teams yet', 'A team gets its own daily schedule sheet and a dedicated or shared staff directory.',
+        $('teams').innerHTML = emptyHtml('▦', 'No teams yet', 'A team gets its own daily schedule sheet and staff sheet.',
           '<button type="button" class="btn primary" onclick="call(\'Opening the team wizard…\', \'apiShowTeamDialog\', \'\')">Create the first team</button>');
         return;
       }
       var q = $('q').value.trim().toLowerCase();
       var shown = teams.map(function (t, i) { return { t: t, i: i }; }).filter(function (x) {
-        return !q || (x.t.teamName + ' ' + x.t.teamId + ' ' + x.t.typeName).toLowerCase().indexOf(q) >= 0;
+        return !q || (x.t.teamName + ' ' + x.t.teamId).toLowerCase().indexOf(q) >= 0;
       });
       $('count').textContent = shown.length === teams.length ? teams.length + ' team(s)' : shown.length + ' of ' + teams.length + ' team(s)';
       if (!shown.length) { $('teams').innerHTML = emptyHtml('⌕', 'No team matches "' + $('q').value + '"', 'Clear the search to see all teams.'); return; }
-      $('teams').innerHTML = '<div class="table-wrap tall"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Schedule</th><th scope="col">Staff directory</th><th scope="col">Import</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' +
+      $('teams').innerHTML = '<div class="table-wrap tall"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Schedule</th><th scope="col">Staff sheet</th><th scope="col">Shift types</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' +
         shown.map(function (x) {
           var t = x.t, i = x.i;
           var st = (t.status === 'READY' ? badge('ok', 'Ready') : badge('bad', t.status)) + ' ' + (t.active ? badge('', 'Active') : badge('warn', 'Inactive'));
           if (t.lastError) st += '<div class="small" style="color:var(--error)">' + esc(t.lastError) + '</div>';
           var sched = (t.hasScheduleSheet ? '<a href="#" onclick="openSheet(' + i + ',\'schedule\');return false">' + esc(t.scheduleSheet) + '</a>' : badge('bad', 'Sheet missing')) +
             '<div class="small muted">' + esc(t.hoursLabel) + '</div>';
-          var staff = (t.hasStaffSheet ? '<a href="#" onclick="openSheet(' + i + ',\'staff\');return false">' + esc(t.staffSheet) + '</a>' : badge('bad', 'Sheet missing')) +
-            '<div>' + (t.sharedStaff ? badge('info', 'Shared') : badge('', 'Dedicated')) + '</div>';
+          var staff = t.hasStaffSheet ? '<a href="#" onclick="openSheet(' + i + ',\'staff\');return false">' + esc(t.staffSheet) + '</a>' : badge('bad', 'Sheet missing');
           var imp = '<div class="small"><span class="muted">Shift types:</span> ' + esc(t.shiftTypes) + '</div><div class="small">' +
-            (t.meetings === 'meetings off' ? '<span class="muted">Meetings: off</span>' : badge('meeting', 'Meetings') + ' ' + esc(t.meetings.replace(/^meetings: /, ''))) + '</div>' +
-            (t.importAliases ? '<div class="small muted">Aliases: ' + esc(t.importAliases) + '</div>' : '');
-          return '<tr><td><b>' + esc(t.teamName) + '</b><div class="small muted">' + esc(t.teamId) + ' · ' + esc(t.typeName) + '</div></td>' +
+            (t.meetings === 'meetings off' ? '<span class="muted">Meetings: off</span>' : badge('meeting', 'Meetings') + ' ' + esc(t.meetings.replace(/^meetings: /, ''))) + '</div>';
+          return '<tr><td><b>' + esc(t.teamName) + '</b><div class="small muted">' + esc(t.teamId) + '</div></td>' +
             '<td>' + st + '</td><td class="small">' + sched + '</td><td class="small">' + staff + '</td><td class="wrap">' + imp + '</td>' +
             '<td class="actions"><button type="button" class="btn sm primary" onclick="edit(' + i + ')" aria-label="Edit ' + esc(t.teamName) + '">Edit</button>' +
             '<button type="button" class="btn sm" onclick="toggle(' + i + ')">' + (t.active ? 'Deactivate' : 'Activate') + '</button>' +
@@ -87,9 +85,8 @@
       var t = teams[i];
       askConfirm('deleteBox', {
         title: 'Delete team "' + t.teamName + '"?',
-        html: 'The team is removed from the registry. Its schedule records stay in <code>_SCHEDULE_DATA</code> as history. This cannot be undone from the menu.' +
-          (t.sharedStaff ? '<br>Its staff directory is shared: other teams keep using it.' : ''),
-        extraHtml: '<label class="check mt-2"><input type="checkbox" id="delSheets"> <span>Also delete its schedule sheet' + (t.sharedStaff ? '' : ' and staff sheet') +
+        html: 'The team is removed from the registry. Its schedule records stay in <code>_SCHEDULE_DATA</code> as history. This cannot be undone from the menu.',
+        extraHtml: '<label class="check mt-2"><input type="checkbox" id="delSheets"> <span>Also delete its schedule sheet and staff sheet' +
           ' <span class="hint">Staff records in a deleted sheet cannot be recovered.</span></span></label>',
         typeToConfirm: t.teamName,
         confirmLabel: 'Delete team',

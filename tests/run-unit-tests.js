@@ -27,7 +27,7 @@ fs.readdirSync(SRC).filter((f) => f.endsWith('.gs')).sort().forEach((f) => {
 });
 const result = vm.runInContext('runUnitTests()', context);
 
-// Requirement (v1.1.1 #32): setup/migrations must never create (duplicate) triggers.
+// Requirement: setup and migrations must never create (duplicate) triggers.
 // Static check: no source file may create triggers at all.
 const triggerUse = fs.readdirSync(SRC).filter((f) => /\.(gs|html)$/.test(f))
   .filter((f) => /ScriptApp\s*\.\s*newTrigger/.test(fs.readFileSync(path.join(SRC, f), 'utf8')));

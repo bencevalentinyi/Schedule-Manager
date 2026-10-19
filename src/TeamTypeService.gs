@@ -2,6 +2,8 @@
  * TeamTypeService.gs
  * Team type definitions (_TEAM_TYPES): reusable defaults for schedule fields,
  * staff fields, display settings and the default import profile.
+ * There is no team type dialog for now: new teams use the first enabled type
+ * (the "Standard Team" created by setup), see defaultTeamType_.
  *
  * Dependencies: Schema.gs, Utils.gs, SheetStore.gs, ImportMappingService.gs, TeamService.gs
  */
@@ -32,6 +34,11 @@ function getTeamType_(typeId) {
   var all = listTeamTypes_(true);
   for (var i = 0; i < all.length; i++) if (all[i].typeId === typeId) return all[i];
   return null;
+}
+
+/** The type given to new teams: the first enabled one, or null if there is none. */
+function defaultTeamType_() {
+  return listTeamTypes_(false)[0] || null;
 }
 
 /** Display settings merged over defaults, with types coerced. */
@@ -99,6 +106,7 @@ function normalizeScheduleFields_(list) {
   var out = [];
   (list || []).forEach(function (f) {
     f = str_(f);
+    if (f === 'netDuration') f = 'grossDuration'; // Net Hours was removed with breaks; it equals the shift length
     if (DISPLAY_FIELDS[f]) out.push(f);
     else if (f.indexOf(EXTRA_FIELD_PREFIX) === 0 && f.length > EXTRA_FIELD_PREFIX.length) out.push(f);
   });
@@ -118,7 +126,8 @@ function normalizeStaffFields_(list) {
   var stdLabels = Object.keys(STAFF_FIELD_DEFS).map(function (k) { return STAFF_FIELD_DEFS[k].label.toLowerCase(); });
   (list || []).forEach(function (f) {
     f = str_(f);
-    if (STAFF_FIELD_DEFS[f]) { out.push(f); return; }
+    if (f === 'netDuration') f = 'grossDuration'; // Net Hours was removed with breaks; it equals the shift length
+    if (STAFF_FIELD_DEFS[f]) { if (!STAFF_FIELD_DEFS[f].retired) out.push(f); return; }
     if (/^field:[a-z0-9_]{1,40}$/.test(f)) { out.push(f); return; }
     if (f.indexOf(CUSTOM_FIELD_PREFIX) === 0) {
       var label = sanitizeSheetName_(f.substr(CUSTOM_FIELD_PREFIX.length)).substr(0, 50).trim();
@@ -201,80 +210,4 @@ function saveTeamType_(input) {
     appendObjects_(T_TEAM_TYPES, [obj]);
   }
   return obj;
-}
-
-function teamsUsingType_(typeId) {
-  return listTeams_().filter(function (t) { return t.teamTypeId === typeId; });
-}
-
-/* ------------------------------------------------------------------------ */
-/* Client API                                                                */
-/* ------------------------------------------------------------------------ */
-
-function apiListTeamTypes() {
-  return apiCall_('apiListTeamTypes', function () {
-    requireInitialized_();
-    var teams = listTeams_();
-    return {
-      types: listTeamTypes_(true).map(function (t) {
-        t.teamCount = teams.filter(function (x) { return x.teamTypeId === t.typeId; }).length;
-        return t;
-      }),
-      profiles: listProfiles_(),
-      displayFields: DISPLAY_FIELDS,
-      staffFieldDefs: STAFF_FIELD_DEFS,
-      staffRegistry: listStaffFields_(),
-      operatingModes: OPERATING_HOURS_MODES,
-      defaults: { scheduleFields: DEFAULT_SCHEDULE_FIELDS, staffFields: DEFAULT_STAFF_FIELDS, display: DEFAULT_DISPLAY }
-    };
-  });
-}
-
-function apiSaveTeamType(input) {
-  return apiCall_('apiSaveTeamType', function () {
-    requireInitialized_();
-    return withLock_(function () {
-      var saved = saveTeamType_(input || {});
-      // Teams with STANDARD layout follow their type: re-render them.
-      teamsUsingType_(saved.typeId).forEach(function (team) {
-        if (team.status !== TEAM_STATUS.READY || team.settings.display.layout !== 'STANDARD') return;
-        try {
-          var sh = resolveTeamSheet_(team, 'schedule');
-          if (sh) { layoutScheduleSheet_(sh, team); renderTeamView_(team, {}); }
-        } catch (e) { logError_('apiSaveTeamType.rerender', e); }
-      });
-      return saved;
-    });
-  });
-}
-
-function apiSetTeamTypeEnabled(typeId, enabled) {
-  return apiCall_('apiSetTeamTypeEnabled', function () {
-    requireInitialized_();
-    return withLock_(function () {
-      var t = getTeamType_(typeId);
-      if (!t) fail_('NOT_FOUND', 'That team type no longer exists.');
-      t.enabled = !!enabled;
-      t.updatedAt = new Date();
-      updateObject_(T_TEAM_TYPES, t);
-      return t;
-    });
-  });
-}
-
-function apiDeleteTeamType(typeId) {
-  return apiCall_('apiDeleteTeamType', function () {
-    requireInitialized_();
-    return withLock_(function () {
-      var t = getTeamType_(typeId);
-      if (!t) fail_('NOT_FOUND', 'That team type no longer exists.');
-      var users = teamsUsingType_(typeId);
-      if (users.length) {
-        fail_('IN_USE', 'Team type "' + t.typeName + '" is used by ' + users.length + ' team(s) (' +
-          users.map(function (u) { return u.teamName; }).join(', ') + '). Disable it instead, or move those teams to another type first.');
-      }
-      deleteSheetRows_(requireSheet_(T_TEAM_TYPES.sheet), [t._row]);
-      return { deleted: typeId };
-    });
-  });
 }

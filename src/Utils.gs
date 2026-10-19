@@ -432,7 +432,21 @@ function jsonForHtml_(obj) {
     .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 
-/** HTML include helper for templates: <?!= include('Styles') ?> */
+/**
+ * HTML include helper for templates: <?!= include('Styles') ?>
+ * Styles is followed by the active theme (Display Settings → Theme), so every page is themed.
+ */
 function include(name) {
-  return HtmlService.createHtmlOutputFromFile(name).getContent();
+  var html = HtmlService.createHtmlOutputFromFile(name).getContent();
+  return name === 'Styles' ? html + themeHtml_() : html;
+}
+
+/** The active theme's HTML, or '' for the default look (also when its file is missing). */
+function themeHtml_() {
+  try {
+    var theme = THEMES[getConfig_().UI_THEME];
+    return theme && theme.file ? HtmlService.createHtmlOutputFromFile(theme.file).getContent() : '';
+  } catch (e) {
+    return ''; // not initialized yet, or the theme file was not added to the project
+  }
 }

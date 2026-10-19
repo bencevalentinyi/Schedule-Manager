@@ -1,0 +1,4 @@
+# Local only: brand versions of the themes (real logos), never published
+brand-themes/
+# Editor workspace file
+src/Template.code-workspace

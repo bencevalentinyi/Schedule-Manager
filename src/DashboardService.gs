@@ -10,6 +10,7 @@
 
 function rebuildDashboard_() {
   var cfg = getConfig_();
+  var th = sheetTheme_(cfg);
   var ss = getSs_();
   var tz = getTz_();
   var name = cfg.DASHBOARD_SHEET || 'Dashboard';
@@ -52,16 +53,16 @@ function rebuildDashboard_() {
   });
 
   sh.clear(); // generated sheet: contents and formats are rebuilt every time (column widths are kept)
-  sh.getRange(1, 1).setValue(APP.NAME + ' — Dashboard').setFontSize(16).setFontWeight('bold').setFontColor(cfg.HEADER_COLOR);
+  sh.getRange(1, 1).setValue(APP.NAME + ' — Dashboard').setFontSize(16).setFontWeight('bold').setFontColor(th.accent);
   sh.getRange(2, 1).setValue('Today: ' + today + ' (' + Utilities.formatDate(new Date(), cfg.TIMEZONE, 'EEEE') + ')   ·   Updated ' +
     Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm') + '   ·   Refresh with Schedule Manager → Schedule Management → Refresh Schedule Data')
     .setFontColor('#5f6368');
 
-  var header = ['Team', 'Team Type', 'Active', 'Setup Status', 'Shifts Today', 'Staff Today', 'Net Hours',
+  var header = ['Team', 'Team Type', 'Active', 'Setup Status', 'Shifts Today', 'Staff Today', 'Hours',
     'Peak Headcount', 'Unknown Employees', 'Overlaps', 'Last Import', 'Schedule', 'Staff'];
   var H = 4;
   sh.getRange(H, 1, 1, header.length).setValues([header]).setFontWeight('bold')
-    .setBackground(cfg.HEADER_COLOR).setFontColor(cfg.HEADER_FONT_COLOR);
+    .setBackground(th.header).setFontColor(th.headerText);
   if (teamRows.length) {
     sh.getRange(H + 1, 1, teamRows.length, header.length).setValues(teamRows);
     sh.getRange(H + 1, 7, teamRows.length, 1).setNumberFormat('[h]:mm');
@@ -75,7 +76,7 @@ function rebuildDashboard_() {
     committed.reduce(function (s, e) { return s + e.rowsInserted; }, 0) + ' shifts inserted, ' +
     committed.reduce(function (s, e) { return s + e.rowsUpdated; }, 0) + ' updated)').setFontWeight('bold');
   var ih = ['Import ID', 'Time', 'Source', 'Teams', 'Dates', 'Inserted', 'Updated', 'Removed', 'Rejected', 'Status'];
-  sh.getRange(R, 1, 1, ih.length).setValues([ih]).setFontWeight('bold').setBackground('#e8eaed');
+  sh.getRange(R, 1, 1, ih.length).setValues([ih]).setFontWeight('bold').setBackground(th.soft);
   var recent = log.slice(0, 10).map(function (e) {
     return [e.importId, formatTimestamp_(e.timestamp, tz), safeCell_(e.sourceFile), safeCell_(e.teams),
       e.dateFrom + (e.dateTo && e.dateTo !== e.dateFrom ? ' → ' + e.dateTo : ''),
@@ -87,8 +88,9 @@ function rebuildDashboard_() {
   if (created) {
     sh.setFrozenRows(H);
     [180, 140, 80, 105, 95, 90, 85, 115, 140, 80, 190, 90, 80].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
-    sh.setTabColor(cfg.HEADER_COLOR);
   }
+  sh.setTabColor(th.accent); // every rebuild, so a theme change re-colors the tab
+  applySheetFont_(sh, th);
   return created ? 'Created the "' + name + '" sheet.' : 'Refreshed the "' + name + '" sheet.';
 }
 

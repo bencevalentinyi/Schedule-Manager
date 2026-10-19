@@ -13,14 +13,11 @@ function onOpen() {
       .addItem('Setup / Configure Spreadsheet', 'menuSetup')
       .addItem('Create New Team', 'menuCreateTeam')
       .addItem('Manage Existing Teams', 'menuManageTeams')
-      .addItem('Configure Team Types', 'menuTeamTypes')
       .addItem('Configure Staff Fields', 'menuStaffFields')
-      .addItem('Configure Import Settings', 'menuImportSettings')
       .addItem('Configure Display Settings', 'menuDisplaySettings')
       .addItem('Validate Spreadsheet Structure', 'menuValidateStructure'))
     .addSubMenu(ui.createMenu('Schedule Import')
       .addItem('Import Quinyx Export', 'menuImport')
-      .addItem('Preview Import (no changes)', 'menuPreviewImport')
       .addItem('Import History', 'menuImportHistory')
       .addItem('Undo Last Import', 'menuUndoLastImport'))
     .addSubMenu(ui.createMenu('Schedule Management')
@@ -29,14 +26,9 @@ function onOpen() {
       .addItem('Select Schedule Date', 'menuSelectDate')
       .addItem('Refresh Schedule Data', 'menuRefresh')
       .addSeparator()
-      .addItem('View Staff Directory', 'menuViewStaff'))
-    .addSubMenu(ui.createMenu('Slack Workflow Automation')
-      .addItem('Workflow Message (one row for Slack)', 'menuSlackMessage')
-      .addItem('Generate Payloads', 'menuSlackGenerate')
-      .addItem('Configure Payload Generation', 'menuSlackConfig')
-      .addItem('Configure Dashboard URL', 'menuSlackUrl')
-      .addItem('View Generated Payloads', 'menuSlackView')
-      .addItem('Validate Payload Data', 'menuSlackValidate'))
+      .addItem('View Staff Directory', 'menuViewStaff')
+      .addItem('Import Employee IDs', 'menuImportEmployeeIds')
+      .addItem('Monitoring Links', 'menuMonitoringLinks'))
     .addSubMenu(ui.createMenu('Maintenance')
       .addItem('Rebuild Missing Sheets', 'menuRebuildMissing')
       .addItem('Repair Formatting', 'menuRepairFormatting')
@@ -80,12 +72,10 @@ function checkInstall() {
     Schema: 'APP', Utils: 'logError_', SheetStore: 'readTable_', ConfigService: 'getConfig_', Setup: 'initializeSystem_',
     TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
     ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
-    MembershipService: 'readMemberships_', SlackPayloadService: 'buildPayloadPlan_', SlackMessageService: 'buildWorkflowMessage_',
-    ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
+    MonitoringLinkService: 'buildMonitoringUrls_', ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
     AuditService: 'readImportLog_', Main: 'onOpen', Tests: 'runUnitTests'
   };
-  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'TeamTypeDialog', 'StaffFieldsDialog', 'SlackDialog',
-    'SettingsDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
     if (typeof g[scripts[file]] === 'undefined') problems.push('Script file "' + file + '" is missing, empty, incomplete or contains another file\'s code (expected to define ' + scripts[file] + ').');
@@ -97,6 +87,13 @@ function checkInstall() {
     } catch (e) {
       problems.push('HTML file "' + file + '" is missing or misnamed (create it with + → HTML, exact name "' + file + '").');
     }
+  });
+  // Theme files are optional: a missing one only means that theme falls back to the default look.
+  if (typeof g.THEMES !== 'undefined') Object.keys(g.THEMES).forEach(function (k) {
+    var file = g.THEMES[k].file;
+    if (!file) return;
+    try { HtmlService.createHtmlOutputFromFile(file); console.log('Theme ' + k + ': "' + file + '" present.'); }
+    catch (e) { console.log('Theme ' + k + ': "' + file + '" not added (optional; the default look is used).'); }
   });
   if (typeof g.APP !== 'undefined' && g.APP.VERSION) console.log('Code version: ' + g.APP.VERSION);
   if (problems.length) problems.forEach(function (p) { console.log('PROBLEM: ' + p); });
@@ -122,7 +119,7 @@ function menuRun_(name, fn, needsInit) {
 }
 
 /**
- * Standard dialog sizes [width, height] (v1.1.2). Every page has a fixed
+ * Standard dialog sizes [width, height]. Every page has a fixed
  * header and footer and scrolls internally, so these sizes fit all content.
  */
 var DIALOG_SIZE = {
@@ -184,20 +181,12 @@ function menuManageTeams() {
   menuRun_('menuManageTeams', function () { showHtml_('TeamManager', 'Manage Existing Teams', {}, DIALOG_SIZE.LARGE); });
 }
 
-function menuTeamTypes() {
-  menuRun_('menuTeamTypes', function () { showHtml_('TeamTypeDialog', 'Configure Team Types', {}, DIALOG_SIZE.LARGE); });
-}
-
 function menuStaffFields() {
   menuRun_('menuStaffFields', function () { showHtml_('StaffFieldsDialog', 'Configure Staff Fields', {}, DIALOG_SIZE.LARGE); });
 }
 
-function menuImportSettings() {
-  menuRun_('menuImportSettings', function () { showHtml_('SettingsDialog', 'Configure Import Settings', { tab: 'import' }, DIALOG_SIZE.LARGE); });
-}
-
 function menuDisplaySettings() {
-  menuRun_('menuDisplaySettings', function () { showHtml_('SettingsDialog', 'Configure Display Settings', { tab: 'display' }, DIALOG_SIZE.LARGE); });
+  menuRun_('menuDisplaySettings', function () { showHtml_('SettingsDialog', 'Configure Display Settings', {}, DIALOG_SIZE.LARGE); });
 }
 
 function menuValidateStructure() {
@@ -212,13 +201,7 @@ function menuValidateStructure() {
 
 function menuImport() {
   menuRun_('menuImport', function () {
-    showHtml_('ImportDialog', 'Import Quinyx Export', { previewOnly: false }, DIALOG_SIZE.LARGE);
-  });
-}
-
-function menuPreviewImport() {
-  menuRun_('menuPreviewImport', function () {
-    showHtml_('ImportDialog', 'Preview Import (no changes are written)', { previewOnly: true }, DIALOG_SIZE.LARGE);
+    showHtml_('ImportDialog', 'Import Quinyx Export', {}, DIALOG_SIZE.LARGE);
   });
 }
 
@@ -290,39 +273,12 @@ function menuViewStaff() {
   menuRun_('menuViewStaff', function () { showHtml_('StaffSidebar', 'Staff Directory', {}, 0, 0, true); });
 }
 
-/* ------------------------------------------------------------------------ */
-/* Slack Workflow Automation                                                 */
-/* ------------------------------------------------------------------------ */
-
-function menuSlackMessage() {
-  menuRun_('menuSlackMessage', function () { showHtml_('SlackDialog', 'Slack Workflow Message', { tab: 'message' }, DIALOG_SIZE.LARGE); });
+function menuImportEmployeeIds() {
+  menuRun_('menuImportEmployeeIds', function () { showHtml_('EmployeeIdDialog', 'Import Employee IDs', {}, DIALOG_SIZE.LARGE); });
 }
 
-function menuSlackGenerate() {
-  menuRun_('menuSlackGenerate', function () { showHtml_('SlackDialog', 'Generate Slack Payloads', { tab: 'generate' }, DIALOG_SIZE.LARGE); });
-}
-
-function menuSlackConfig() {
-  menuRun_('menuSlackConfig', function () { showHtml_('SlackDialog', 'Configure Payload Generation', { tab: 'config' }, DIALOG_SIZE.LARGE); });
-}
-
-function menuSlackUrl() {
-  menuRun_('menuSlackUrl', function () { showHtml_('SlackDialog', 'Configure Dashboard URL', { tab: 'url' }, DIALOG_SIZE.LARGE); });
-}
-
-function menuSlackView() {
-  menuRun_('menuSlackView', function () {
-    var sh = requireSheet_(T_SLACK_PAYLOADS.sheet, 'Run Setup / Configure Spreadsheet → Upgrade.');
-    if (sh.isSheetHidden()) sh.showSheet();
-    sh.activate();
-    getSs_().toast('Generated payloads. Regenerate (Replace mode) instead of editing rows by hand.', APP.NAME, 6);
-  });
-}
-
-function menuSlackValidate() {
-  menuRun_('menuSlackValidate', function () {
-    showReport_('Validate Payload Data', validatePayloads_(), 'Checks the payload and dashboard URL configuration and the stored payload records (validity, missing identifiers, stale source records).');
-  });
+function menuMonitoringLinks() {
+  menuRun_('menuMonitoringLinks', function () { showHtml_('MonitoringLinksDialog', 'Monitoring Links', {}, DIALOG_SIZE.LARGE); });
 }
 
 /* ------------------------------------------------------------------------ */
@@ -353,7 +309,7 @@ function menuOpenConfig() {
     var sh = requireSheet_(T_CONFIG.sheet);
     if (sh.isSheetHidden()) sh.showSheet();
     sh.activate();
-    getSs_().toast('Prefer Configure Display/Import Settings: they validate values before saving.', APP.NAME, 6);
+    getSs_().toast('Prefer Configure Display Settings: it validates values before saving. Maintenance → Repair Formatting hides this sheet again.', APP.NAME, 6);
   });
 }
 

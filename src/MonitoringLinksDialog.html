@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .url-box { font-family: var(--mono); font-size: 12px; min-height: 64px; word-break: break-all; }
+    .plan-box { font-family: var(--mono); font-size: 12px; min-height: 140px; white-space: pre; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Monitoring Links</h1>
+    <p class="subtitle">Monitoring links and daily list plans, written to the "Monitoring Links" sheet (column names in row 1, one row per item, looked up by Name). Settings are stored in this spreadsheet only.</p>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div class="split">
+      <div>
+        <div class="list" id="list" role="listbox" aria-label="Items"></div>
+        <div class="cluster mt-2">
+          <button type="button" class="btn sm" onclick="edit(null, 'LINK')">+ Link</button>
+          <button type="button" class="btn sm" onclick="edit(null, 'PLAN')">+ Daily plan</button>
+        </div>
+      </div>
+      <div>
+        <div id="placeholder"><div class="empty"><div class="empty-icon" aria-hidden="true">🔗</div><p class="empty-title">Select an item</p>
+          <p>Choose one on the left, or add a monitoring link or a daily list plan.</p></div></div>
+        <div id="editor" class="hidden">
+          <div class="panel-head"><h2 id="edTitle">Link</h2>
+            <button type="button" class="btn sm" id="upBtn" onclick="move(-1)" title="Move up (also the row order in the sheet)">▲ Up</button>
+            <button type="button" class="btn sm" id="downBtn" onclick="move(1)" title="Move down">▼ Down</button>
+          </div>
+          <div class="field"><label class="label" for="name">Name<span class="req" aria-hidden="true">*</span></label>
+            <input type="text" id="name" maxlength="80" placeholder="e.g. Live calls dashboard">
+            <p class="hint">Must be unique: a Slack Workflow finds the row by this name.</p></div>
+
+          <!-- Link settings -->
+          <div id="linkBox">
+            <div class="field"><label class="label" for="baseUrl">Base URL<span class="req" aria-hidden="true">*</span></label>
+              <textarea id="baseUrl" rows="2" spellcheck="false" placeholder="https://dashboard.example.com/live?users={IDS}"></textarea>
+              <p class="hint">Put <code>{IDS}</code> where the IDs go. Without <code>{IDS}</code> they are added at the end.</p></div>
+            <div class="row">
+              <div class="field"><label class="label" for="idField">ID column in the staff sheet</label><select id="idField"></select>
+                <p class="hint">Add your own column (e.g. "Aircall ID") under Configure Staff Fields or the team's Staff sheet step.</p></div>
+              <div class="field"><label class="label" for="separator">Separator between IDs</label>
+                <input type="text" id="separator" spellcheck="false" placeholder=", or %2C"></div>
+            </div>
+            <details class="disclosure">
+              <summary>Text around each ID, encoding, link size</summary>
+              <div class="disclosure-body">
+                <div class="row mt-3">
+                  <div class="field"><label class="label" for="prefix">Before each ID<span class="optional">optional</span></label>
+                    <input type="text" id="prefix" spellcheck="false" placeholder="e.g. &amp;userIds="></div>
+                  <div class="field"><label class="label" for="suffix">After each ID<span class="optional">optional</span></label>
+                    <input type="text" id="suffix" spellcheck="false"></div>
+                  <div class="field"><label class="label" for="maxPerLink">Max IDs per link</label>
+                    <input type="number" id="maxPerLink" min="0" placeholder="0 = no limit"></div>
+                </div>
+                <label class="check"><input type="checkbox" id="encode" checked> <span>Make IDs URL-safe
+                  <span class="hint">Spaces and special characters in an ID are encoded (e.g. "D 4" → "D%204"). The base URL, separator and the text around IDs are used exactly as typed.</span></span></label>
+              </div>
+            </details>
+          </div>
+
+          <!-- Plan settings -->
+          <div id="planBox" class="hidden">
+            <div class="row">
+              <div class="field"><label class="label" for="include">List</label><select id="include"></select></div>
+              <div class="field"><label class="label" for="planIdField">Column for <code>{ID}</code><span class="optional">optional</span></label><select id="planIdField"></select>
+                <p class="hint">e.g. a "Slack ID" column; write <code>&lt;@{ID}&gt;</code> for a Slack mention.</p></div>
+            </div>
+            <div class="field"><label class="label" for="lineTemplate">Line format</label>
+              <input type="text" id="lineTemplate" spellcheck="false" oninput="samplePlan()">
+              <p class="hint">One line per shift or meeting. Placeholders: <code>{START}</code> <code>{END}</code> <code>{NAME}</code> <code>{TYPE}</code> <code>{TEAM}</code> <code>{ROLE}</code> <code>{TAGS}</code> <code>{ID}</code> <code>{EMPLOYEE_ID}</code>.
+                Example: <span id="lineSample" class="mono"></span></p></div>
+            <div class="row">
+              <div class="field"><label class="label" for="emptyText">When no one is listed</label><input type="text" id="emptyText"></div>
+              <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" id="groupByTeam"> Group by team (team name above its lines)</label></div>
+            </div>
+            <div class="panel subtle">
+              <div class="panel-head"><h3>Sections</h3></div>
+              <p class="hint mt-0">Group people by the <b>Role</b> column of the staff sheets, in this order, each under your own heading (leave a heading empty for no heading line).</p>
+              <div id="sections"></div>
+              <button type="button" class="btn sm" onclick="addSection()">+ Add section</button>
+              <div class="row mt-3">
+                <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" id="showRest" checked onchange="restChanged()"> List everyone else (after the sections)</label></div>
+                <div class="field" id="restBox"><label class="label" for="restHeading">Heading for everyone else<span class="optional">optional</span></label><input type="text" id="restHeading" placeholder="e.g. Agents"></div>
+              </div>
+              <div class="field"><label class="label" for="excludeRoles">Leave out these roles<span class="optional">optional</span></label>
+                <input type="text" id="excludeRoles" placeholder="Comma-separated, e.g. Trainee"></div>
+            </div>
+            <div class="panel subtle">
+              <div class="panel-head"><h3>Extra text by time</h3></div>
+              <p class="hint mt-0">Adds text after the name (or where <code>{TAGS}</code> is in the line format) when the shift matches the rule.</p>
+              <div id="tags"></div>
+              <button type="button" class="btn sm" onclick="addTag()">+ Add rule</button>
+            </div>
+          </div>
+
+          <h3>Who</h3>
+          <div class="row">
+            <div class="field"><label class="label" for="who">People</label><select id="who" onchange="whoChanged()"></select></div>
+            <div class="field" id="atBox"><label class="label" for="at">Time</label><input type="time" id="at"></div>
+            <div class="field" id="fromBox"><label class="label" for="from">From</label><input type="time" id="from"></div>
+            <div class="field" id="toBox"><label class="label" for="to">Until</label><input type="time" id="to"></div>
+          </div>
+          <label class="check" id="meetBox"><input type="checkbox" id="excludeMeetings"> <span>Leave out people who are in a meeting or training at that time</span></label>
+          <fieldset class="mt-3">
+            <legend>Teams <span class="hint" style="display:inline;font-weight:400">none ticked = all active teams</span></legend>
+            <div class="check-grid panel subtle" id="teams"></div>
+          </fieldset>
+
+          <div class="cluster mt-3">
+            <button type="button" class="btn primary" onclick="save()">Save</button>
+            <button type="button" class="btn" onclick="preview()">Preview</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn danger" id="deleteBtn" onclick="del()">Delete</button>
+          </div>
+          <div id="confirmBox" class="hidden"></div>
+          <div id="previewBox"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer class="app-footer">
+    <button type="button" class="btn" onclick="closeDialog()">Close</button>
+    <span class="spacer"></span>
+    <label class="sr-only" for="runDate">Date</label><input type="date" id="runDate" style="width:auto" title="Date the links and plans are built for">
+    <button type="button" class="btn" onclick="openSheet()">Open sheet</button>
+    <button type="button" class="btn primary" onclick="generateAll()">Generate all</button>
+  </footer>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null, current = null, kind = 'LINK', sectionsState = [], tagsState = [];
+
+    function load() {
+      call('Loading…', 'apiLinksBootstrap').then(function (d) {
+        data = d;
+        $('idField').innerHTML = options(d.idFields, 'key', 'label');
+        $('planIdField').innerHTML = options(d.idFields, 'key', 'label');
+        $('who').innerHTML = options(kv(d.who), 'k', 'l');
+        $('include').innerHTML = options(kv(d.include), 'k', 'l');
+        if (!$('runDate').value) $('runDate').value = d.today;
+        renderList();
+      });
+    }
+    function fieldLabel(key) { return (data.idFields.filter(function (f) { return f.key === key; })[0] || {}).label || key; }
+    function indexOf(id) { return data.templates.map(function (t) { return t.id; }).indexOf(id); }
+    function renderList() {
+      $('list').innerHTML = data.templates.map(function (t, i) {
+        var meta = t.kind === 'PLAN' ? 'Daily plan · ' + data.include[t.include] : 'Link · ' + fieldLabel(t.idField);
+        return '<button type="button" class="list-item" role="option" aria-selected="' + (current && current.id === t.id) + '" data-i="' + i + '" onclick="edit(' + i + ')">' +
+          '<span class="name">' + esc(t.name) + '</span><span class="meta">' + esc(meta) + ' · ' + esc(data.who[t.who]) + '</span></button>';
+      }).join('') || emptyHtml('🔗', 'Nothing yet', 'Add a link or a daily plan.');
+    }
+
+    function edit(i, newKind) {
+      current = i === null ? null : data.templates[i];
+      kind = current ? current.kind : newKind;
+      var t = current || { name: '', kind: kind, baseUrl: '', idField: 'employeeId', separator: ',', prefix: '', suffix: '', encode: true, maxPerLink: 0,
+        include: 'SHIFTS', lineTemplate: data.defaultLine, groupByTeam: false, emptyText: 'No one scheduled',
+        sections: [], showRest: true, restHeading: '', excludeRoles: [], tags: [],
+        teamIds: [], who: kind === 'PLAN' ? 'DAY' : 'NOW', at: '12:00', from: '08:00', to: '16:00', excludeMeetings: false };
+      renderList();
+      clearFieldErrors(); closeConfirm('confirmBox');
+      $('edTitle').textContent = current ? current.name : (kind === 'PLAN' ? 'New daily plan' : 'New link');
+      show('linkBox', kind === 'LINK'); show('planBox', kind === 'PLAN');
+      $('name').value = t.name; $('baseUrl').value = t.baseUrl;
+      $('idField').value = t.idField; $('planIdField').value = t.idField;
+      $('separator').value = t.separator; $('prefix').value = t.prefix; $('suffix').value = t.suffix;
+      $('encode').checked = t.encode; $('maxPerLink').value = t.maxPerLink || '';
+      $('include').value = t.include; $('lineTemplate').value = t.lineTemplate; $('groupByTeam').checked = t.groupByTeam; $('emptyText').value = t.emptyText;
+      sectionsState = JSON.parse(JSON.stringify(t.sections)); tagsState = JSON.parse(JSON.stringify(t.tags));
+      $('showRest').checked = t.showRest; $('restHeading').value = t.restHeading; $('excludeRoles').value = t.excludeRoles.join(', ');
+      renderSections(); renderTags();
+      $('who').value = t.who; $('at').value = t.at; $('from').value = t.from; $('to').value = t.to;
+      $('excludeMeetings').checked = t.excludeMeetings;
+      $('teams').innerHTML = data.teams.map(function (tm) {
+        return '<label class="check"><input type="checkbox" data-team="' + esc(tm.teamId) + '"' + (t.teamIds.indexOf(tm.teamId) >= 0 ? ' checked' : '') + '> ' +
+          esc(tm.teamName) + (tm.active ? '' : ' ' + badge('warn', 'inactive')) + '</label>';
+      }).join('') || '<p class="hint mt-0">No teams yet.</p>';
+      whoChanged(); samplePlan(); restChanged();
+      show('deleteBtn', !!current); show('upBtn', !!current); show('downBtn', !!current);
+      if (current) { var k = indexOf(current.id); $('upBtn').disabled = k === 0; $('downBtn').disabled = k === data.templates.length - 1; }
+      $('previewBox').innerHTML = '';
+      show('placeholder', false); show('editor', true);
+      showStatus('', '');
+      if (!current) $('name').focus();
+    }
+    function whoChanged() {
+      var w = $('who').value;
+      show('atBox', w === 'AT'); show('fromBox', w === 'WINDOW'); show('toBox', w === 'WINDOW');
+      show('meetBox', w === 'NOW' || w === 'AT');
+    }
+    function samplePlan() {
+      var v = { START: '08:00', END: '16:00', NAME: 'Ann Lee', TYPE: 'Customer Support', TEAM: 'Support', ID: 'U123', EMPLOYEE_ID: '1001', ROLE: 'Support Shift Lead', TAGS: '📞' };
+      $('lineSample').textContent = ($('lineTemplate').value || data.defaultLine).replace(/\{(START|END|NAME|TYPE|TEAM|ID|EMPLOYEE_ID|ROLE|TAGS)\}/g, function (m, k) { return v[k]; });
+    }
+
+    /* ---------- sections (by role) and extra text by time ---------- */
+    function restChanged() { show('restBox', $('showRest').checked); }
+    function readSections() {
+      return Array.prototype.map.call(document.querySelectorAll('[data-sec]'), function (row) {
+        return { heading: row.querySelector('[data-f="heading"]').value, roles: row.querySelector('[data-f="roles"]').value, noTags: row.querySelector('[data-f="noTags"]').checked };
+      });
+    }
+    function renderSections() {
+      $('sections').innerHTML = sectionsState.length ? sectionsState.map(function (s, i) {
+        var roles = Array.isArray(s.roles) ? s.roles.join(', ') : (s.roles || '');
+        return '<div class="row tight" data-sec="' + i + '">' +
+          '<div class="field"><input type="text" data-f="heading" aria-label="Heading of section ' + (i + 1) + '" placeholder="Heading, e.g. 🎧 Shift leads" value="' + esc(s.heading) + '"></div>' +
+          '<div class="field"><input type="text" data-f="roles" aria-label="Roles of section ' + (i + 1) + '" placeholder="Roles, e.g. Support Shift Lead" value="' + esc(roles) + '"></div>' +
+          '<div class="field" style="flex:0 0 auto"><label class="check" style="padding-top:6px"><input type="checkbox" data-f="noTags"' + (s.noTags ? ' checked' : '') + '> No extra text</label></div>' +
+          '<div class="field" style="flex:0 0 auto"><button type="button" class="btn sm" onclick="moveSection(' + i + ', -1)" aria-label="Move section up"' + (i ? '' : ' disabled') + '>▲</button> ' +
+          '<button type="button" class="btn sm danger" onclick="removeSection(' + i + ')" aria-label="Remove section">✕</button></div></div>';
+      }).join('') : '<p class="hint mt-0">No sections: everyone is listed by start time.</p>';
+    }
+    function addSection() { sectionsState = readSections(); sectionsState.push({ heading: '', roles: '', noTags: false }); renderSections(); }
+    function removeSection(i) { sectionsState = readSections(); sectionsState.splice(i, 1); renderSections(); }
+    function moveSection(i, d) { sectionsState = readSections(); var x = sectionsState[i]; sectionsState[i] = sectionsState[i + d]; sectionsState[i + d] = x; renderSections(); }
+
+    function readTags() {
+      return Array.prototype.map.call(document.querySelectorAll('[data-tag]'), function (row) {
+        var g = function (f) { return row.querySelector('[data-f="' + f + '"]').value; };
+        return { text: g('text'), mode: g('mode'), from: g('from'), to: g('to') };
+      });
+    }
+    function renderTags() {
+      $('tags').innerHTML = tagsState.length ? tagsState.map(function (g, i) {
+        var win = data.tagWindowModes.indexOf(g.mode) >= 0;
+        return '<div class="row tight" data-tag="' + i + '">' +
+          '<div class="field"><input type="text" data-f="text" aria-label="Extra text of rule ' + (i + 1) + '" placeholder="Text, e.g. 📞 or (early)" value="' + esc(g.text) + '"></div>' +
+          '<div class="field"><select data-f="mode" aria-label="When rule ' + (i + 1) + ' applies" onchange="tagsState = readTags(); renderTags()">' + options(kv(data.tagModes), 'k', 'l', g.mode) + '</select></div>' +
+          '<div class="field"><input type="time" data-f="from" aria-label="' + (win ? 'From' : 'Time') + ' of rule ' + (i + 1) + '" value="' + esc(g.from) + '"></div>' +
+          '<div class="field"' + (win ? '' : ' style="visibility:hidden"') + '><input type="time" data-f="to" aria-label="Until of rule ' + (i + 1) + '" value="' + esc(g.to) + '"></div>' +
+          '<div class="field" style="flex:0 0 auto"><button type="button" class="btn sm danger" onclick="removeTag(' + i + ')" aria-label="Remove rule">✕</button></div></div>';
+      }).join('') : '<p class="hint mt-0">No rules.</p>';
+    }
+    function addTag() { tagsState = readTags(); tagsState.push({ text: '', mode: 'OVERLAPS', from: '08:00', to: '14:00' }); renderTags(); }
+    function removeTag(i) { tagsState = readTags(); tagsState.splice(i, 1); renderTags(); }
+    function collect() {
+      return {
+        id: current ? current.id : '', kind: kind, name: $('name').value.trim(),
+        baseUrl: $('baseUrl').value.trim(), idField: kind === 'PLAN' ? $('planIdField').value : $('idField').value,
+        separator: $('separator').value, prefix: $('prefix').value, suffix: $('suffix').value, encode: $('encode').checked,
+        maxPerLink: Number($('maxPerLink').value || 0),
+        include: $('include').value, lineTemplate: $('lineTemplate').value, groupByTeam: $('groupByTeam').checked, emptyText: $('emptyText').value,
+        sections: readSections(), showRest: $('showRest').checked, restHeading: $('restHeading').value, excludeRoles: $('excludeRoles').value, tags: readTags(),
+        teamIds: checkedData('team'), who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked
+      };
+    }
+    function check(t) {
+      clearFieldErrors();
+      if (!t.name) { fieldError('name', 'Enter a name.'); $('name').focus(); return false; }
+      if (t.kind === 'LINK' && !/^https?:\/\/\S+$/i.test(t.baseUrl)) { fieldError('baseUrl', 'Paste the base URL, starting with https://'); $('baseUrl').focus(); return false; }
+      if (t.kind === 'PLAN' && !t.lineTemplate.trim()) { fieldError('lineTemplate', 'Enter the line format.'); $('lineTemplate').focus(); return false; }
+      return true;
+    }
+
+    function save() {
+      var t = collect();
+      if (!check(t)) return;
+      call('Saving…', 'apiLinksSave', t).then(function (r) {
+        data.templates = r.templates;
+        edit(indexOf(r.template.id));
+        showStatus('ok', '', 'Saved "' + r.template.name + '".');
+      });
+    }
+    function move(delta) {
+      var id = current.id;
+      call('Moving…', 'apiLinksMove', id, delta).then(function (r) { data.templates = r.templates; edit(indexOf(id)); });
+    }
+    function preview() {
+      var t = collect();
+      if (!check(t)) return;
+      call('Finding who is working…', 'apiLinksPreview', t, $('runDate').value).then(function (r) {
+        var missing = r.missing.length ? alertHtml('warning', 'No ' + esc(fieldLabel(t.idField)) + ' in the staff sheet', esc(r.missing.join(', ')) +
+          '. Fill in their ID (or run Import Employee IDs) to include them.') : '';
+        var body;
+        if (r.kind === 'PLAN') {
+          body = '<div class="stats mt-3">' + stat('Lines', r.count) + stat('People', r.people) + '</div>' + missing +
+            '<div class="field"><label class="label" for="planOut">Text (column "Text")</label><textarea id="planOut" class="plan-box" readonly onclick="this.select()">' + esc(r.text) + '</textarea>' +
+            '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="copyText(\'planOut\')">Copy</button></div></div>';
+        } else {
+          body = '<div class="stats mt-3">' + stat('Working ' + r.whenLabel, r.people) + stat('In the link', r.count, 'good') +
+            stat('Missing ID', r.missing.length, r.missing.length ? 'warn' : '') + '</div>' + missing +
+            (r.urls.length ? r.urls.map(function (u, i) {
+              return '<div class="field"><label class="label" for="u' + i + '">' + (i ? 'URL ' + (i + 1) : 'URL') + '</label>' +
+                '<textarea id="u' + i + '" class="url-box" readonly onclick="this.select()">' + esc(u) + '</textarea>' +
+                '<div class="cluster mt-2"><a class="btn sm primary" href="' + esc(u) + '" target="_blank" rel="noopener">Open</a>' +
+                '<button type="button" class="btn sm" onclick="copyText(\'u' + i + '\')">Copy</button></div></div>';
+            }).join('') : emptyHtml('🔗', 'Nobody to put in the link', 'No one with an ID is working ' + esc(r.whenLabel) + ' on ' + esc(r.date) + '.'));
+        }
+        $('previewBox').innerHTML = '<h3>Preview for ' + esc(r.date) + '</h3>' + body;
+      });
+    }
+    function copyText(id) {
+      var el = $(id);
+      el.select();
+      try { document.execCommand('copy'); showStatus('ok', '', 'Copied.'); } catch (e) { showStatus('info', 'Press Ctrl+C to copy the selected text.', ''); }
+    }
+    function del() {
+      askConfirm('confirmBox', {
+        title: 'Delete "' + current.name + '"?', html: 'The settings are removed, and its row disappears from the sheet at the next "Generate all". A Slack Workflow that reads this row will find nothing.',
+        confirmLabel: 'Delete',
+        onConfirm: function () {
+          call('Deleting…', 'apiLinksDelete', current.id).then(function (r) {
+            data.templates = r.templates; current = null; renderList();
+            closeConfirm('confirmBox'); show('editor', false); show('placeholder', true); showStatus('ok', '', 'Deleted.');
+          });
+        }
+      });
+    }
+    function openSheet() { call('Opening…', 'apiLinksOpenSheet').then(closeDialog); }
+    function generateAll() {
+      call('Building all links and plans…', 'apiLinksGenerateAll', $('runDate').value).then(function (r) {
+        showStatus('ok', r.results.map(function (x) {
+          return esc(x.name) + ': ' + (x.kind === 'PLAN' ? x.count + ' line(s)' : x.count + ' agent(s)' + (x.urls > 1 ? ', ' + x.urls + ' links' : '')) +
+            (x.missing ? ', ' + x.missing + ' without ID' : '');
+        }).join('<br>') + '<br>Written to the "' + esc(r.sheet) + '" sheet (row 1 = column names, one row per item).', r.results.length + ' item(s) generated');
+      });
+    }
+    load();
+  </script>
+</body>
+</html>

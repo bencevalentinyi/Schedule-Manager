@@ -595,7 +595,7 @@ function discoverShiftTypes_(adaptedTable, shiftTypeHeader) {
  * @param {string[]} row       source cells
  * @param {string[]} headers   header labels
  * @param {Object}   cols      field -> column index
- * @param {Object}   opts      {dateOrder, breakUnit, hoursUnit, stripZeros, maxShiftMinutes,
+ * @param {Object}   opts      {dateOrder, hoursUnit, stripZeros, maxShiftMinutes,
  *                              minShiftMinutes, hoursToleranceMinutes}
  * @return {Object} record with errors[] / errorCodes[] (row rejected if non-empty) and warnings[]
  */
@@ -677,45 +677,10 @@ function normalizeRow_(row, headers, cols, opts) {
   if (gross > opts.maxShiftMinutes) rec.warnings.push('Unusually long shift (' + formatMinutesAsDuration_(gross) + ').');
   if (gross < opts.minShiftMinutes) rec.warnings.push('Unusually short shift (' + formatMinutesAsDuration_(gross) + ').');
 
-  // Breaks
-  var bsAbs = null, beAbs = null, breakMin = 0;
-  var bm = parseDuration_(get('breakMinutes'), opts.breakUnit);
-  if (bm.error) { err('BREAK', 'Break duration "' + get('breakMinutes') + '" ' + bm.error + '.'); return rec; }
-  var placeOnShift = function (raw, notBefore) {
-    var v = parseDateTimeValue_(raw, opts.dateOrder);
-    if (v.empty) return null;
-    if (v.error || v.minutes === null) { err('BREAK', 'Break time "' + raw + '" is not recognizable.'); return null; }
-    var abs = dayNumber_(v.date || startDate) * 1440 + v.minutes;
-    if (!v.date) while (abs < notBefore) abs += 1440;
-    return abs;
-  };
-  var bsRaw = get('breakStart'), beRaw = get('breakEnd');
-  if (bsRaw) bsAbs = placeOnShift(bsRaw, startAbs);
-  if (beRaw) beAbs = placeOnShift(beRaw, bsAbs !== null ? bsAbs : startAbs);
-  if (rec.errors.length) return rec;
-  if (bsAbs !== null && beAbs === null && !bm.empty) beAbs = bsAbs + bm.minutes;
-  if (bsAbs === null && beAbs !== null && !bm.empty) bsAbs = beAbs - bm.minutes;
-  if (bsAbs !== null && beAbs !== null) {
-    var computed = beAbs - bsAbs;
-    if (!bm.empty && bm.minutes !== computed) rec.warnings.push('Break duration (' + bm.minutes + ' min) differs from break start/end (' + computed + ' min); the duration column was used.');
-    breakMin = bm.empty ? computed : bm.minutes;
-    if (bsAbs < startAbs || beAbs > endAbs) rec.warnings.push('Break lies outside the shift.');
-  } else if ((bsAbs === null) !== (beAbs === null) && bm.empty) {
-    rec.warnings.push('Only one of break start / break end is present; break ignored.');
-    bsAbs = beAbs = null;
-  } else {
-    breakMin = bm.empty ? 0 : bm.minutes;
-  }
-  if (breakMin < 0 || breakMin >= gross) { err('BREAK', 'Break (' + breakMin + ' min) is not shorter than the shift.'); return rec; }
-
   rec.shiftDate = startDate;
   rec.shiftStart = isoDateTimeFromMinutes_(startAbs);
   rec.shiftEnd = isoDateTimeFromMinutes_(endAbs);
-  rec.breakStart = bsAbs !== null ? isoDateTimeFromMinutes_(bsAbs) : '';
-  rec.breakEnd = beAbs !== null ? isoDateTimeFromMinutes_(beAbs) : '';
-  rec.breakMinutes = breakMin;
   rec.grossMinutes = gross;
-  rec.netMinutes = gross - breakMin;
   rec.startAbs = startAbs;
   rec.endAbs = endAbs;
 
@@ -732,10 +697,10 @@ function normalizeRow_(row, headers, cols, opts) {
       } else {
         rec.scheduledMinutes = hd.minutes;
         var tol = opts.hoursToleranceMinutes === undefined ? 15 : opts.hoursToleranceMinutes;
-        if (Math.abs(hd.minutes - rec.netMinutes) > tol && Math.abs(hd.minutes - gross) > tol) {
+        if (Math.abs(hd.minutes - gross) > tol) {
           rec.hoursDiscrepancy = true;
           rec.warnings.push('Scheduled hours ' + formatMinutesAsDuration_(hd.minutes) + ' differ from the shift (' +
-            formatMinutesAsDuration_(gross) + (breakMin ? ', net ' + formatMinutesAsDuration_(rec.netMinutes) : '') + ').');
+            formatMinutesAsDuration_(gross) + ').');
         }
       }
     }

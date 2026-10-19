@@ -192,6 +192,7 @@ class MockRange {
   setNote(n) { this.sheet.put(this.r, this.c, { n: n }); return this; }
   setNumberFormat(f) { this.each((r, c) => this.sheet.put(r, c, { f: f })); return this; }
   setNumberFormats(fs) { this.each((r, c, i, j) => this.sheet.put(r, c, { f: fs[i][j] })); return this; }
+  getNumberFormats() { const out = []; for (let i = 0; i < this.nr; i++) { out.push([]); for (let j = 0; j < this.nc; j++) out[i].push(this.sheet.cell(this.r + i, this.c + j).f || ''); } return out; }
   clearContent() { this.each((r, c) => this.sheet.put(r, c, { v: '' })); return this; }
   clearFormat() { this.each((r, c) => this.sheet.put(r, c, { f: '' })); return this; }
   clear() { this.each((r, c) => this.sheet.put(r, c, { v: '', f: '' })); return this; }
@@ -208,7 +209,7 @@ class MockRange {
   getLastColumn() { return this.c + this.nc - 1; }
   getSheet() { return this.sheet; }
 }
-['setFontWeight', 'setBackground', 'setFontColor', 'setFontSize', 'setFontStyle', 'setHorizontalAlignment',
+['setFontWeight', 'setFontFamily', 'setBackground', 'setFontColor', 'setFontSize', 'setFontStyle', 'setHorizontalAlignment',
   'setVerticalAlignment', 'setWrap', 'setBorder', 'setDataValidation', 'activate'].forEach((m) => {
   MockRange.prototype[m] = function () { return this; };
 });

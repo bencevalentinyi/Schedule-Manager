@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Import Employee IDs</h1>
+    <p class="subtitle">Fills in Employee IDs in the staff sheets from a Quinyx "Custom report" (Badge no. + Name). Nothing is written until you click Apply.</p>
+    <ol class="stepper" id="steps" aria-label="Progress"></ol>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+
+    <!-- 1. Choose file -->
+    <section id="s-source" aria-labelledby="h-source">
+      <h2 id="h-source" class="sr-only">Choose the report</h2>
+      <div class="alert info"><span class="alert-icon" aria-hidden="true">i</span><div class="alert-body"><span class="alert-title">Expected layout</span>
+        A1 "Custom report", row 2 the column names: A2 <b>Badge no.</b>, B2 the <b>name</b> (First name Last name). One person per row from row 3.
+        Each name is looked up in every team's staff sheet; the badge number becomes that person's Employee ID.</div></div>
+      <fieldset>
+        <legend>Source</legend>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="src" value="FILE" checked onchange="srcChanged()"><span><span class="title">Upload a file</span><span class="hint" id="fileHint"></span></span></label>
+          <label class="choice"><input type="radio" name="src" value="SHEET" onchange="srcChanged()"><span><span class="title">Use a sheet tab</span><span class="hint">Paste the report into a tab of this spreadsheet</span></span></label>
+        </div>
+      </fieldset>
+      <div id="fileBox" class="field">
+        <label class="label" for="file">Report file</label>
+        <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" onchange="fieldError('file', '')">
+      </div>
+      <div id="sheetBox" class="hidden field"><label class="label" for="srcSheet">Sheet tab</label><select id="srcSheet"></select></div>
+    </section>
+
+    <!-- 2. Preview -->
+    <section id="s-preview" class="hidden" aria-labelledby="h-preview">
+      <h2 id="h-preview" class="sr-only">Preview</h2>
+      <dl class="facts" id="facts"></dl>
+      <div class="stats" id="stats"></div>
+      <label class="check"><input type="checkbox" id="overwrite" onchange="refresh()"> <span>Replace existing IDs that are different
+        <span class="hint">Off: people who already have another ID are left unchanged and listed as "Different ID".</span></span></label>
+      <div class="toolbar mt-3">
+        <div class="field mb-0"><label class="label" for="filter">Show</label>
+          <select id="filter" onchange="renderItems()">
+            <option value="ATTENTION">Needs attention</option><option value="SET">Will be filled in</option><option value="ALL">All rows</option>
+          </select></div>
+      </div>
+      <div id="items"></div>
+    </section>
+
+    <!-- 3. Done -->
+    <section id="s-done" class="hidden" aria-live="polite"></section>
+  </main>
+  <footer class="app-footer" id="footer">
+    <button type="button" class="btn" onclick="cancel()">Cancel</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="backBtn" onclick="go(0)">Back</button>
+    <button type="button" class="btn primary" id="nextBtn" onclick="upload()">Read report</button>
+    <button type="button" class="btn primary hidden" id="applyBtn" onclick="apply()">Apply</button>
+  </footer>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var NAMES = ['Choose report', 'Preview', 'Done'];
+    var boot = null, res = null, cur = 0;
+    var STATUS = {
+      SET: ['ok', 'Will be filled in'], SAME: ['', 'Already set'], CONFLICT: ['warn', 'Different ID'], NOT_FOUND: ['warn', 'Not in any staff sheet'],
+      AMBIGUOUS: ['bad', 'Name not unique'], INVALID: ['bad', 'Invalid row'], DUPLICATE_IN_FILE: ['bad', 'Duplicate in file'], ID_IN_USE: ['bad', 'ID already used']
+    };
+
+    function init() {
+      call('Loading…', 'apiImportBootstrap').then(function (b) {
+        boot = b;
+        $('srcSheet').innerHTML = options(b.sourceSheets, null, null, '', b.sourceSheets.length ? undefined : '(no suitable sheet tabs)');
+        $('fileHint').textContent = (b.driveAvailable ? 'XLSX, XLS, ODS, CSV or TXT' : 'CSV or TXT (XLSX needs the Drive advanced service)') + ', up to ' + b.maxFileMb + ' MB';
+        go(0);
+      });
+    }
+    function srcChanged() { var f = radio('src') === 'FILE'; show('fileBox', f); show('sheetBox', !f); clearFieldErrors(); }
+
+    function go(i) {
+      cur = i;
+      show('s-source', i === 0); show('s-preview', i === 1); show('s-done', i === 2);
+      renderStepper('steps', NAMES, i);
+      $('backBtn').disabled = i !== 1;
+      show('nextBtn', i === 0); show('applyBtn', i === 1);
+      showStatus('', '');
+      $('main').scrollTop = 0;
+    }
+
+    function upload() {
+      clearFieldErrors();
+      var payload = { source: radio('src'), overwrite: $('overwrite').checked };
+      if (payload.source === 'SHEET') {
+        payload.sheetName = $('srcSheet').value;
+        if (!payload.sheetName) { fieldError('srcSheet', 'Choose a sheet tab.'); return; }
+        return send(payload);
+      }
+      var f = $('file').files[0];
+      if (!f) { fieldError('file', 'Choose the report file.'); $('file').focus(); return; }
+      if (f.size > boot.maxFileMb * 1048576) { fieldError('file', 'The file is larger than ' + boot.maxFileMb + ' MB.'); return; }
+      var reader = new FileReader();
+      busy(true, 'Reading the file…');
+      reader.onload = function () {
+        busy(false);
+        payload.fileName = f.name; payload.mimeType = f.type; payload.encoding = 'AUTO';
+        payload.base64 = String(reader.result).split(',')[1] || '';
+        send(payload);
+      };
+      reader.onerror = function () { busy(false); showStatus('fatal', 'Try again, or save the report as CSV.', 'The browser could not read the file'); };
+      reader.readAsDataURL(f);
+    }
+    function send(payload) {
+      call('Looking up the names in the staff sheets…', 'apiIdImportUpload', payload).then(function (r) { go(1); showResult(r); });
+    }
+    function refresh() {
+      if (!res) return;
+      call('Checking…', 'apiIdImportPreview', res.stageId, $('overwrite').checked).then(showResult);
+    }
+
+    function showResult(r) {
+      res = r;
+      var S = r.summary;
+      $('facts').innerHTML = '<div><dt>File</dt><dd>' + esc(r.fileName) + '</dd></div>' +
+        '<div><dt>Columns (row ' + r.headerRow + ')</dt><dd>' + esc(r.idHeader) + ' · ' + esc(r.nameHeader) + '</dd></div>' +
+        '<div><dt>People in the report</dt><dd>' + S.total + '</dd></div>';
+      $('stats').innerHTML = stat('Will be filled in', S.set, 'good') + stat('Already set', S.same) + stat('Different ID', S.conflict, S.conflict ? 'warn' : '') +
+        stat('Not in any staff sheet', S.notFound, S.notFound ? 'warn' : '') + stat('Problems', S.problems, S.problems ? 'bad' : '');
+      $('applyBtn').disabled = !S.writes;
+      $('applyBtn').textContent = S.writes ? 'Apply (' + S.writes + ' ID' + (S.writes === 1 ? '' : 's') + ')' : 'Nothing to apply';
+      $('filter').value = S.conflict || S.notFound || S.problems ? 'ATTENTION' : 'SET';
+      renderItems();
+    }
+
+    function renderItems() {
+      var mode = $('filter').value;
+      var list = res.items.filter(function (it) {
+        if (mode === 'ALL') return true;
+        if (mode === 'SET') return it.status === 'SET' || (it.status === 'CONFLICT' && $('overwrite').checked);
+        return it.status !== 'SET' && it.status !== 'SAME';
+      });
+      if (!list.length) { $('items').innerHTML = emptyHtml('✓', mode === 'ATTENTION' ? 'Nothing needs attention' : 'No rows', ''); return; }
+      $('items').innerHTML = '<div class="table-wrap tall"><table class="table"><thead><tr><th scope="col" class="num">Row</th><th scope="col">Badge no.</th><th scope="col">Name</th>' +
+        '<th scope="col">Staff sheet</th><th scope="col">Result</th><th scope="col">Note</th></tr></thead><tbody>' +
+        list.map(function (it) {
+          var st = STATUS[it.status] || ['', it.status];
+          var label = it.status === 'CONFLICT' && $('overwrite').checked ? ['ok', 'Will be replaced'] : st;
+          return '<tr' + (st[0] === 'bad' ? ' class="attention"' : '') + '><td class="num">' + it.row + '</td><td>' + esc(it.id || '—') + '</td><td>' + esc(it.name || '—') + '</td>' +
+            '<td>' + esc(it.matches.map(function (m) { return m.teamName; }).join(', ') || '—') + '</td><td>' + badge(label[0], label[1]) + '</td><td class="wrap small">' + esc(it.note) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        (res.more ? '<p class="hint">Showing the first 500 rows; ' + res.more + ' more are included in Apply.</p>' : '') +
+        (res.summary.notFound ? '<p class="hint">People "Not in any staff sheet" are skipped. Add them to the right team\'s staff sheet (View Staff Directory) and run this again.</p>' : '');
+    }
+
+    function apply() {
+      $('applyBtn').disabled = true;
+      call('Writing the Employee IDs…', 'apiIdImportApply', res.stageId, $('overwrite').checked).then(function (r) {
+        res = null;
+        $('s-done').innerHTML = alertHtml('success', r.written + ' Employee ID' + (r.written === 1 ? '' : 's') + ' written',
+          r.teams.length ? 'Staff sheets updated: ' + esc(r.teams.join(', ')) + '.' : '') +
+          '<p class="hint">IDs are stored as text, so leading zeros are kept. Future imports match these people by Employee ID when the export has one.</p>';
+        go(2);
+        $('footer').innerHTML = '<span class="spacer"></span><button type="button" class="btn primary" onclick="closeDialog()">Close</button>';
+      }, function () { $('applyBtn').disabled = false; });
+    }
+
+    function cancel() {
+      if (res) google.script.run.withSuccessHandler(closeDialog).withFailureHandler(closeDialog).apiIdImportCancel(res.stageId);
+      else closeDialog();
+    }
+    init();
+  </script>
+</body>
+</html>
