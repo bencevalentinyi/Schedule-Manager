@@ -878,6 +878,32 @@ function unitTestsLinks_() {
       assertEq_(errs.length, 1, 'only the reversed window: ' + errs.join(' | '));
       assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ name: '', baseUrl: 'ftp://x', idField: 'nope' }), ['employeeId']).length, 3);
       assertEq_(normalizeLinkTemplate_({}).separator, ',', 'default separator');
+      assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ name: 'Live', baseUrl: 'https://a.example' }), ['employeeId'], ['live']).length, 1, 'names are unique (case-insensitive)');
+    }],
+    ['Daily plans: one line per shift and/or meeting from the line format, sorted, optionally grouped by team', function () {
+      var plan = normalizeLinkTemplate_({ kind: 'PLAN', name: 'Day', lineTemplate: '{START} - {END} <@{ID}> {NAME}' });
+      var items = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'BOTH' });
+      var ids = { E1: 'U1', E2: 'U2' };
+      var text = buildPlanText_(plan, items, { T1: 'Support' }, function (r) { return ids[r.employeeId] || ''; });
+      assertEq_(text.split('\n'), ['22:00 - 06:00 <@> Cy Moe', '06:00 - 10:00 <@> Dee Fox', '08:00 - 16:00 <@U1> Ann Lee', '13:30 - 14:30 <@U1> Ann Lee', '14:00 - 22:00 <@U2> Bob Ray']);
+      var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'AT', atMin: 14 * 60, include: 'SHIFTS' });
+      var grouped = buildPlanText_(normalizeLinkTemplate_({ kind: 'PLAN', groupByTeam: true }), shifts, { T1: 'Support' }, function () { return ''; });
+      assertEq_(grouped, 'Support\n08:00 - 16:00 Ann Lee\n14:00 - 22:00 Bob Ray');
+      assertEq_(buildPlanText_(normalizeLinkTemplate_({ kind: 'PLAN', emptyText: 'Nobody' }), [], {}, function () { return ''; }), 'Nobody');
+      assertEq_(selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'MEETINGS' }).length, 1);
+    }],
+    ['Links sheet: column names in row 1, one row per item in the saved order, extra URL columns when split; items can be moved', function () {
+      var a = { id: 'A', name: 'Live', kind: 'LINK' }, b = { id: 'B', name: 'Plan', kind: 'PLAN' };
+      var t = linksSheetRows_([
+        { template: a, date: '2026-10-15', urls: ['https://x/1', 'https://x/2'], text: '3 agent(s)', count: 3, people: 4, missing: ['Zed'] },
+        { template: b, date: '2026-10-15', urls: [], text: '08:00 - 16:00 Ann', count: 1, people: 1, missing: [] }
+      ], '2026-10-15 08:00');
+      assertEq_(t.header, ['Name', 'Kind', 'Date', 'Updated', 'Count', 'Missing', 'Text', 'URL', 'URL 2']);
+      assertEq_(t.rows[0], ['Live', 'Link', '2026-10-15', '2026-10-15 08:00', '3 of 4', 'Zed', '3 agent(s)', 'https://x/1', 'https://x/2']);
+      assertEq_(t.rows[1].slice(0, 2).concat(t.rows[1].slice(6)), ['Plan', 'Plan', '08:00 - 16:00 Ann', '', '']);
+      var list = [a, b, { id: 'C' }];
+      assertEq_(moveLinkTemplate_(list, 'C', -1).map(function (x) { return x.id; }), ['A', 'C', 'B']);
+      assertEq_(moveLinkTemplate_(list, 'A', -1).map(function (x) { return x.id; }), ['A', 'B', 'C'], 'the first item cannot move up');
     }]
   ];
 }

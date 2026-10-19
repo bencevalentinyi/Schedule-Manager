@@ -6,53 +6,82 @@
   <?!= include('Styles') ?>
   <style>
     .url-box { font-family: var(--mono); font-size: 12px; min-height: 64px; word-break: break-all; }
-    .url-parts code { white-space: nowrap; }
+    .plan-box { font-family: var(--mono); font-size: 12px; min-height: 140px; white-space: pre; }
   </style>
 </head>
 <body>
   <header class="app-header">
     <h1>Monitoring Links</h1>
-    <p class="subtitle">Dashboard links filled with the IDs of the people who are working. The base URLs and settings are stored in this spreadsheet only.</p>
+    <p class="subtitle">Monitoring links and daily list plans, written to the "Monitoring Links" sheet (column names in row 1, one row per item, looked up by Name). Settings are stored in this spreadsheet only.</p>
   </header>
   <main class="app-body" id="main">
     <div id="status" aria-live="polite"></div>
     <div class="split">
       <div>
-        <div class="list" id="list" role="listbox" aria-label="Links"></div>
-        <button type="button" class="btn sm mt-2" onclick="edit(null)">+ New link</button>
+        <div class="list" id="list" role="listbox" aria-label="Items"></div>
+        <div class="cluster mt-2">
+          <button type="button" class="btn sm" onclick="edit(null, 'LINK')">+ Link</button>
+          <button type="button" class="btn sm" onclick="edit(null, 'PLAN')">+ Daily plan</button>
+        </div>
       </div>
       <div>
-        <div id="placeholder"><div class="empty"><div class="empty-icon" aria-hidden="true">🔗</div><p class="empty-title">Select a link</p>
-          <p>Choose a link on the left, or create one with "+ New link".</p></div></div>
+        <div id="placeholder"><div class="empty"><div class="empty-icon" aria-hidden="true">🔗</div><p class="empty-title">Select an item</p>
+          <p>Choose one on the left, or add a monitoring link or a daily list plan.</p></div></div>
         <div id="editor" class="hidden">
-          <div class="field"><label class="label" for="name">Name<span class="req" aria-hidden="true">*</span></label>
-            <input type="text" id="name" maxlength="80" placeholder="e.g. Live calls dashboard"></div>
-          <div class="field"><label class="label" for="baseUrl">Base URL<span class="req" aria-hidden="true">*</span></label>
-            <textarea id="baseUrl" rows="2" spellcheck="false" placeholder="https://dashboard.example.com/live?users={IDS}"></textarea>
-            <p class="hint">Put <code>{IDS}</code> where the IDs go. Without <code>{IDS}</code> they are added at the end.</p></div>
-          <div class="row">
-            <div class="field"><label class="label" for="idField">ID column in the staff sheet</label><select id="idField"></select>
-              <p class="hint">Add your own column (e.g. "Aircall ID") under Configure Staff Fields or the team's Staff sheet step.</p></div>
-            <div class="field"><label class="label" for="separator">Separator between IDs</label>
-              <input type="text" id="separator" spellcheck="false" placeholder=", or %2C"></div>
+          <div class="panel-head"><h2 id="edTitle">Link</h2>
+            <button type="button" class="btn sm" id="upBtn" onclick="move(-1)" title="Move up (also the row order in the sheet)">▲ Up</button>
+            <button type="button" class="btn sm" id="downBtn" onclick="move(1)" title="Move down">▼ Down</button>
           </div>
-          <details class="disclosure">
-            <summary>Text around each ID, encoding, link size</summary>
-            <div class="disclosure-body">
-              <div class="row mt-3">
-                <div class="field"><label class="label" for="prefix">Before each ID<span class="optional">optional</span></label>
-                  <input type="text" id="prefix" spellcheck="false" placeholder="e.g. &amp;userIds="></div>
-                <div class="field"><label class="label" for="suffix">After each ID<span class="optional">optional</span></label>
-                  <input type="text" id="suffix" spellcheck="false"></div>
-                <div class="field"><label class="label" for="maxPerLink">Max IDs per link</label>
-                  <input type="number" id="maxPerLink" min="0" placeholder="0 = no limit"></div>
-              </div>
-              <label class="check"><input type="checkbox" id="encode" checked> <span>Make IDs URL-safe
-                <span class="hint">Spaces and special characters in an ID are encoded (e.g. "D 4" → "D%204"). The base URL, separator and the text around IDs are used exactly as typed.</span></span></label>
-            </div>
-          </details>
+          <div class="field"><label class="label" for="name">Name<span class="req" aria-hidden="true">*</span></label>
+            <input type="text" id="name" maxlength="80" placeholder="e.g. Live calls dashboard">
+            <p class="hint">Must be unique: a Slack Workflow finds the row by this name.</p></div>
 
-          <h3>Who is in the link</h3>
+          <!-- Link settings -->
+          <div id="linkBox">
+            <div class="field"><label class="label" for="baseUrl">Base URL<span class="req" aria-hidden="true">*</span></label>
+              <textarea id="baseUrl" rows="2" spellcheck="false" placeholder="https://dashboard.example.com/live?users={IDS}"></textarea>
+              <p class="hint">Put <code>{IDS}</code> where the IDs go. Without <code>{IDS}</code> they are added at the end.</p></div>
+            <div class="row">
+              <div class="field"><label class="label" for="idField">ID column in the staff sheet</label><select id="idField"></select>
+                <p class="hint">Add your own column (e.g. "Aircall ID") under Configure Staff Fields or the team's Staff sheet step.</p></div>
+              <div class="field"><label class="label" for="separator">Separator between IDs</label>
+                <input type="text" id="separator" spellcheck="false" placeholder=", or %2C"></div>
+            </div>
+            <details class="disclosure">
+              <summary>Text around each ID, encoding, link size</summary>
+              <div class="disclosure-body">
+                <div class="row mt-3">
+                  <div class="field"><label class="label" for="prefix">Before each ID<span class="optional">optional</span></label>
+                    <input type="text" id="prefix" spellcheck="false" placeholder="e.g. &amp;userIds="></div>
+                  <div class="field"><label class="label" for="suffix">After each ID<span class="optional">optional</span></label>
+                    <input type="text" id="suffix" spellcheck="false"></div>
+                  <div class="field"><label class="label" for="maxPerLink">Max IDs per link</label>
+                    <input type="number" id="maxPerLink" min="0" placeholder="0 = no limit"></div>
+                </div>
+                <label class="check"><input type="checkbox" id="encode" checked> <span>Make IDs URL-safe
+                  <span class="hint">Spaces and special characters in an ID are encoded (e.g. "D 4" → "D%204"). The base URL, separator and the text around IDs are used exactly as typed.</span></span></label>
+              </div>
+            </details>
+          </div>
+
+          <!-- Plan settings -->
+          <div id="planBox" class="hidden">
+            <div class="row">
+              <div class="field"><label class="label" for="include">List</label><select id="include"></select></div>
+              <div class="field"><label class="label" for="planIdField">Column for <code>{ID}</code><span class="optional">optional</span></label><select id="planIdField"></select>
+                <p class="hint">e.g. a "Slack ID" column; write <code>&lt;@{ID}&gt;</code> for a Slack mention.</p></div>
+            </div>
+            <div class="field"><label class="label" for="lineTemplate">Line format</label>
+              <input type="text" id="lineTemplate" spellcheck="false" oninput="samplePlan()">
+              <p class="hint">One line per shift or meeting. Placeholders: <code>{START}</code> <code>{END}</code> <code>{NAME}</code> <code>{TYPE}</code> <code>{TEAM}</code> <code>{ID}</code> <code>{EMPLOYEE_ID}</code>.
+                Example: <span id="lineSample" class="mono"></span></p></div>
+            <div class="row">
+              <div class="field"><label class="label" for="emptyText">When no one is listed</label><input type="text" id="emptyText"></div>
+              <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" id="groupByTeam"> Group by team (team name above its lines)</label></div>
+            </div>
+          </div>
+
+          <h3>Who</h3>
           <div class="row">
             <div class="field"><label class="label" for="who">People</label><select id="who" onchange="whoChanged()"></select></div>
             <div class="field" id="atBox"><label class="label" for="at">Time</label><input type="time" id="at"></div>
@@ -66,7 +95,7 @@
           </fieldset>
 
           <div class="cluster mt-3">
-            <button type="button" class="btn primary" onclick="save()">Save link</button>
+            <button type="button" class="btn primary" onclick="save()">Save</button>
             <button type="button" class="btn" onclick="preview()">Preview</button>
             <span class="spacer"></span>
             <button type="button" class="btn danger" id="deleteBtn" onclick="del()">Delete</button>
@@ -80,52 +109,61 @@
   <footer class="app-footer">
     <button type="button" class="btn" onclick="closeDialog()">Close</button>
     <span class="spacer"></span>
-    <label class="sr-only" for="runDate">Date</label><input type="date" id="runDate" style="width:auto" title="Date the links are built for">
+    <label class="sr-only" for="runDate">Date</label><input type="date" id="runDate" style="width:auto" title="Date the links and plans are built for">
     <button type="button" class="btn" onclick="openSheet()">Open sheet</button>
-    <button type="button" class="btn primary" onclick="generateAll()">Generate all links</button>
+    <button type="button" class="btn primary" onclick="generateAll()">Generate all</button>
   </footer>
 
   <?!= include('ClientCore') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var data = null, current = null;
+    var data = null, current = null, kind = 'LINK';
 
-    function load(selectId) {
+    function load() {
       call('Loading…', 'apiLinksBootstrap').then(function (d) {
         data = d;
         $('idField').innerHTML = options(d.idFields, 'key', 'label');
+        $('planIdField').innerHTML = options(d.idFields, 'key', 'label');
         $('who').innerHTML = options(kv(d.who), 'k', 'l');
+        $('include').innerHTML = options(kv(d.include), 'k', 'l');
         if (!$('runDate').value) $('runDate').value = d.today;
         renderList();
-        var i = selectId ? d.templates.map(function (t) { return t.id; }).indexOf(selectId) : -1;
-        if (i >= 0) edit(i);
       });
     }
     function fieldLabel(key) { return (data.idFields.filter(function (f) { return f.key === key; })[0] || {}).label || key; }
+    function indexOf(id) { return data.templates.map(function (t) { return t.id; }).indexOf(id); }
     function renderList() {
       $('list').innerHTML = data.templates.map(function (t, i) {
-        return '<button type="button" class="list-item" role="option" aria-selected="false" data-i="' + i + '" onclick="edit(' + i + ')"><span class="name">' + esc(t.name) + '</span>' +
-          '<span class="meta">' + esc(fieldLabel(t.idField)) + ' · ' + esc(data.who[t.who]) + '</span></button>';
-      }).join('') || emptyHtml('🔗', 'No links yet', 'Create one with "+ New link".');
+        var meta = t.kind === 'PLAN' ? 'Daily plan · ' + data.include[t.include] : 'Link · ' + fieldLabel(t.idField);
+        return '<button type="button" class="list-item" role="option" aria-selected="' + (current && current.id === t.id) + '" data-i="' + i + '" onclick="edit(' + i + ')">' +
+          '<span class="name">' + esc(t.name) + '</span><span class="meta">' + esc(meta) + ' · ' + esc(data.who[t.who]) + '</span></button>';
+      }).join('') || emptyHtml('🔗', 'Nothing yet', 'Add a link or a daily plan.');
     }
 
-    function edit(i) {
+    function edit(i, newKind) {
       current = i === null ? null : data.templates[i];
-      document.querySelectorAll('#list .list-item').forEach(function (el) { el.setAttribute('aria-selected', Number(el.dataset.i) === i ? 'true' : 'false'); });
-      var t = current || { name: '', baseUrl: '', idField: 'employeeId', separator: ',', prefix: '', suffix: '', encode: true, maxPerLink: 0,
-        teamIds: [], who: 'NOW', at: '12:00', from: '08:00', to: '16:00', excludeMeetings: false };
+      kind = current ? current.kind : newKind;
+      var t = current || { name: '', kind: kind, baseUrl: '', idField: 'employeeId', separator: ',', prefix: '', suffix: '', encode: true, maxPerLink: 0,
+        include: 'SHIFTS', lineTemplate: data.defaultLine, groupByTeam: false, emptyText: 'No one scheduled',
+        teamIds: [], who: kind === 'PLAN' ? 'DAY' : 'NOW', at: '12:00', from: '08:00', to: '16:00', excludeMeetings: false };
+      renderList();
       clearFieldErrors(); closeConfirm('confirmBox');
-      $('name').value = t.name; $('baseUrl').value = t.baseUrl; $('idField').value = t.idField;
+      $('edTitle').textContent = current ? current.name : (kind === 'PLAN' ? 'New daily plan' : 'New link');
+      show('linkBox', kind === 'LINK'); show('planBox', kind === 'PLAN');
+      $('name').value = t.name; $('baseUrl').value = t.baseUrl;
+      $('idField').value = t.idField; $('planIdField').value = t.idField;
       $('separator').value = t.separator; $('prefix').value = t.prefix; $('suffix').value = t.suffix;
       $('encode').checked = t.encode; $('maxPerLink').value = t.maxPerLink || '';
+      $('include').value = t.include; $('lineTemplate').value = t.lineTemplate; $('groupByTeam').checked = t.groupByTeam; $('emptyText').value = t.emptyText;
       $('who').value = t.who; $('at').value = t.at; $('from').value = t.from; $('to').value = t.to;
       $('excludeMeetings').checked = t.excludeMeetings;
       $('teams').innerHTML = data.teams.map(function (tm) {
         return '<label class="check"><input type="checkbox" data-team="' + esc(tm.teamId) + '"' + (t.teamIds.indexOf(tm.teamId) >= 0 ? ' checked' : '') + '> ' +
           esc(tm.teamName) + (tm.active ? '' : ' ' + badge('warn', 'inactive')) + '</label>';
       }).join('') || '<p class="hint mt-0">No teams yet.</p>';
-      whoChanged();
-      show('deleteBtn', !!current);
+      whoChanged(); samplePlan();
+      show('deleteBtn', !!current); show('upBtn', !!current); show('downBtn', !!current);
+      if (current) { var k = indexOf(current.id); $('upBtn').disabled = k === 0; $('downBtn').disabled = k === data.templates.length - 1; }
       $('previewBox').innerHTML = '';
       show('placeholder', false); show('editor', true);
       showStatus('', '');
@@ -136,18 +174,25 @@
       show('atBox', w === 'AT'); show('fromBox', w === 'WINDOW'); show('toBox', w === 'WINDOW');
       show('meetBox', w === 'NOW' || w === 'AT');
     }
+    function samplePlan() {
+      var v = { START: '08:00', END: '16:00', NAME: 'Ann Lee', TYPE: 'Customer Support', TEAM: 'Support', ID: 'U123', EMPLOYEE_ID: '1001' };
+      $('lineSample').textContent = ($('lineTemplate').value || data.defaultLine).replace(/\{(START|END|NAME|TYPE|TEAM|ID|EMPLOYEE_ID)\}/g, function (m, k) { return v[k]; });
+    }
     function collect() {
       return {
-        id: current ? current.id : '', name: $('name').value.trim(), baseUrl: $('baseUrl').value.trim(), idField: $('idField').value,
+        id: current ? current.id : '', kind: kind, name: $('name').value.trim(),
+        baseUrl: $('baseUrl').value.trim(), idField: kind === 'PLAN' ? $('planIdField').value : $('idField').value,
         separator: $('separator').value, prefix: $('prefix').value, suffix: $('suffix').value, encode: $('encode').checked,
-        maxPerLink: Number($('maxPerLink').value || 0), teamIds: checkedData('team'),
-        who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked
+        maxPerLink: Number($('maxPerLink').value || 0),
+        include: $('include').value, lineTemplate: $('lineTemplate').value, groupByTeam: $('groupByTeam').checked, emptyText: $('emptyText').value,
+        teamIds: checkedData('team'), who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked
       };
     }
     function check(t) {
       clearFieldErrors();
       if (!t.name) { fieldError('name', 'Enter a name.'); $('name').focus(); return false; }
-      if (!/^https?:\/\/\S+$/i.test(t.baseUrl)) { fieldError('baseUrl', 'Paste the base URL, starting with https://'); $('baseUrl').focus(); return false; }
+      if (t.kind === 'LINK' && !/^https?:\/\/\S+$/i.test(t.baseUrl)) { fieldError('baseUrl', 'Paste the base URL, starting with https://'); $('baseUrl').focus(); return false; }
+      if (t.kind === 'PLAN' && !t.lineTemplate.trim()) { fieldError('lineTemplate', 'Enter the line format.'); $('lineTemplate').focus(); return false; }
       return true;
     }
 
@@ -155,51 +200,63 @@
       var t = collect();
       if (!check(t)) return;
       call('Saving…', 'apiLinksSave', t).then(function (r) {
-        data.templates = r.templates; renderList();
-        edit(data.templates.map(function (x) { return x.id; }).indexOf(r.template.id));
+        data.templates = r.templates;
+        edit(indexOf(r.template.id));
         showStatus('ok', '', 'Saved "' + r.template.name + '".');
       });
+    }
+    function move(delta) {
+      var id = current.id;
+      call('Moving…', 'apiLinksMove', id, delta).then(function (r) { data.templates = r.templates; edit(indexOf(id)); });
     }
     function preview() {
       var t = collect();
       if (!check(t)) return;
       call('Finding who is working…', 'apiLinksPreview', t, $('runDate').value).then(function (r) {
-        var head = '<div class="stats mt-3">' + stat('Working ' + r.whenLabel, r.people) + stat('In the link', r.withId, 'good') +
-          stat('Missing ID', r.missing.length, r.missing.length ? 'warn' : '') + '</div>';
         var missing = r.missing.length ? alertHtml('warning', 'No ' + esc(fieldLabel(t.idField)) + ' in the staff sheet', esc(r.missing.join(', ')) +
           '. Fill in their ID (or run Import Employee IDs) to include them.') : '';
-        var urls = r.urls.length ? r.urls.map(function (u, i) {
-          return '<div class="field"><label class="label" for="u' + i + '">Link' + (r.urls.length > 1 ? ' ' + (i + 1) + ' of ' + r.urls.length : '') + '</label>' +
-            '<textarea id="u' + i + '" class="url-box" readonly onclick="this.select()">' + esc(u) + '</textarea>' +
-            '<div class="cluster mt-2"><a class="btn sm primary" href="' + esc(u) + '" target="_blank" rel="noopener">Open</a>' +
-            '<button type="button" class="btn sm" onclick="copyUrl(\'u' + i + '\')">Copy</button></div></div>';
-        }).join('') : emptyHtml('🔗', 'Nobody to put in the link', 'No one with an ID is working ' + esc(r.whenLabel) + ' on ' + esc(r.date) + '.');
-        $('previewBox').innerHTML = '<h3>Preview for ' + esc(r.date) + '</h3>' + head + missing + urls;
+        var body;
+        if (r.kind === 'PLAN') {
+          body = '<div class="stats mt-3">' + stat('Lines', r.count) + stat('People', r.people) + '</div>' + missing +
+            '<div class="field"><label class="label" for="planOut">Text (column "Text")</label><textarea id="planOut" class="plan-box" readonly onclick="this.select()">' + esc(r.text) + '</textarea>' +
+            '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="copyText(\'planOut\')">Copy</button></div></div>';
+        } else {
+          body = '<div class="stats mt-3">' + stat('Working ' + r.whenLabel, r.people) + stat('In the link', r.count, 'good') +
+            stat('Missing ID', r.missing.length, r.missing.length ? 'warn' : '') + '</div>' + missing +
+            (r.urls.length ? r.urls.map(function (u, i) {
+              return '<div class="field"><label class="label" for="u' + i + '">' + (i ? 'URL ' + (i + 1) : 'URL') + '</label>' +
+                '<textarea id="u' + i + '" class="url-box" readonly onclick="this.select()">' + esc(u) + '</textarea>' +
+                '<div class="cluster mt-2"><a class="btn sm primary" href="' + esc(u) + '" target="_blank" rel="noopener">Open</a>' +
+                '<button type="button" class="btn sm" onclick="copyText(\'u' + i + '\')">Copy</button></div></div>';
+            }).join('') : emptyHtml('🔗', 'Nobody to put in the link', 'No one with an ID is working ' + esc(r.whenLabel) + ' on ' + esc(r.date) + '.'));
+        }
+        $('previewBox').innerHTML = '<h3>Preview for ' + esc(r.date) + '</h3>' + body;
       });
     }
-    function copyUrl(id) {
+    function copyText(id) {
       var el = $(id);
       el.select();
-      try { document.execCommand('copy'); showStatus('ok', '', 'Link copied.'); } catch (e) { showStatus('info', 'Press Ctrl+C to copy the selected link.', ''); }
+      try { document.execCommand('copy'); showStatus('ok', '', 'Copied.'); } catch (e) { showStatus('info', 'Press Ctrl+C to copy the selected text.', ''); }
     }
     function del() {
       askConfirm('confirmBox', {
-        title: 'Delete "' + current.name + '"?', html: 'The link settings are removed. Generated links in the sheet stay until the next "Generate all links".',
-        confirmLabel: 'Delete link',
+        title: 'Delete "' + current.name + '"?', html: 'The settings are removed, and its row disappears from the sheet at the next "Generate all". A Slack Workflow that reads this row will find nothing.',
+        confirmLabel: 'Delete',
         onConfirm: function () {
           call('Deleting…', 'apiLinksDelete', current.id).then(function (r) {
             data.templates = r.templates; current = null; renderList();
-            closeConfirm('confirmBox'); show('editor', false); show('placeholder', true); showStatus('ok', '', 'Link deleted.');
+            closeConfirm('confirmBox'); show('editor', false); show('placeholder', true); showStatus('ok', '', 'Deleted.');
           });
         }
       });
     }
     function openSheet() { call('Opening…', 'apiLinksOpenSheet').then(closeDialog); }
     function generateAll() {
-      call('Building all links…', 'apiLinksGenerateAll', $('runDate').value).then(function (r) {
+      call('Building all links and plans…', 'apiLinksGenerateAll', $('runDate').value).then(function (r) {
         showStatus('ok', r.results.map(function (x) {
-          return esc(x.name) + ': ' + x.withId + ' agent(s)' + (x.missing ? ', ' + x.missing + ' without ID' : '') + (x.urls > 1 ? ', ' + x.urls + ' links' : '');
-        }).join('<br>') + '<br>Written to the "' + esc(r.sheet) + '" sheet.', r.links + ' link(s) generated');
+          return esc(x.name) + ': ' + (x.kind === 'PLAN' ? x.count + ' line(s)' : x.count + ' agent(s)' + (x.urls > 1 ? ', ' + x.urls + ' links' : '')) +
+            (x.missing ? ', ' + x.missing + ' without ID' : '');
+        }).join('<br>') + '<br>Written to the "' + esc(r.sheet) + '" sheet (row 1 = column names, one row per item).', r.results.length + ' item(s) generated');
       });
     }
     load();
