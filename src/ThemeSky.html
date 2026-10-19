@@ -1,4 +1,4 @@
-<!-- Theme "Sky" (Wolt style): bright sky blue, soft and rounded, with the Wolt app icon in dialog headers.
+<!-- Theme "Sky": bright sky blue, soft and rounded, with its own drawn mark in dialog headers.
      Loaded after Styles when Display Settings → Theme = SKY. Only overrides; delete this
      file and the default look is used. -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap">
@@ -17,13 +17,13 @@
     --control-h: 36px;
   }
 
-  /* Header with the Wolt app icon at the top right (same place as the logo in the Ember theme) */
+  /* Header: blue accent bar and the theme's own mark (a drawn calendar) at the top right.
+     To show your own logo instead, replace the url(...) below with an image URL. */
   .app-header { position: relative; padding-right: calc(var(--pad-x) + 48px); border-top: 4px solid var(--primary); border-bottom: 0; box-shadow: 0 1px 0 var(--border); }
   .app-header::after {
     content: ""; position: absolute; right: var(--pad-x); top: 14px; width: 34px; height: 34px;
-    /* The Wolt app icon (Wikimedia Commons); the drawn mark underneath shows if the image cannot load. */
     border-radius: 9px;
-    background: url("https://upload.wikimedia.org/wikipedia/commons/b/b0/Wolt-app-icon-2019.png") center / cover no-repeat, no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23009de0'/%3E%3Crect x='8' y='9.5' width='16' height='14.5' rx='4' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M12.5 7.5v3.5M19.5 7.5v3.5' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M12.3 17.4l2.6 2.5 4.8-5' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23009de0'/%3E%3Crect x='8' y='9.5' width='16' height='14.5' rx='4' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M12.5 7.5v3.5M19.5 7.5v3.5' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M12.3 17.4l2.6 2.5 4.8-5' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
   .app-header h1 { font-weight: 800; letter-spacing: -.01em; }
   body.sidebar .app-header { padding-right: calc(var(--pad-x) + 40px); }

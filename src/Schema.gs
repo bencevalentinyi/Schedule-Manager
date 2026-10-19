@@ -377,9 +377,9 @@ var LEGACY_DEFAULT_STAFF_FIELDS_V110 = ['employeeId', 'employeeName', 'field:ext
 var THEMES = {
   DEFAULT: { label: 'Default (classic blue)', file: '',
     sheet: { font: 'Arial', header: '#1f3b57', headerText: '#ffffff', accent: '#1f3b57', band: '#f3f6f9', soft: '#e8f0fe', warn: '#fff4ce', error: '#fde2e1' } },
-  SKY: { label: 'Sky — Wolt style (bright blue, rounded, Wolt logo)', file: 'ThemeSky',
+  SKY: { label: 'Sky (bright blue, soft and rounded)', file: 'ThemeSky',
     sheet: { font: 'Nunito', header: '#009de0', headerText: '#ffffff', accent: '#009de0', band: '#eef8fd', soft: '#e6f6fd', warn: '#fff6d6', error: '#fde8e6' } },
-  EMBER: { label: 'Ember — DoorDash style (bold red, DoorDash logo)', file: 'ThemeEmber',
+  EMBER: { label: 'Ember (bold red, high contrast)', file: 'ThemeEmber',
     sheet: { font: 'Inter', header: '#191919', headerText: '#ffffff', accent: '#eb1700', band: '#fff3f1', soft: '#fff0ee', warn: '#fff4d6', error: '#fde2de' } }
 };
 
