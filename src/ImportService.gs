@@ -49,15 +49,15 @@ function buildRecordKey_(teamId, rec) {
  * 08:00–15:00 + Meeting 15:00–16:00 + 16:00–16:20 → one shift 08:00–16:20 (the meeting stays its
  * own record). Pieces are joined when the gap between them is empty or fully covered by that
  * person's meeting/training intervals (imported or not). A meeting touching the start or end is part of
- * the shift too (09:00–14:15 + Training 14:15–15:00 → 09:00–15:00). Only shifts of people found in the staff sheet are joined. Pure.
- * @param {Object[]} recs normalized records with teamId, activityCategory, startAbs, endAbs, _person, _inStaff
+ * the shift too (09:00–14:15 + Training 14:15–15:00 → 09:00–15:00). Applies to everyone, also people not (yet) in a staff sheet. Pure.
+ * @param {Object[]} recs normalized records with teamId, activityCategory, startAbs, endAbs, _person
  * @param {Object} bridges personKey -> [{start, end}] meeting/training intervals (absolute minutes)
  * @return {{records: Object[], joined: number, extended: number}} joined = pieces absorbed, extended = shifts grown by a touching meeting
  */
 function mergeShiftPieces_(recs, bridges) {
   var out = [], groups = {}, joined = 0, extended = 0;
   recs.forEach(function (r) {
-    if (r.activityCategory === ACTIVITY_CATEGORY.MEETING || !r._inStaff || !r._person) { out.push(r); return; }
+    if (r.activityCategory === ACTIVITY_CATEGORY.MEETING || !r._person) { out.push(r); return; }
     var g = r.teamId + '|' + r._person;
     (groups[g] = groups[g] || []).push(r);
   });
@@ -501,7 +501,6 @@ function buildImportPlan_(input) {
     var m = matchEmployee_(idx, rec.employeeId, rec.employeeName, (idx && idx.nameMatch) || cfg.NAME_MATCH_STRATEGY);
     var notInSheet = m.status === STAFF_MATCH.UNKNOWN || m.status === STAFF_MATCH.AMBIGUOUS;
     rec._person = who.key;       // for joining split shift pieces (not stored)
-    rec._inStaff = !notInSheet;
     if (meeting) addBridge(who, rec);
     rec.staffMatch = m.status;
     if (m.staff && (m.status === STAFF_MATCH.NAME || altKey)) rec.resolvedEmployeeId = m.staff.employeeId;

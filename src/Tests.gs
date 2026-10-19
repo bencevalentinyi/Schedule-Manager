@@ -800,19 +800,19 @@ function unitTestsSplitShifts_() {
     ['Split shifts: pieces around a meeting/training become the person\'s whole shift; the training stays its own row', function () {
       var p = planFromDaily_(day, filter(true));
       assertEq_(p.report.fatal, []);
-      assertEq_(shifts(p), ['Ann Lee 08:00-16:20', 'Bob Ray 08:00-12:00', 'Bob Ray 12:30-16:00', 'Zed New 08:00-10:00', 'Zed New 11:00-12:00'],
-        'Ann joined; Bob\'s gap has no meeting; Zed is not in the staff sheet');
+      assertEq_(shifts(p), ['Ann Lee 08:00-16:20', 'Bob Ray 08:00-12:00', 'Bob Ray 12:30-16:00', 'Zed New 08:00-12:00'],
+        'Ann joined; Bob\'s gap has no meeting; Zed is joined too although not in the staff sheet');
       var ann = p.actions.filter(function (a) { return a.record.employeeName === 'Ann Lee' && a.record.activityCategory !== 'MEETING'; })[0].record;
       assertEq_([ann.grossMinutes, ann.scheduledMinutes], [500, 500], '8h 20m, and the scheduled hours include the training');
       assert_(p.actions.some(function (a) { return a.record.activityCategory === 'MEETING' && a.record.shiftStart.substr(11) === '15:00'; }), 'training imported separately');
-      assertEq_(p.summary.joinedPieces, 1, 'one piece absorbed');
+      assertEq_(p.summary.joinedPieces, 2, 'one piece each for Ann and Zed');
     }],
     ['Split shifts: pieces are joined even when the training itself is not imported; re-import changes nothing', function () {
       var off = planFromDaily_(day, filter(false));
       assert_(shifts(off).indexOf('Ann Lee 08:00-16:20') >= 0, 'joined without importing the training');
       var stored = applyPlanInMemory_([], planFromDaily_(day, filter(true)), 'IMP_1');
       var again = planFromDaily_(day, filter(true), { existing: stored });
-      assertEq_([again.actions.length, again.summary.joinedPieces], [0, 1]);
+      assertEq_([again.actions.length, again.summary.joinedPieces], [0, 2]);
     }],
     ['Split shifts: a training cut from the end (or start) of a shift is part of the shift', function () {
       var edge = [
