@@ -668,7 +668,7 @@ function unitTestsV111_() {
       assertEq_(ann.length, 5);
       assertEq_(ann.filter(function (r) { return r.activityCategory === 'MEETING'; }).length, 4);
       assertEq_(uniq_(p.actions.map(function (a) { return a.key; })).length, p.actions.length, 'distinct keys');
-      assertEq_([p.summary.meetingsInShift, p.summary.overlapsCount], [2, 0], 'two meetings inside the shift, no conflicts');
+      assertEq_([p.summary.meetingsInShift, p.summary.overlapsCount], [4, 0], 'the shift grows to 07:30–16:30 (meetings touching it are part of it); all four meetings are inside, no conflicts');
     }],
     ['Meetings (#6): disabled → excluded and reported, shifts unchanged', function () {
       var p = planFromDaily_(meetingFixture_(), MEET_OFF);
@@ -813,6 +813,23 @@ function unitTestsSplitShifts_() {
       var stored = applyPlanInMemory_([], planFromDaily_(day, filter(true)), 'IMP_1');
       var again = planFromDaily_(day, filter(true), { existing: stored });
       assertEq_([again.actions.length, again.summary.joinedPieces], [0, 1]);
+    }],
+    ['Split shifts: a training cut from the end (or start) of a shift is part of the shift', function () {
+      var edge = [
+        ['Daily schedule 2026-10-15', '', '', '', '', ''],
+        ['SHIFT TYPE', 'Employee Name', 'Shift', 'D', 'E', 'Hours'],
+        ['Customer Support', 'Ann Lee', '09:00 - 14:15', '', '', '5:15'],
+        ['Training', 'Ann Lee', '14:15 - 15:00', '', '', '0:45'],
+        ['Training', 'Bob Ray', '07:30 - 08:00', '', '', '0:30'],
+        ['Customer Support', 'Bob Ray', '08:00 - 12:00', '', '', '4'],
+        ['Training', 'Bob Ray', '13:00 - 14:00', '', '', '1']
+      ];
+      var p = planFromDaily_(edge, filter(true));
+      assertEq_(shifts(p), ['Ann Lee 09:00-15:00', 'Bob Ray 07:30-12:00'], 'a training not touching the shift (Bob 13:00) stays separate');
+      var ann = p.actions.filter(function (a) { return a.record.employeeName === 'Ann Lee' && a.record.activityCategory !== 'MEETING'; })[0].record;
+      assertEq_([ann.grossMinutes, ann.scheduledMinutes], [360, 360]);
+      assertEq_(p.actions.filter(function (a) { return a.record.activityCategory === 'MEETING'; }).length, 3, 'every training is still its own row');
+      assertEq_(p.summary.extendedShifts, 2);
     }],
     ['Split shifts: pieces stored by an earlier import are replaced by the whole shift', function () {
       var old = [

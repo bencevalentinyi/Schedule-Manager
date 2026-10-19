@@ -48,14 +48,14 @@ function buildRecordKey_(teamId, rec) {
  * Joins the pieces of one person's shift that Quinyx splits around a meeting or training, e.g.
  * 08:00–15:00 + Meeting 15:00–16:00 + 16:00–16:20 → one shift 08:00–16:20 (the meeting stays its
  * own record). Pieces are joined when the gap between them is empty or fully covered by that
- * person's meeting/training intervals (imported or not). Meetings at the very start or end do not
- * extend the shift. Only shifts of people found in the staff sheet are joined. Pure.
+ * person's meeting/training intervals (imported or not). A meeting touching the start or end is part of
+ * the shift too (09:00–14:15 + Training 14:15–15:00 → 09:00–15:00). Only shifts of people found in the staff sheet are joined. Pure.
  * @param {Object[]} recs normalized records with teamId, activityCategory, startAbs, endAbs, _person, _inStaff
  * @param {Object} bridges personKey -> [{start, end}] meeting/training intervals (absolute minutes)
- * @return {{records: Object[], joined: number}} joined = number of pieces absorbed
+ * @return {{records: Object[], joined: number, extended: number}} joined = pieces absorbed, extended = shifts grown by a touching meeting
  */
 function mergeShiftPieces_(recs, bridges) {
-  var out = [], groups = {}, joined = 0;
+  var out = [], groups = {}, joined = 0, extended = 0;
   recs.forEach(function (r) {
     if (r.activityCategory === ACTIVITY_CATEGORY.MEETING || !r._inStaff || !r._person) { out.push(r); return; }
     var g = r.teamId + '|' + r._person;
@@ -69,12 +69,21 @@ function mergeShiftPieces_(recs, bridges) {
     }
     return pos >= to;
   };
-  var join = function (chain) {
-    if (chain.length === 1) return chain[0];
+  var join = function (chain, intervals) {
     var first = chain[0];
+    var start = first.startAbs, end = chain.reduce(function (m, c) { return Math.max(m, c.endAbs); }, 0);
+    // Quinyx also cuts a meeting/training out of the start or end of a shift: a touching one extends it.
+    var grown = true;
+    while (grown) {
+      grown = false;
+      intervals.forEach(function (iv) {
+        if (iv.start < start && iv.end >= start) { start = iv.start; grown = true; }
+        if (iv.end > end && iv.start <= end) { end = iv.end; grown = true; }
+      });
+    }
+    if (chain.length === 1 && start === first.startAbs && end === first.endAbs) return first;
     var r = {};
     Object.keys(first).forEach(function (k) { r[k] = first[k]; });
-    var start = first.startAbs, end = chain.reduce(function (m, c) { return Math.max(m, c.endAbs); }, 0);
     var list = function (f, sep) { return uniq_(chain.map(function (c) { return str_(c[f]); }).filter(Boolean)).join(sep); };
     r.startAbs = start; r.endAbs = end;
     r.shiftStart = isoDateTimeFromMinutes_(start); r.shiftEnd = isoDateTimeFromMinutes_(end);
@@ -90,10 +99,11 @@ function mergeShiftPieces_(recs, bridges) {
     r.scheduledMinutes = allSched ? chain.reduce(function (n, c) { return n + Number(c.scheduledMinutes); }, 0) + (r.grossMinutes - pieceMinutes) : '';
     r.extra = {};
     chain.forEach(function (c) { Object.keys(c.extra || {}).forEach(function (k) { if (r.extra[k] === undefined) r.extra[k] = c.extra[k]; }); });
-    r.extra['Joined rows'] = chain.map(function (c) { return c.sourceRow; }).join(', ');
+    if (chain.length > 1) r.extra['Joined rows'] = chain.map(function (c) { return c.sourceRow; }).join(', ');
     r.warnings = [];
     r._joinedFrom = chain.length;
     joined += chain.length - 1;
+    if (start < first.startAbs || end > chain.reduce(function (m, c) { return Math.max(m, c.endAbs); }, 0)) extended++;
     return r;
   };
   Object.keys(groups).forEach(function (g) {
@@ -103,11 +113,11 @@ function mergeShiftPieces_(recs, bridges) {
     for (var i = 1; i < list.length; i++) {
       var nx = list[i];
       if (nx.startAbs >= end && covered(end, nx.startAbs, intervals)) { chain.push(nx); end = Math.max(end, nx.endAbs); }
-      else { out.push(join(chain)); chain = [nx]; end = nx.endAbs; }
+      else { out.push(join(chain, intervals)); chain = [nx]; end = nx.endAbs; }
     }
-    out.push(join(chain));
+    out.push(join(chain, intervals));
   });
-  return { records: out, joined: joined };
+  return { records: out, joined: joined, extended: extended };
 }
 
 /** Converts a normalized row into the stored record shape (without import metadata). */
@@ -193,7 +203,7 @@ function emptySummary_() {
     // employees held back for review, and rows skipped by a decision
     heldPeople: [], heldRows: 0, skippedByDecision: 0,
     // shift pieces joined around meetings, and older stored pieces replaced by the whole shift
-    joinedPieces: 0, replacedPieces: 0
+    joinedPieces: 0, extendedShifts: 0, replacedPieces: 0
   };
 }
 
@@ -526,7 +536,7 @@ function buildImportPlan_(input) {
 
   // ---- join shift pieces split around meetings / trainings into the person's real shift ----
   var joinedRes = mergeShiftPieces_(valid, bridges);
-  if (joinedRes.joined) {
+  if (joinedRes.joined || joinedRes.extended) {
     var keyed = {};
     valid = joinedRes.records.filter(function (r) {
       if (r._joinedFrom) r.key = buildRecordKey_(r.teamId, r);
@@ -538,6 +548,7 @@ function buildImportPlan_(input) {
       return true;
     });
     S.joinedPieces = joinedRes.joined;
+    S.extendedShifts = joinedRes.extended;
     S.normalShifts -= joinedRes.joined;
   }
 
@@ -690,7 +701,9 @@ function buildImportPlan_(input) {
   if (S.unknownEmployeeCount) rep.warnings.push(S.unknownEmployeeCount + ' employee(s) are not in their team\'s staff directory. Their shifts are imported and flagged "Unknown employee". You can add them later from View Staff Directory.');
   if (S.heldRows) rep.warnings.push(S.heldPeople.length + ' employee(s) with ' + S.heldRows + ' row(s) are held back: they are not in the staff sheet of their team, or are in several staff sheets. Choose a team or Skip for each of them.');
   if (S.skippedByDecision) rep.info.push(S.skippedByDecision + ' row(s) skipped by your decision.');
-  if (S.joinedPieces) rep.info.push(S.joinedPieces + ' shift piece(s) split around a meeting or training were joined, so each person shows their whole shift (the meeting stays a separate row).' +
+  if (S.joinedPieces || S.extendedShifts) rep.info.push((S.joinedPieces ? S.joinedPieces + ' shift piece(s) split around a meeting or training were joined' : '') +
+    (S.joinedPieces && S.extendedShifts ? ' and ' : '') + (S.extendedShifts ? S.extendedShifts + ' shift(s) include a meeting or training at their start or end' : '') +
+    ', so each person shows their whole shift (the meeting stays a separate row).' +
     (S.replacedPieces ? ' ' + S.replacedPieces + ' older stored piece(s) are replaced by the whole shift.' : ''));
   if (S.nameMatched) rep.info.push(S.nameMatched + ' row(s) were matched to the staff sheet by name (the file has no Employee ID).');
   if (S.nameMismatches) rep.info.push(S.nameMismatches + ' row(s) have a name that differs from the staff directory for the same Employee ID.');
