@@ -1,4 +1,4 @@
-# Schedule Manager: Quinyx schedules in Google Sheets (v1.1.3)
+# Schedule Manager: Quinyx schedules in Google Sheets (v2.0.0)
 
 A reusable Google Sheets template, powered by Apps Script, that:
 
@@ -17,17 +17,18 @@ Teams, staff fields and shift and meeting types are configured through the **Sch
 
 > **Not yet verified against real files.** The Daily Schedule parser follows the layout as described; every row and column is configurable, and unreadable values are flagged rather than guessed (see ARCHITECTURE.md §1).
 
-## Updating to the simplified version
+## Updating from 1.1.x to 2.0.0
 
-The Slack module, the team type dialog and the import settings dialog were removed, and the team and import dialogs were simplified (see the changelog). No team, staff or schedule data changes, and no upgrade is required.
+2.0.0 removes the Slack module, the team type dialog, the import settings dialog and team membership, simplifies the team and import dialogs, and adds multi-team imports, Employee ID import, Monitoring Links and themes (see the changelog). No team, staff or schedule data is deleted.
 
 1. **Delete the removed files** from the Apps Script project: `SlackDialog.html`, `SlackMessageService.gs`, `SlackPayloadService.gs`, `TeamTypeDialog.html`, `MembershipService.gs`.
+   **Add the new files:** `EmployeeIdDialog.html`, `MonitoringLinkService.gs`, `MonitoringLinksDialog.html`, and optionally `ThemeSky.html` / `ThemeEmber.html`.
 2. **Replace** every other file in `src/`. With clasp: `git pull`, then `clasp push`.
 3. **Check the files:** save, run **`checkInstall`**, then reload the spreadsheet.
-4. **Run *Setup / Configure Spreadsheet → Repair* once.** It gives every team that still shares a staff sheet its own copy and hides the system sheets.
+4. **Run the upgrade once:** *Setup / Configure Spreadsheet → **Upgrade*** (other actions show "upgrade required" until you do). It records version 2.0.0, gives every team that still shares a staff sheet its own copy and hides the system sheets.
 5. **Optional clean-up:** the `_SLACK_PAYLOADS` and `_TEAM_MEMBERSHIP` sheets and the `SLACK_PAYLOAD_CONFIG`, `DASHBOARD_URL_CONFIG` and `SLACK_MESSAGE_CONFIG` rows in `_CONFIG` are no longer used. They are ignored, so you can leave them or delete them by hand.
 
-## Updating an older installation (1.0 or 1.1.0)
+## Updating an older installation (1.0 or 1.1.0) to 2.0.0
 
 1. **Replace and add the files.** In the Apps Script editor, replace every file in `src/` and add any that are missing, with exactly the listed names (`.gs` via **+ → Script**, `.html` via **+ → HTML**). With clasp: `git pull`, then `clasp push`.
 2. **Save,** reload the spreadsheet, and run **`checkInstall`** in the editor. It must report that all script and HTML files are present.
@@ -80,7 +81,7 @@ Test files outside the Apps Script project:
 |---|---|
 | `tests/run-unit-tests.js` | Unit tests plus a static check that no code creates triggers |
 | `tests/run-integration-tests.js` + `tests/mock-gas.js` | Integration tests against an in-memory Sheets mock |
-| `tests/run-migration-test.js` | Upgrade from v1.0 and from v1.1.0 (each run twice), and 1.1.1 / 1.1.2 → 1.1.3 without migration |
+| `tests/run-migration-test.js` | Upgrade from 1.0 and from 1.1.0 (each run twice), and from 1.1.1–1.1.3 to 2.0.0 |
 | `tests/run-ui-checks.js` | Static checks of every HTML page: handlers, server calls, element IDs, labels, buttons, script syntax |
 
 ## Installation (new spreadsheet)
@@ -105,7 +106,7 @@ Test files outside the Apps Script project:
 |---|---|
 | Unit tests | `node tests/run-unit-tests.js` (or `runUnitTests` in the editor) |
 | Integration (Sheets mock) | `node tests/run-integration-tests.js` |
-| Upgrade 1.0 → 1.1.3 and 1.1.0 → 1.1.3; 1.1.1 / 1.1.2 → 1.1.3 without migration (mock) | `node tests/run-migration-test.js` |
+| Upgrades 1.0 / 1.1.x → 2.0.0 (mock) | `node tests/run-migration-test.js` |
 | UI static checks | `node tests/run-ui-checks.js` |
 | UI in a real Google Sheets dialog | manual checklist in docs/VERIFICATION.md §UI |
 | Integration in real Google Sheets | `runIntegrationTests` in a **copy**, with `_CONFIG TEST_MODE = TRUE` |

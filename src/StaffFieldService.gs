@@ -1,5 +1,5 @@
 /**
- * StaffFieldService.gs  (v1.1)
+ * StaffFieldService.gs
  * Registry of configurable staff fields in _STAFF_FIELDS: external identifiers
  * (e.g. Converse ID, Aircall ID, AstraID) and custom text fields.
  *
@@ -15,7 +15,7 @@
  */
 
 /**
- * v1.1.1: no fields are created automatically. Administrators add identifier
+ * No fields are created automatically. Administrators add identifier
  * fields (e.g. Converse ID, CRM ID) under Configure Staff Fields when needed.
  * Fields created by v1.1.0 installations are kept as ordinary user data.
  */

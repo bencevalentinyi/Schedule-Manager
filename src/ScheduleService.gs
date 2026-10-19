@@ -424,7 +424,7 @@ function layoutScheduleSheet_(sh, team) {
   var rules = [];
   var flagsIdx = fields.indexOf('flags');
   var catIdx = fields.indexOf('activityCategory');
-  // v1.1.2: meeting rows are shaded so they stand apart from shifts. The row also says
+  // Meeting rows are shaded so they stand apart from shifts. The row also says
   // "Meeting (in shift)" / "Meeting (outside shift)" in Flags or "Meeting" in Category.
   var meetingFormula = flagsIdx >= 0 ? '=LEFT($' + columnLetter_(flagsIdx + 1) + r0 + ',7)="Meeting"'
     : (catIdx >= 0 ? '=$' + columnLetter_(catIdx + 1) + r0 + '="Meeting"' : '');
@@ -620,7 +620,7 @@ function renderDailyView_(team, opts) {
   }
   return {
     teamId: team.teamId, teamName: team.teamName, date: dateIso, weekday: weekday, shifts: rows.length, shown: visible.length,
-    // v1.1.2: summary for the Schedule Viewer sidebar (same numbers as row 4)
+    // Summary for the Schedule Viewer sidebar (same numbers as row 4)
     summary: {
       shifts: own.length - meetingCount, meetings: meetingCount, staff: people.length, workingHours: formatMinutesAsDuration_(netTotal),
       overlaps: countFlag('Overlap'), unknown: countFlag('Unknown employee'), carried: rows.length - own.length
@@ -695,7 +695,7 @@ function apiOpenSchedule(teamId, dateIso) {
 }
 
 /**
- * Schedule Viewer sidebar (v1.1.2): renders a team's daily sheet for a date with
+ * Schedule Viewer sidebar: renders a team's daily sheet for a date with
  * the given filters, activates it and returns the header facts and summary.
  * One call per user action; filters are stored in the sheet's filter cells as before.
  * @param {string} teamId

@@ -119,7 +119,7 @@ function menuRun_(name, fn, needsInit) {
 }
 
 /**
- * Standard dialog sizes [width, height] (v1.1.2). Every page has a fixed
+ * Standard dialog sizes [width, height]. Every page has a fixed
  * header and footer and scrolls internally, so these sizes fit all content.
  */
 var DIALOG_SIZE = {

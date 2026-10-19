@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — simplification
+## 2.0.0 — simplification, multi-team import, Monitoring Links, themes
 
-Removed features and settings that were hard to understand, so they can be rebuilt one at a time. No team, staff or schedule data changes, and no upgrade is required.
+Removed features and settings that were hard to understand (so they can be rebuilt one at a time), and added the features below. No team, staff or schedule data is deleted. Spreadsheets of 1.x run Setup → Upgrade once.
 
 ### Removed
 

@@ -373,7 +373,7 @@ function unitTests_() {
   ];
 }
 
-/* ---------------------------- v1.1 unit tests ---------------------------- */
+/* ------------------- unit tests: Daily Schedule and shift types ------------------- */
 
 /** Synthetic Daily Schedule sheet following the DESCRIBED layout (not a real export). */
 function dailyFixture_() {
@@ -636,7 +636,7 @@ function unitTestsV11_() {
   ];
 }
 
-/* --------------------------- v1.1.1 unit tests --------------------------- */
+/* ------------------------ unit tests: meetings and routing ------------------------ */
 
 /** Daily Schedule fixture with one shift and meetings before, during, during and after it. */
 function meetingFixture_() {
@@ -660,7 +660,7 @@ function unitTestsV111_() {
   var MEET_ON = { mode: 'SELECTED', types: ['Customer Support'], known: ['Customer Support', 'Meeting'], importMeetings: true, meetingTypes: ['Meeting'] };
   var MEET_OFF = { mode: 'SELECTED', types: ['Customer Support'], known: ['Customer Support', 'Meeting'], importMeetings: false, meetingTypes: ['Meeting'] };
   return [
-    ['Meetings (#1–5): one shift plus meetings before, during and after are separate assignments', function () {
+    ['Meetings: one shift plus meetings before, during and after are separate assignments', function () {
       var p = planFromDaily_(meetingFixture_(), MEET_ON);
       assertEq_(p.report.fatal, []);
       assertEq_([p.summary.normalShifts, p.summary.meetingsDetected, p.summary.meetingsImported, p.summary.meetingsExcluded], [2, 4, 4, 0]);
@@ -670,18 +670,18 @@ function unitTestsV111_() {
       assertEq_(uniq_(p.actions.map(function (a) { return a.key; })).length, p.actions.length, 'distinct keys');
       assertEq_([p.summary.meetingsInShift, p.summary.overlapsCount], [4, 0], 'the shift grows to 07:30–16:30 (meetings touching it are part of it); all four meetings are inside, no conflicts');
     }],
-    ['Meetings (#6): disabled → excluded and reported, shifts unchanged', function () {
+    ['Meetings: disabled → excluded and reported, shifts unchanged', function () {
       var p = planFromDaily_(meetingFixture_(), MEET_OFF);
       assertEq_([p.summary.meetingsDetected, p.summary.meetingsExcluded, p.summary.meetingsImported, p.summary.normalShifts], [4, 4, 0, 2]);
       assert_(p.actions.every(function (a) { return a.record.activityCategory === 'SHIFT'; }), 'no meetings written');
       assert_(p.canCommit, 'excluded meetings do not block');
     }],
-    ['Meetings (#7): repeated import creates no duplicate meetings', function () {
+    ['Meetings: repeated import creates no duplicate meetings', function () {
       var stored = applyPlanInMemory_([], planFromDaily_(meetingFixture_(), MEET_ON), 'IMP_1');
       var again = planFromDaily_(meetingFixture_(), MEET_ON, { existing: stored });
       assertEq_([again.actions.length, again.summary.unchanged], [0, 6]);
     }],
-    ['Meetings (#8): working hours do not double-count meetings inside the shift', function () {
+    ['Meetings: working hours do not double-count meetings inside the shift', function () {
       var p = planFromDaily_(meetingFixture_(), MEET_ON);
       var ann = p.actions.map(function (a) { return a.record; }).filter(function (r) { return r.employeeName === 'Ann Lee'; });
       var work = workMinutesByEmployee_(itemsOf_(ann));
@@ -700,10 +700,11 @@ function unitTestsV111_() {
 
 function unitTestsV112_() {
   return [
-    ['v1.1.2/1.1.3: 1.1.1 and 1.1.2 spreadsheets need no upgrade; older versions still do', function () {
-      assertEq_(APP.VERSION, '1.1.3');
-      assertEq_([versionNeedsUpgrade_('1.1.3'), versionNeedsUpgrade_('1.1.2'), versionNeedsUpgrade_('1.1.1')], [false, false, false]);
-      assertEq_([versionNeedsUpgrade_('1.1.0'), versionNeedsUpgrade_('1.0.0'), versionNeedsUpgrade_(''), versionNeedsUpgrade_(undefined)], [true, true, true, true]);
+    ['Version 2.0.0: spreadsheets of every 1.x version run the upgrade once; the current one does not', function () {
+      assertEq_(APP.VERSION, '2.0.0');
+      assertEq_(versionNeedsUpgrade_('2.0.0'), false);
+      assertEq_([versionNeedsUpgrade_('1.1.3'), versionNeedsUpgrade_('1.1.0'), versionNeedsUpgrade_('1.0.0'), versionNeedsUpgrade_(''), versionNeedsUpgrade_(undefined)],
+        [true, true, true, true, true]);
     }]
   ];
 }
@@ -1015,45 +1016,45 @@ function runIntegrationTests() {
   }
   var ctx = { teams: {}, imports: [] };
   var tests = [
-    ['1. Initialize a new spreadsheet', function () {
+    ['Initialize a new spreadsheet', function () {
       var r = initializeSystem_();
       assert_(r.state.initialized && r.state.healthy, 'initialized and healthy');
       if (fresh) setConfigValues_({ TEST_MODE: 'TRUE' });
     }],
-    ['2. Initialization is idempotent', function () {
+    ['Initialization is idempotent', function () {
       var before = ss.getSheets().length, cfgRows = readTable_(T_CONFIG).rows.length, types = listTeamTypes_(true).length;
       var r = initializeSystem_();
       assertEq_([ss.getSheets().length, readTable_(T_CONFIG).rows.length, listTeamTypes_(true).length], [before, cfgRows, types]);
       assert_(r.actions.join(' ').indexOf('Nothing was changed') >= 0 || r.actions.every(function (a) { return /Refreshed/.test(a); }), 'no structural changes: ' + r.actions.join(' | '));
     }],
-    ['3. Create the first team', function () {
+    ['Create the first team', function () {
       var type = listTeamTypes_(false)[0];
       var r = createTeam_({ teamName: IT_PREFIX_ + 'Alpha', typeMode: 'EXISTING', teamTypeId: type.typeId, active: true, importAliases: 'ZZ-A' });
       ctx.teams.alpha = r.team;
       assertEq_(r.team.status, 'READY');
       assert_(resolveTeamSheet_(r.team, 'schedule') && resolveTeamSheet_(r.team, 'staff'), 'both sheets exist');
     }],
-    ['4. Create a second team of the same type', function () {
+    ['Create a second team of the same type', function () {
       var r = createTeam_({ teamName: IT_PREFIX_ + 'Beta', typeMode: 'EXISTING', teamTypeId: ctx.teams.alpha.teamTypeId });
       ctx.teams.beta = r.team;
       assert_(r.team.teamId !== ctx.teams.alpha.teamId, 'distinct IDs');
     }],
-    ['5. Create a team of a new type', function () {
+    ['Create a team of a new type', function () {
       var r = createTeam_({ teamName: IT_PREFIX_ + 'Gamma', typeMode: 'NEW', newTypeName: IT_PREFIX_ + 'Type ' + Date.now(),
         scheduleFields: ['employeeName', 'start', 'end', 'flags'], display: { layout: 'CUSTOM' } });
       ctx.teams.gamma = r.team;
       ctx.newTypeId = r.team.teamTypeId;
       assert_(r.team.teamTypeId !== ctx.teams.alpha.teamTypeId, 'different type');
     }],
-    ['6. Duplicate team names are rejected', function () {
+    ['Duplicate team names are rejected', function () {
       assertThrows_(function () { createTeam_({ teamName: (IT_PREFIX_ + 'alpha').toUpperCase(), typeMode: 'EXISTING', teamTypeId: ctx.teams.alpha.teamTypeId }); }, 'VALIDATION');
     }],
-    ['7. Invalid sheet-name characters are sanitized', function () {
+    ['Invalid sheet-name characters are sanitized', function () {
       var r = createTeam_({ teamName: IT_PREFIX_ + 'Delta: [Night]/Ops?', typeMode: 'EXISTING', teamTypeId: ctx.teams.alpha.teamTypeId });
       ctx.teams.delta = r.team;
       assert_(!/[\[\]\*\?\/\\:]/.test(r.team.scheduleSheet) && !/[\[\]\*\?\/\\:]/.test(r.team.staffSheet), 'no forbidden characters');
     }],
-    ['8/11/12/13. Import a valid schedule (unknown employee, multi-shift, overnight)', function () {
+    ['Import a valid schedule (unknown employee, multi-shift, overnight)', function () {
       var staff = {};
       staff[STAFF_FIELD_DEFS.employeeId.label] = 'ZT1'; staff[STAFF_FIELD_DEFS.employeeName.label] = 'Test Ann';
       upsertStaff_(ctx.teams.alpha, staff, '');
@@ -1068,19 +1069,19 @@ function runIntegrationTests() {
       var view = renderTeamView_(getTeam_(ctx.teams.alpha.teamId), { date: '2026-10-15' });
       assertEq_(view.shifts, 3);
     }],
-    ['9/14. Re-import with different column order changes nothing', function () {
+    ['Re-import with different column order changes nothing', function () {
       var csv = 'Activity,End,Start,Date,Employee Name,Employee ID\n' +
         'Phone,12:00,08:00,2026-10-15,Test Ann,ZT1\nChat,17:00,13:00,2026-10-15,Test Ann,ZT1\n' +
         'Night,06:00,22:00,2026-10-15,Test Unknown,ZT9\nPhone,12:00,08:00,2026-10-16,Test Ann,ZT1';
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'UPDATE');
       assertEq_([r.inserted, r.updated, r.unchanged], [0, 0, 4]);
     }],
-    ['15. Update an existing schedule', function () {
+    ['Update an existing schedule', function () {
       var csv = 'Employee ID,Employee Name,Date,Start,End,Activity,Role\nZT1,Test Ann,2026-10-15,13:00,17:00,Chat,Lead';
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'UPDATE');
       assertEq_(r.updated, 1);
     }],
-    ['16/17. Replace within range keeps records outside the range', function () {
+    ['Replace within range keeps records outside the range', function () {
       var csv = 'Employee ID,Employee Name,Date,Start,End,Activity\nZT1,Test Ann,2026-10-15,08:00,12:00,Phone';
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'REPLACE_RANGE');
       assertEq_(r.removed, 2);
@@ -1093,7 +1094,7 @@ function runIntegrationTests() {
       var active = queryScheduleRecords_({ teamIds: [ctx.teams.alpha.teamId] }).filter(function (x) { return x.recordStatus === 'ACTIVE'; });
       assertEq_(active.length, 4);
     }],
-    ['10/19/20. Invalid imports never write data', function () {
+    ['Invalid imports never write data', function () {
       var before = readAllScheduleRecords_().records.length;
       var bad = 'Employee ID,Date,Start\nZT1,2026-10-15,08:00';
       assertThrows_(function () { itImport_(ctx, bad, ctx.teams.alpha.teamId, 'UPDATE'); }, 'BLOCKED');
@@ -1106,7 +1107,7 @@ function runIntegrationTests() {
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'UPDATE', 'stale-token');
       assertEq_(r.status, 'PLAN_CHANGED');
     }],
-    ['v1.1 #1–3: standard, 24/7 and custom operating hours persist and render', function () {
+    ['standard, 24/7 and custom operating hours persist and render', function () {
       var type = ctx.teams.alpha.teamTypeId;
       var t247 = createTeam_({ teamName: IT_PREFIX_ + '24-7', typeMode: 'EXISTING', teamTypeId: type, display: { operatingHoursMode: '24_7' } }).team;
       var tNight = createTeam_({ teamName: IT_PREFIX_ + 'Night', typeMode: 'EXISTING', teamTypeId: type,
@@ -1118,7 +1119,7 @@ function runIntegrationTests() {
       var sh = resolveTeamSheet_(getTeam_(t247.teamId), 'schedule');
       assertEq_(sh.getRange(VIEW.INFO_ROW, 9).getValue(), '24/7');
     }],
-    ['v1.1 #5: editing one setting preserves all others', function () {
+    ['editing one setting preserves all others', function () {
       var t = getTeam_(ctx.teams.night.teamId);
       var before = stableStringify_(t.settings.import) + stableStringify_(t.settings.display) + t.importAliases;
       updateTeam_(t.teamId, { teamName: t.teamName, description: 'changed only this' });
@@ -1126,7 +1127,7 @@ function runIntegrationTests() {
       assertEq_(stableStringify_(after.settings.import) + stableStringify_(after.settings.display) + after.importAliases, before);
       assertEq_(after.description, 'changed only this');
     }],
-    ['v1.1 #28–29: migration of a v1.0 team is backward compatible and idempotent', function () {
+    ['migration of a v1.0 team is backward compatible and idempotent', function () {
       var t = readTable_(T_TEAMS).rows.filter(function (r) { return str_(r.teamId) === ctx.teams.beta.teamId; })[0];
       var legacy = JSON.parse(JSON.stringify(t.settings));
       delete legacy.import;
@@ -1140,7 +1141,7 @@ function runIntegrationTests() {
         ['STANDARD', '07:00', '19:00', 'TABLE']);
       assertEq_(migrateTeamsV11_().filter(function (m) { return m.indexOf(IT_PREFIX_) >= 0; }), [], 'second run changes nothing');
     }],
-    ['v1.1.1 #9–12 + v1.1 #10: 4 default columns; custom identifier added, renamed without data loss; leading zeros kept', function () {
+    ['4 default columns; custom identifier added, renamed without data loss; leading zeros kept', function () {
       var team = getTeam_(ctx.teams.t247.teamId);
       var st = readStaff_(team);
       assertEq_(st.keys.filter(Boolean), ['employeeId', 'employeeName', 'role', 'notes']);
@@ -1168,7 +1169,7 @@ function runIntegrationTests() {
       var col = st3.header.indexOf(IT_PREFIX_ + 'CRM');
       assert_(col >= 0 && st3.rows.filter(function (r) { return r.employeeId === 'ZT100'; })[0].values[IT_PREFIX_ + 'CRM'] === '000123', 'values kept after delete');
     }],
-    ['v1.1 #13–27: Daily Schedule import with shift-type filtering, end to end', function () {
+    ['Daily Schedule import with shift-type filtering, end to end', function () {
       var team = getTeam_(ctx.teams.t247.teamId);
       var raw = dailyFixture_();
       raw[0][0] = 'Daily schedule 2026-11-03';
@@ -1219,7 +1220,7 @@ function runIntegrationTests() {
       assertEq_(copied && copied.employeeId, '007', 'staff copied with the leading zeros');
       assertEq_(splitSharedStaffSheets_(), [], 'a second run changes nothing');
     }],
-    ['v1.1.2: Schedule Viewer renders with filters, stores them in the sheet, and meeting rows are shaded', function () {
+    ['Schedule Viewer renders with filters, stores them in the sheet, and meeting rows are shaded', function () {
       var team = getTeam_(ctx.teams.alpha.teamId);
       var res = apiViewerRender(team.teamId, '2026-10-15', { employee: '(All)', activity: '(All)', status: 'Has warnings' });
       assert_(res.ok, res.error && res.error.message);
@@ -1235,7 +1236,7 @@ function runIntegrationTests() {
       assert_(formulas.some(function (f) { return /^=LEFT\(\$[A-Z]+7,7\)="Meeting"$/.test(f); }), 'meeting row rule present: ' + formulas.join(' | '));
       assert_(!apiViewerRender('NO_SUCH_TEAM', '', null).ok, 'unknown team is refused');
     }],
-    ['18. Recover from a missing team worksheet', function () {
+    ['Recover from a missing team worksheet', function () {
       var team = getTeam_(ctx.teams.beta.teamId);
       ss.deleteSheet(resolveTeamSheet_(team, 'schedule'));
       assert_(validateStructure_().fatal.length > 0, 'structure validation reports it');

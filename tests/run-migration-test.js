@@ -145,9 +145,9 @@ check('no duplicate columns or sheets', (() => {
 })());
 
 /* ------------------------------------------------------------------------ */
-/* Scenario C: v1.1.1 / v1.1.2 -> current (no data migration)                     */
+/* Scenario C: 1.1.x -> current: one upgrade, no data changes                   */
 /* ------------------------------------------------------------------------ */
-['1.1.1', '1.1.2'].forEach((fromVersion) => {
+['1.1.1', '1.1.2', '1.1.3'].forEach((fromVersion) => {
   console.log('v' + fromVersion + ' -> ' + run('APP.VERSION'));
   const g3 = makeGlobals('Europe/Stockholm');
   const ctx3 = vm.createContext(g3.globals);
@@ -171,12 +171,13 @@ check('no duplicate columns or sheets', (() => {
   const before3 = snapshot3();
   let code3 = 'OK';
   try { run3('requireInitialized_()'); } catch (e) { code3 = e.code; }
-  check(fromVersion + ' spreadsheet keeps working without an upgrade', code3 === 'OK', code3);
-  check('setup dialog does not ask for an upgrade', run3('getSetupState_().needsUpgrade') === false);
+  check(fromVersion + ' spreadsheet asks for the upgrade once', code3 === 'NEEDS_UPGRADE', code3);
+  check('setup dialog offers the upgrade', run3('getSetupState_().needsUpgrade') === true);
   const acts3 = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
   console.log('    setup actions:\n      - ' + acts3.join('\n      - '));
-  check('setup only records the version', acts3.length === 1 && /^Recorded version 1\.1\.3 \(from /.test(acts3[0]), acts3.join(' | '));
-  check('version recorded', run3('getConfig_().SYSTEM_VERSION') === '1.1.3');
+  check('the upgrade only records the version', acts3.length === 1 && /^Upgraded the system from version 1\.1\.\d to 2\.0\.0\./.test(acts3[0]), acts3.join(' | '));
+  check('version recorded', run3('getConfig_().SYSTEM_VERSION') === '2.0.0');
+  check('no upgrade asked afterwards', run3('getSetupState_().needsUpgrade') === false);
   check('teams, types, records, other configuration and sheets unchanged', snapshot3() === before3);
   const acts3b = run3('initializeSystem_().actions').filter((a) => !/^Refreshed the/.test(a));
   check('second setup run changes nothing', acts3b.length === 0, acts3b.join(' | '));

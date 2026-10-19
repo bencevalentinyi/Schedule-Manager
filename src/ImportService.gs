@@ -193,11 +193,9 @@ function emptySummary_() {
     nameMatched: 0, nameMismatches: 0, inactiveStaff: 0, overnight: 0, overlapsCount: 0,
     unknownEmployeeCount: 0, dateFrom: '', dateTo: '', teams: [], unknownEmployees: [], overlaps: [],
     potentialDuplicates: 0,
-    // v1.1
     scheduleDate: '', shiftTypes: [], excludedByShiftType: 0, newShiftTypes: [], missingEmployee: 0,
     unparseableShiftInfo: 0, invalidTimes: 0, hoursMissing: 0, hoursInvalid: 0, hoursDiscrepancies: 0,
     nonShiftRows: 0, shiftTypeFilters: [],
-    // v1.1.1
     normalShifts: 0, meetingsDetected: 0, meetingsSelected: 0, meetingsExcluded: 0, meetingsImported: 0,
     meetingsInShift: 0,
     // employees held back for review, and rows skipped by a decision
@@ -1263,7 +1261,7 @@ function apiImportBootstrap() {
         return { teamId: t.teamId, teamName: t.teamName, status: t.status, active: t.active, importProfileId: t.importProfileId,
           scheduleType: imp.scheduleType, shiftTypeMode: imp.shiftTypeMode, shiftTypes: imp.shiftTypes,
           knownShiftTypes: imp.knownShiftTypes, duplicateStrategy: imp.duplicateStrategy,
-          importMeetings: !!imp.importMeetings, meetingTypes: imp.meetingTypes || [] }; // v1.1.2: labels meeting types in the wizard
+          importMeetings: !!imp.importMeetings, meetingTypes: imp.meetingTypes || [] }; // labels meeting types in the wizard
       }),
       currentTeamId: current ? current.team.teamId : '',
       profiles: listProfiles_().map(function (p) { return { profileId: p.profileId, profileName: p.profileName }; }),

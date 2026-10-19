@@ -10,12 +10,12 @@
 
 var APP = Object.freeze({
   NAME: 'Schedule Manager',
-  VERSION: '1.1.3',
+  VERSION: '2.0.0',
   MENU: 'Schedule Manager',
-  // Stored versions whose sheets and configuration need no migration for this code
-  // (1.1.2 changed only the user interface; 1.1.3 adds one configuration key, which is
-  // read with its default until Setup adds it). Setup still records the new version.
-  COMPATIBLE_VERSIONS: Object.freeze(['1.1.1', '1.1.2'])
+  // Stored versions whose sheets and configuration need no migration for this code.
+  // None for 2.0.0: spreadsheets of 1.x run Setup → Upgrade once (it gives teams that still
+  // share a staff sheet their own copy and hides the system sheets; nothing is deleted).
+  COMPATIBLE_VERSIONS: Object.freeze([])
 });
 
 /** True when a spreadsheet stored with this version must run Setup → Upgrade first. */
@@ -122,12 +122,10 @@ var T_SCHEDULE = {
     col_('lastImportId', 'Last Import ID', { text: true }),
     col_('updatedAt', 'Updated At', { datetime: true }),
     col_('extra', 'Extra JSON', { text: true, json: true }),
-    // v1.1
     col_('shiftType', 'Shift Type', { text: true }),
     col_('sourceShiftInfo', 'Source Shift Info', { text: true }),
     col_('sourceHours', 'Source Hours', { text: true }),
     col_('scheduledMinutes', 'Scheduled Minutes', { number: true }),
-    // v1.1.1
     col_('activityCategory', 'Activity Category', { text: true })
   ]
 };
@@ -156,10 +154,8 @@ var T_IMPORT_LOG = {
     col_('errorSummary', 'Error Summary', { text: true }),
     col_('user', 'User', { text: true }),
     col_('fileHash', 'File Hash', { text: true }),
-    // v1.1
     col_('rowsExcluded', 'Rows Excluded (Shift Type)', { number: true }),
     col_('shiftTypes', 'Shift Types Imported', { text: true }),
-    // v1.1.1
     col_('meetingsImported', 'Meetings Imported', { number: true }),
     col_('meetingsExcluded', 'Meetings Excluded', { number: true })
   ]
@@ -202,7 +198,7 @@ var T_STAFF_MASTER = {
   ]
 };
 
-/** v1.1: registry of configurable staff fields (external identifiers and custom fields). */
+/** Registry of configurable staff fields (external identifiers and custom fields). */
 var T_STAFF_FIELDS = {
   sheet: '_STAFF_FIELDS',
   purpose: 'Configurable staff fields. Field Key is permanent; Display Name can be renamed without losing data.',
@@ -216,7 +212,6 @@ var T_STAFF_FIELDS = {
     col_('description', 'Description', { text: true }),
     col_('createdAt', 'Created At', { datetime: true }),
     col_('updatedAt', 'Updated At', { datetime: true }),
-    // v1.1.1
     col_('displayOrder', 'Display Order', { number: true })
   ]
 };
@@ -417,7 +412,6 @@ var DEFAULT_TEAM_IMPORT = {
   shiftTypes: [],
   knownShiftTypes: [],
   duplicateStrategy: '',
-  // v1.1.1
   importMeetings: false,
   meetingTypes: []
 };

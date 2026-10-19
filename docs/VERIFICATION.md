@@ -1,6 +1,6 @@
 # Verification and Test Plan
 
-## Simplification (unreleased)
+## 2.0.0
 
 Slack, the team type dialog and the import settings dialog were removed; the team and import dialogs were simplified (see CHANGELOG). The Slack tests were removed with the code. The remaining automated tests were **not re-run** after this change: run them before release (see README → Running the tests).
 

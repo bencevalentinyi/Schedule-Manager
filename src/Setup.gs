@@ -72,7 +72,7 @@ function initializeSystem_() {
   if (Object.keys(updates).length) setConfigValues_(updates);
 
   // Seed data and v1.1 migration. Every step only adds what is missing.
-  seedStaffFieldsIfEmpty_(); // v1.1.1: creates nothing (identifier fields are added by administrators)
+  seedStaffFieldsIfEmpty_(); // creates nothing (identifier fields are added by administrators)
   if (seedDailyProfileIfMissing_()) actions.push('Created the "Quinyx Daily Schedule" import profile (default layout, not yet verified against a real export).');
   if (seedDefaultsIfEmpty_()) actions.push('Created the starter team type and the generic import profile.');
   migrateTeamTypesV11_().forEach(function (m) { actions.push(m); });
