@@ -892,6 +892,21 @@ function unitTestsLinks_() {
       assertEq_(buildPlanText_(normalizeLinkTemplate_({ kind: 'PLAN', emptyText: 'Nobody' }), [], {}, function () { return ''; }), 'Nobody');
       assertEq_(selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'MEETINGS' }).length, 1);
     }],
+    ['Daily plans: roles from the staff sheet put shift leads first (with headings), or filter by role', function () {
+      var roles = { E2: 'Support Shift Lead', E4: 'support  shift lead', E1: 'Agent' };
+      var roleOf = function (r) { return roles[r.employeeId] || ''; };
+      var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS' });
+      var first = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'Support Shift Lead', lineTemplate: '{START} {NAME} {ROLE}' });
+      assertEq_(buildPlanText_(first, shifts, {}, function () { return ''; }, roleOf).split('\n'),
+        ['06:00 Dee Fox support  shift lead', '14:00 Bob Ray Support Shift Lead', '22:00 Cy Moe', '08:00 Ann Lee Agent'],
+        'leads first (role matched ignoring case/spaces), each part by start time');
+      var heads = normalizeLinkTemplate_({ kind: 'PLAN', roles: ['Support Shift Lead'], roleHeadings: true, restHeading: 'Agents' });
+      assertEq_(buildPlanText_(heads, shifts, {}, function () { return ''; }, roleOf),
+        'Support Shift Lead\n06:00 - 10:00 Dee Fox\n14:00 - 22:00 Bob Ray\n\nAgents\n22:00 - 06:00 Cy Moe\n08:00 - 16:00 Ann Lee');
+      var only = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'Support Shift Lead', roleMode: 'ONLY' });
+      var except = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'Support Shift Lead', roleMode: 'EXCEPT' });
+      assertEq_([orderPlanItems_(only, shifts, roleOf).length, orderPlanItems_(except, shifts, roleOf).length], [2, 2]);
+    }],
     ['Links sheet: column names in row 1, one row per item in the saved order, extra URL columns when split; items can be moved', function () {
       var a = { id: 'A', name: 'Live', kind: 'LINK' }, b = { id: 'B', name: 'Plan', kind: 'PLAN' };
       var t = linksSheetRows_([
