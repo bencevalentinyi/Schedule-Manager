@@ -898,7 +898,7 @@ function unitTestsLinks_() {
       var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS' });
       var first = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'Support Shift Lead', lineTemplate: '{START} {NAME} {ROLE}' });
       assertEq_(buildPlanText_(first, shifts, {}, function () { return ''; }, roleOf).split('\n'),
-        ['06:00 Dee Fox support  shift lead', '14:00 Bob Ray Support Shift Lead', '22:00 Cy Moe', '08:00 Ann Lee Agent'],
+        ['06:00 Dee Fox support shift lead', '14:00 Bob Ray Support Shift Lead', '22:00 Cy Moe', '08:00 Ann Lee Agent'],
         'leads first (role matched ignoring case/spaces), each part by start time');
       var heads = normalizeLinkTemplate_({ kind: 'PLAN', roles: ['Support Shift Lead'], roleHeadings: true, restHeading: 'Agents' });
       assertEq_(buildPlanText_(heads, shifts, {}, function () { return ''; }, roleOf),
@@ -906,6 +906,32 @@ function unitTestsLinks_() {
       var only = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'Support Shift Lead', roleMode: 'ONLY' });
       var except = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'Support Shift Lead', roleMode: 'EXCEPT' });
       assertEq_([orderPlanItems_(only, shifts, roleOf).length, orderPlanItems_(except, shifts, roleOf).length], [2, 2]);
+    }],
+    ['Daily plans: several sections with own headings (one or more roles each), everyone else, left-out roles', function () {
+      var roles = { E2: 'Support Shift Lead', E4: 'Senior Agent', E3: 'Team Lead', E1: 'Trainee' };
+      var roleOf = function (r) { return roles[r.employeeId] || ''; };
+      var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS' });
+      var plan = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{NAME}',
+        sections: [{ heading: '🎧 Shift leads', roles: 'support shift lead' }, { heading: '⭐ Seniors', roles: ['Senior Agent', 'Team Lead'] }],
+        showRest: true, restHeading: 'Agents', excludeRoles: 'Trainee' });
+      assertEq_(buildPlanText_(plan, shifts, {}, function () { return ''; }, roleOf), '🎧 Shift leads\nBob Ray\n\n⭐ Seniors\nCy Moe\nDee Fox',
+        'Ann (Trainee) left out; no one else, so no "Agents" section');
+      var noHead = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{NAME}', sections: [{ heading: '', roles: 'Support Shift Lead' }], showRest: false });
+      assertEq_(buildPlanText_(noHead, shifts, {}, function () { return ''; }, roleOf), 'Bob Ray', 'only the section; no heading line');
+      var old = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'A, B', roleMode: 'ONLY', roleHeadings: true });
+      assertEq_([old.sections.map(function (s) { return s.heading + ':' + s.roles.join('|'); }), old.showRest], [['A:A', 'B:B'], false], 'older role settings are converted');
+    }],
+    ['Daily plans: extra text by time is added after the name, or at {TAGS}', function () {
+      var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS' });
+      var tags = [{ text: ':aircall:', mode: 'OVERLAPS', from: '08:00', to: '14:00' }, { text: '🌙', mode: 'ENDS_AFTER', from: '21:00' },
+        { text: '(early)', mode: 'STARTS_BEFORE', from: '07:00' }];
+      var after = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{START} - {END} {NAME}', tags: tags });
+      assertEq_(buildPlanText_(after, shifts, {}, function () { return ''; }, null, '2026-10-15').split('\n'),
+        ['22:00 - 06:00 Cy Moe (early)', '06:00 - 10:00 Dee Fox :aircall: (early)', '08:00 - 16:00 Ann Lee :aircall:', '14:00 - 22:00 Bob Ray 🌙']);
+      var slot = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{TAGS} {NAME} {START}', tags: [{ text: '*', mode: 'COVERS', from: '09:00', to: '15:00' }] });
+      assertEq_(buildPlanText_(slot, shifts, {}, function () { return ''; }, null, '2026-10-15').split('\n'),
+        ['Cy Moe 22:00', 'Dee Fox 06:00', '* Ann Lee 08:00', 'Bob Ray 14:00'], 'COVERS = the whole window; empty {TAGS} leaves no extra space');
+      assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ kind: 'PLAN', name: 'P', tags: [{ text: 'x', mode: 'OVERLAPS', from: '14:00', to: '08:00' }] }), ['employeeId']).length, 1);
     }],
     ['Links sheet: column names in row 1, one row per item in the saved order, extra URL columns when split; items can be moved', function () {
       var a = { id: 'A', name: 'Live', kind: 'LINK' }, b = { id: 'B', name: 'Plan', kind: 'PLAN' };

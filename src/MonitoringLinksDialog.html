@@ -73,25 +73,29 @@
             </div>
             <div class="field"><label class="label" for="lineTemplate">Line format</label>
               <input type="text" id="lineTemplate" spellcheck="false" oninput="samplePlan()">
-              <p class="hint">One line per shift or meeting. Placeholders: <code>{START}</code> <code>{END}</code> <code>{NAME}</code> <code>{TYPE}</code> <code>{TEAM}</code> <code>{ROLE}</code> <code>{ID}</code> <code>{EMPLOYEE_ID}</code>.
+              <p class="hint">One line per shift or meeting. Placeholders: <code>{START}</code> <code>{END}</code> <code>{NAME}</code> <code>{TYPE}</code> <code>{TEAM}</code> <code>{ROLE}</code> <code>{TAGS}</code> <code>{ID}</code> <code>{EMPLOYEE_ID}</code>.
                 Example: <span id="lineSample" class="mono"></span></p></div>
             <div class="row">
               <div class="field"><label class="label" for="emptyText">When no one is listed</label><input type="text" id="emptyText"></div>
               <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" id="groupByTeam"> Group by team (team name above its lines)</label></div>
             </div>
             <div class="panel subtle">
-              <div class="panel-head"><h3>Roles</h3></div>
-              <p class="hint mt-0">Uses the <b>Role</b> column of the staff sheets, e.g. to mention the Support Shift Lead first.</p>
-              <div class="row">
-                <div class="field"><label class="label" for="roles">Roles<span class="optional">optional</span></label>
-                  <input type="text" id="roles" placeholder="e.g. Support Shift Lead, Senior Agent" oninput="rolesChanged()">
-                  <p class="hint">Comma-separated, in the order they should appear.</p></div>
-                <div class="field" id="roleModeBox"><label class="label" for="roleMode">Use them to</label><select id="roleMode" onchange="rolesChanged()"></select></div>
+              <div class="panel-head"><h3>Sections</h3></div>
+              <p class="hint mt-0">Group people by the <b>Role</b> column of the staff sheets, in this order, each under your own heading (leave a heading empty for no heading line).</p>
+              <div id="sections"></div>
+              <button type="button" class="btn sm" onclick="addSection()">+ Add section</button>
+              <div class="row mt-3">
+                <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" id="showRest" checked onchange="restChanged()"> List everyone else (after the sections)</label></div>
+                <div class="field" id="restBox"><label class="label" for="restHeading">Heading for everyone else<span class="optional">optional</span></label><input type="text" id="restHeading" placeholder="e.g. Agents"></div>
               </div>
-              <div class="row" id="roleHeadBox">
-                <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" id="roleHeadings" onchange="rolesChanged()"> Heading per role (the role name above its people)</label></div>
-                <div class="field" id="restBox"><label class="label" for="restHeading">Heading for everyone else</label><input type="text" id="restHeading" placeholder="e.g. Agents"></div>
-              </div>
+              <div class="field"><label class="label" for="excludeRoles">Leave out these roles<span class="optional">optional</span></label>
+                <input type="text" id="excludeRoles" placeholder="Comma-separated, e.g. Trainee"></div>
+            </div>
+            <div class="panel subtle">
+              <div class="panel-head"><h3>Extra text by time</h3></div>
+              <p class="hint mt-0">Adds text after the name (or where <code>{TAGS}</code> is in the line format) when the shift matches, e.g. <code>:aircall:</code> for everyone working during 08:00–14:00.</p>
+              <div id="tags"></div>
+              <button type="button" class="btn sm" onclick="addTag()">+ Add rule</button>
             </div>
           </div>
 
@@ -131,7 +135,7 @@
   <?!= include('ClientCore') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var data = null, current = null, kind = 'LINK';
+    var data = null, current = null, kind = 'LINK', sectionsState = [], tagsState = [];
 
     function load() {
       call('Loading…', 'apiLinksBootstrap').then(function (d) {
@@ -140,7 +144,6 @@
         $('planIdField').innerHTML = options(d.idFields, 'key', 'label');
         $('who').innerHTML = options(kv(d.who), 'k', 'l');
         $('include').innerHTML = options(kv(d.include), 'k', 'l');
-        $('roleMode').innerHTML = options(kv(d.roleModes), 'k', 'l');
         if (!$('runDate').value) $('runDate').value = d.today;
         renderList();
       });
@@ -160,7 +163,7 @@
       kind = current ? current.kind : newKind;
       var t = current || { name: '', kind: kind, baseUrl: '', idField: 'employeeId', separator: ',', prefix: '', suffix: '', encode: true, maxPerLink: 0,
         include: 'SHIFTS', lineTemplate: data.defaultLine, groupByTeam: false, emptyText: 'No one scheduled',
-        roles: [], roleMode: 'FIRST', roleHeadings: false, restHeading: 'Others',
+        sections: [], showRest: true, restHeading: '', excludeRoles: [], tags: [],
         teamIds: [], who: kind === 'PLAN' ? 'DAY' : 'NOW', at: '12:00', from: '08:00', to: '16:00', excludeMeetings: false };
       renderList();
       clearFieldErrors(); closeConfirm('confirmBox');
@@ -171,14 +174,16 @@
       $('separator').value = t.separator; $('prefix').value = t.prefix; $('suffix').value = t.suffix;
       $('encode').checked = t.encode; $('maxPerLink').value = t.maxPerLink || '';
       $('include').value = t.include; $('lineTemplate').value = t.lineTemplate; $('groupByTeam').checked = t.groupByTeam; $('emptyText').value = t.emptyText;
-      $('roles').value = t.roles.join(', '); $('roleMode').value = t.roleMode; $('roleHeadings').checked = t.roleHeadings; $('restHeading').value = t.restHeading;
+      sectionsState = JSON.parse(JSON.stringify(t.sections)); tagsState = JSON.parse(JSON.stringify(t.tags));
+      $('showRest').checked = t.showRest; $('restHeading').value = t.restHeading; $('excludeRoles').value = t.excludeRoles.join(', ');
+      renderSections(); renderTags();
       $('who').value = t.who; $('at').value = t.at; $('from').value = t.from; $('to').value = t.to;
       $('excludeMeetings').checked = t.excludeMeetings;
       $('teams').innerHTML = data.teams.map(function (tm) {
         return '<label class="check"><input type="checkbox" data-team="' + esc(tm.teamId) + '"' + (t.teamIds.indexOf(tm.teamId) >= 0 ? ' checked' : '') + '> ' +
           esc(tm.teamName) + (tm.active ? '' : ' ' + badge('warn', 'inactive')) + '</label>';
       }).join('') || '<p class="hint mt-0">No teams yet.</p>';
-      whoChanged(); samplePlan(); rolesChanged();
+      whoChanged(); samplePlan(); restChanged();
       show('deleteBtn', !!current); show('upBtn', !!current); show('downBtn', !!current);
       if (current) { var k = indexOf(current.id); $('upBtn').disabled = k === 0; $('downBtn').disabled = k === data.templates.length - 1; }
       $('previewBox').innerHTML = '';
@@ -191,14 +196,51 @@
       show('atBox', w === 'AT'); show('fromBox', w === 'WINDOW'); show('toBox', w === 'WINDOW');
       show('meetBox', w === 'NOW' || w === 'AT');
     }
-    function rolesChanged() {
-      var has = !!$('roles').value.trim(), mode = $('roleMode').value;
-      show('roleModeBox', has); show('roleHeadBox', has && mode !== 'EXCEPT'); show('restBox', $('roleHeadings').checked && mode === 'FIRST');
-    }
     function samplePlan() {
-      var v = { START: '08:00', END: '16:00', NAME: 'Ann Lee', TYPE: 'Customer Support', TEAM: 'Support', ID: 'U123', EMPLOYEE_ID: '1001', ROLE: 'Support Shift Lead' };
-      $('lineSample').textContent = ($('lineTemplate').value || data.defaultLine).replace(/\{(START|END|NAME|TYPE|TEAM|ID|EMPLOYEE_ID|ROLE)\}/g, function (m, k) { return v[k]; });
+      var v = { START: '08:00', END: '16:00', NAME: 'Ann Lee', TYPE: 'Customer Support', TEAM: 'Support', ID: 'U123', EMPLOYEE_ID: '1001', ROLE: 'Support Shift Lead', TAGS: ':aircall:' };
+      $('lineSample').textContent = ($('lineTemplate').value || data.defaultLine).replace(/\{(START|END|NAME|TYPE|TEAM|ID|EMPLOYEE_ID|ROLE|TAGS)\}/g, function (m, k) { return v[k]; });
     }
+
+    /* ---------- sections (by role) and extra text by time ---------- */
+    function restChanged() { show('restBox', $('showRest').checked); }
+    function readSections() {
+      return Array.prototype.map.call(document.querySelectorAll('[data-sec]'), function (row) {
+        return { heading: row.querySelector('[data-f="heading"]').value, roles: row.querySelector('[data-f="roles"]').value };
+      });
+    }
+    function renderSections() {
+      $('sections').innerHTML = sectionsState.length ? sectionsState.map(function (s, i) {
+        var roles = Array.isArray(s.roles) ? s.roles.join(', ') : (s.roles || '');
+        return '<div class="row tight" data-sec="' + i + '">' +
+          '<div class="field"><input type="text" data-f="heading" aria-label="Heading of section ' + (i + 1) + '" placeholder="Heading, e.g. 🎧 Shift leads" value="' + esc(s.heading) + '"></div>' +
+          '<div class="field"><input type="text" data-f="roles" aria-label="Roles of section ' + (i + 1) + '" placeholder="Roles, e.g. Support Shift Lead" value="' + esc(roles) + '"></div>' +
+          '<div class="field" style="flex:0 0 auto"><button type="button" class="btn sm" onclick="moveSection(' + i + ', -1)" aria-label="Move section up"' + (i ? '' : ' disabled') + '>▲</button> ' +
+          '<button type="button" class="btn sm danger" onclick="removeSection(' + i + ')" aria-label="Remove section">✕</button></div></div>';
+      }).join('') : '<p class="hint mt-0">No sections: everyone is listed by start time.</p>';
+    }
+    function addSection() { sectionsState = readSections(); sectionsState.push({ heading: '', roles: '' }); renderSections(); }
+    function removeSection(i) { sectionsState = readSections(); sectionsState.splice(i, 1); renderSections(); }
+    function moveSection(i, d) { sectionsState = readSections(); var x = sectionsState[i]; sectionsState[i] = sectionsState[i + d]; sectionsState[i + d] = x; renderSections(); }
+
+    function readTags() {
+      return Array.prototype.map.call(document.querySelectorAll('[data-tag]'), function (row) {
+        var g = function (f) { return row.querySelector('[data-f="' + f + '"]').value; };
+        return { text: g('text'), mode: g('mode'), from: g('from'), to: g('to') };
+      });
+    }
+    function renderTags() {
+      $('tags').innerHTML = tagsState.length ? tagsState.map(function (g, i) {
+        var win = data.tagWindowModes.indexOf(g.mode) >= 0;
+        return '<div class="row tight" data-tag="' + i + '">' +
+          '<div class="field"><input type="text" data-f="text" aria-label="Extra text of rule ' + (i + 1) + '" placeholder="Text, e.g. :aircall:" value="' + esc(g.text) + '"></div>' +
+          '<div class="field"><select data-f="mode" aria-label="When rule ' + (i + 1) + ' applies" onchange="tagsState = readTags(); renderTags()">' + options(kv(data.tagModes), 'k', 'l', g.mode) + '</select></div>' +
+          '<div class="field"><input type="time" data-f="from" aria-label="' + (win ? 'From' : 'Time') + ' of rule ' + (i + 1) + '" value="' + esc(g.from) + '"></div>' +
+          '<div class="field"' + (win ? '' : ' style="visibility:hidden"') + '><input type="time" data-f="to" aria-label="Until of rule ' + (i + 1) + '" value="' + esc(g.to) + '"></div>' +
+          '<div class="field" style="flex:0 0 auto"><button type="button" class="btn sm danger" onclick="removeTag(' + i + ')" aria-label="Remove rule">✕</button></div></div>';
+      }).join('') : '<p class="hint mt-0">No rules.</p>';
+    }
+    function addTag() { tagsState = readTags(); tagsState.push({ text: '', mode: 'OVERLAPS', from: '08:00', to: '14:00' }); renderTags(); }
+    function removeTag(i) { tagsState = readTags(); tagsState.splice(i, 1); renderTags(); }
     function collect() {
       return {
         id: current ? current.id : '', kind: kind, name: $('name').value.trim(),
@@ -206,7 +248,7 @@
         separator: $('separator').value, prefix: $('prefix').value, suffix: $('suffix').value, encode: $('encode').checked,
         maxPerLink: Number($('maxPerLink').value || 0),
         include: $('include').value, lineTemplate: $('lineTemplate').value, groupByTeam: $('groupByTeam').checked, emptyText: $('emptyText').value,
-        roles: $('roles').value, roleMode: $('roleMode').value, roleHeadings: $('roleHeadings').checked, restHeading: $('restHeading').value,
+        sections: readSections(), showRest: $('showRest').checked, restHeading: $('restHeading').value, excludeRoles: $('excludeRoles').value, tags: readTags(),
         teamIds: checkedData('team'), who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked
       };
     }

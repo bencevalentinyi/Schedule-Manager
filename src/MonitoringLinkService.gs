@@ -7,8 +7,9 @@
  *    the staff column holding the platform ID (e.g. "Aircall ID"), separator, optional text
  *    before/after each ID, URL encoding, max IDs per link.
  *  - PLAN: a text list built from the schedule ("08:00 - 16:00 Ann Lee"), one line per shift
- *    and/or meeting, with a configurable line format ({START} {END} {NAME} {TYPE} {TEAM} {ID} {ROLE}),
- *    optionally ordered or filtered by the staff sheet's Role column (e.g. shift leads first).
+ *    and/or meeting, with a configurable line format ({START} {END} {NAME} {TYPE} {TEAM} {ID} {ROLE} {TAGS}),
+ *    in sections by the staff sheet's Role column (own headings, e.g. shift leads first), with extra
+ *    text by time (e.g. ":aircall:" for everyone working during 08:00–14:00).
  *
  * Both have teams and "who" (working now / at a time / during a window / the whole day).
  * Items are configuration stored in the spreadsheet (_CONFIG key LINK_TEMPLATES), never in
@@ -31,7 +32,44 @@ var LINK_WHO = {
 };
 var LINK_KINDS = { LINK: 'Monitoring link', PLAN: 'Daily list plan' };
 var PLAN_INCLUDE = { SHIFTS: 'Shifts', MEETINGS: 'Meetings and trainings', BOTH: 'Shifts, meetings and trainings' };
-var PLAN_ROLE_MODES = { FIRST: 'Put them first', ONLY: 'Only them', EXCEPT: 'Everyone except them' };
+/** Extra text by time: when a line's shift matches, the text is added after the name (or at {TAGS}). */
+var PLAN_TAG_MODES = {
+  OVERLAPS: 'Works during part of',
+  COVERS: 'Works the whole window',
+  STARTS_BEFORE: 'Starts before',
+  STARTS_FROM: 'Starts at or after',
+  ENDS_AFTER: 'Ends after'
+};
+var PLAN_TAG_WINDOW_MODES_ = ['OVERLAPS', 'COVERS'];
+
+/** Splits a role list ("A, B" or an array) into clean role names. Pure. */
+function planRoleList_(v) {
+  return (Array.isArray(v) ? v : splitList_(v)).map(function (r) { return str_(r).replace(/\s+/g, ' '); }).filter(Boolean);
+}
+
+/**
+ * Plan sections from a stored item: [{heading, roles}], whether everyone else is listed (and its
+ * heading), and roles to leave out. Older items (roles + roleMode + roleHeadings) are converted. Pure.
+ */
+function planSections_(t) {
+  if (Array.isArray(t.sections)) {
+    return {
+      sections: t.sections.map(function (s) { s = s || {}; return { heading: str_(s.heading), roles: planRoleList_(s.roles) }; })
+        .filter(function (s) { return s.roles.length || s.heading; }),
+      showRest: t.showRest === undefined ? true : !!t.showRest,
+      restHeading: str_(t.restHeading),
+      excludeRoles: planRoleList_(t.excludeRoles)
+    };
+  }
+  var roles = planRoleList_(t.roles), mode = t.roleMode || 'FIRST', heads = !!t.roleHeadings;
+  if (mode === 'EXCEPT') return { sections: [], showRest: true, restHeading: '', excludeRoles: roles };
+  return {
+    sections: roles.map(function (r) { return { heading: heads ? r : '', roles: [r] }; }),
+    showRest: mode !== 'ONLY',
+    restHeading: heads ? str_(t.restHeading === undefined ? 'Others' : t.restHeading) : '',
+    excludeRoles: []
+  };
+}
 var PLAN_DEFAULT_LINE_ = '{START} - {END} {NAME}';
 var LINKS_SHEET_ = 'Monitoring Links';
 
@@ -44,6 +82,7 @@ function normalizeLinkTemplate_(t) {
   t = t || {};
   var max = Math.floor(toNumber_(t.maxPerLink, 0));
   var text = function (v, dflt) { return v === undefined || v === null ? dflt : String(v); };
+  var sec = planSections_(t);
   return {
     id: str_(t.id),
     kind: LINK_KINDS[t.kind] ? t.kind : 'LINK',
@@ -60,10 +99,14 @@ function normalizeLinkTemplate_(t) {
     lineTemplate: text(t.lineTemplate, '') || PLAN_DEFAULT_LINE_,
     groupByTeam: !!t.groupByTeam,
     emptyText: text(t.emptyText, 'No one scheduled'),
-    roles: (Array.isArray(t.roles) ? t.roles : splitList_(t.roles)).map(function (r) { return str_(r).replace(/\s+/g, ' '); }).filter(Boolean),
-    roleMode: PLAN_ROLE_MODES[t.roleMode] ? t.roleMode : 'FIRST',
-    roleHeadings: !!t.roleHeadings,
-    restHeading: text(t.restHeading, 'Others'),
+    sections: sec.sections,
+    showRest: sec.showRest,
+    restHeading: sec.restHeading,
+    excludeRoles: sec.excludeRoles,
+    tags: (Array.isArray(t.tags) ? t.tags : []).map(function (g) {
+      g = g || {};
+      return { text: str_(g.text), mode: PLAN_TAG_MODES[g.mode] ? g.mode : 'OVERLAPS', from: str_(g.from) || '08:00', to: str_(g.to) || '14:00' };
+    }).filter(function (g) { return g.text; }),
     // both
     idField: str_(t.idField) || 'employeeId',
     teamIds: (Array.isArray(t.teamIds) ? t.teamIds : []).map(str_).filter(Boolean),
@@ -85,6 +128,11 @@ function validateLinkTemplate_(t, idFieldKeys, otherNames) {
   var usesId = t.kind === 'LINK' || t.lineTemplate.indexOf('{ID}') >= 0;
   if (usesId && idFieldKeys && idFieldKeys.indexOf(t.idField) < 0) errs.push('The ID column "' + t.idField + '" is not a staff column.');
   if (t.who === 'AT' && hmToMinutes_(t.at) === null) errs.push('Enter the time as HH:mm.');
+  (t.tags || []).forEach(function (g) {
+    var isWindow = PLAN_TAG_WINDOW_MODES_.indexOf(g.mode) >= 0;
+    if (hmToMinutes_(g.from) === null || (isWindow && hmToMinutes_(g.to) === null)) errs.push('Extra text "' + g.text + '": enter the time(s) as HH:mm.');
+    else if (isWindow && hmToMinutes_(g.to) <= hmToMinutes_(g.from)) errs.push('Extra text "' + g.text + '": the window must end after it starts.');
+  });
   if (t.who === 'WINDOW') {
     var f = hmToMinutes_(t.from), to = hmToMinutes_(t.to);
     if (f === null || to === null) errs.push('Enter the window as HH:mm – HH:mm.');
@@ -190,55 +238,76 @@ function buildMonitoringUrls_(t, ids) {
 }
 
 /**
- * Applies the plan's role setting (staff sheet "Role" column) to the assignments. Pure.
- * FIRST: listed roles first, in the listed order, then everyone else (each part by start time);
- * ONLY: only the listed roles; EXCEPT: everyone except the listed roles. Roles match ignoring case and spaces.
- * @return {Array<{x, rank}>} rank = index in the role list, or the list length for everyone else
+ * Puts the assignments into the plan's sections by the staff sheet's Role column. Pure.
+ * Each person goes to the first section listing their role (roles match ignoring case and spaces);
+ * everyone else follows (or is left out when "everyone else" is off); excluded roles are dropped.
+ * Within a section the order stays by start time.
+ * @return {Array<{x, rank}>} rank = section index, or the number of sections for everyone else
  */
 function orderPlanItems_(t, items, roleOf) {
-  var roles = t.roles.map(normText_);
-  var ranked = items.map(function (x, i) {
-    var idx = roles.length ? roles.indexOf(normText_(roleOf(x.rec))) : -1;
-    return { x: x, rank: idx >= 0 ? idx : roles.length, listed: idx >= 0, i: i };
-  }).filter(function (p) {
-    if (!roles.length) return true;
-    return t.roleMode === 'ONLY' ? p.listed : t.roleMode === 'EXCEPT' ? !p.listed : true;
+  var sectionRoles = t.sections.map(function (s) { return s.roles.map(normText_); });
+  var excluded = t.excludeRoles.map(normText_);
+  var ranked = [];
+  items.forEach(function (x, i) {
+    var role = normText_(roleOf(x.rec));
+    if (role && excluded.indexOf(role) >= 0) return;
+    var rank = -1;
+    for (var k = 0; k < sectionRoles.length && rank < 0; k++) if (role && sectionRoles[k].indexOf(role) >= 0) rank = k;
+    if (rank < 0) { if (!t.showRest) return; rank = sectionRoles.length; }
+    ranked.push({ x: x, rank: rank, i: i });
   });
-  if (roles.length && t.roleMode !== 'EXCEPT') ranked.sort(function (a, b) { return a.rank - b.rank || a.i - b.i; });
+  ranked.sort(function (a, b) { return a.rank - b.rank || a.i - b.i; });
   return ranked;
 }
 
+/** The extra texts of the time rules that match one assignment (absolute minutes; base = 00:00 of the date). Pure. */
+function planTagsFor_(t, x, base) {
+  return t.tags.filter(function (g) {
+    var from = base + (hmToMinutes_(g.from) || 0), to = base + (hmToMinutes_(g.to) || 0);
+    if (g.mode === 'OVERLAPS') return x.s < to && x.e > from;
+    if (g.mode === 'COVERS') return x.s <= from && x.e >= to;
+    if (g.mode === 'STARTS_BEFORE') return x.s < from;
+    if (g.mode === 'STARTS_FROM') return x.s >= from;
+    if (g.mode === 'ENDS_AFTER') return x.e > from;
+    return false;
+  }).map(function (g) { return g.text; });
+}
+
 /**
- * The plan text: one line per assignment from the line format; optionally roles first (with a
- * heading per role) and grouped by team. Pure.
+ * The plan text: one line per assignment from the line format, in sections (each with an optional
+ * heading), optionally grouped by team; time rules add extra text after the name (or at {TAGS}). Pure.
  * @param {Object} t normalized PLAN item
  * @param {Array} items from selectAssignments_
  * @param {Object} teamNames teamId -> team name
  * @param {function(Object): string} idOf the chosen ID column value of a record's employee ('' if none)
  * @param {function(Object): string=} roleOf the employee's Role from the staff sheet ('' if none)
+ * @param {string=} dateIso the plan's date, for the time rules (default: each shift's own day)
  */
-function buildPlanText_(t, items, teamNames, idOf, roleOf) {
+function buildPlanText_(t, items, teamNames, idOf, roleOf, dateIso) {
   roleOf = roleOf || function () { return ''; };
   var hm = function (abs) { return minutesToHm_(((abs % 1440) + 1440) % 1440); };
+  var hasTagsSlot = t.lineTemplate.indexOf('{TAGS}') >= 0;
   var line = function (x) {
     var r = x.rec;
-    var values = { START: hm(x.s), END: hm(x.e), NAME: str_(r.employeeName) || str_(r.employeeId), TYPE: str_(r.shiftType) || str_(r.activity),
-      TEAM: teamNames[r.teamId] || r.teamId, ID: idOf(r), EMPLOYEE_ID: str_(r.employeeId), ROLE: roleOf(r) };
-    return t.lineTemplate.replace(/\{(START|END|NAME|TYPE|TEAM|ID|EMPLOYEE_ID|ROLE)\}/g, function (m, k) { return values[k]; }).replace(/\s+$/, '');
+    var base = dateIso ? dayNumber_(dateIso) * 1440 : Math.floor(x.s / 1440) * 1440;
+    var tags = planTagsFor_(t, x, base).join(' ');
+    var name = str_(r.employeeName) || str_(r.employeeId);
+    var values = { START: hm(x.s), END: hm(x.e), NAME: hasTagsSlot || !tags ? name : name + ' ' + tags,
+      TYPE: str_(r.shiftType) || str_(r.activity), TEAM: teamNames[r.teamId] || r.teamId, ID: idOf(r),
+      EMPLOYEE_ID: str_(r.employeeId), ROLE: roleOf(r), TAGS: tags };
+    return t.lineTemplate.replace(/\{(START|END|NAME|TYPE|TEAM|ID|EMPLOYEE_ID|ROLE|TAGS)\}/g, function (m, k) { return values[k]; })
+      .replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '');
   };
-  var headings = t.roleHeadings && t.roles.length && t.roleMode !== 'EXCEPT';
-  /** Lines of one group, with a heading above each role section when asked. */
+  var titleOf = function (rank) { return rank < t.sections.length ? t.sections[rank].heading : t.restHeading; };
+  /** Lines of one group, a heading above each section that has one; sections apart by a blank line when headed. */
   var block = function (ranked) {
-    if (!headings) return ranked.map(function (p) { return line(p.x); }).join('\n');
     var parts = [], cur = null;
     ranked.forEach(function (p) {
       if (!cur || cur.rank !== p.rank) { cur = { rank: p.rank, lines: [] }; parts.push(cur); }
       cur.lines.push(line(p.x));
     });
-    return parts.map(function (s) {
-      var title = s.rank < t.roles.length ? t.roles[s.rank] : t.restHeading;
-      return (title ? title + '\n' : '') + s.lines.join('\n');
-    }).join('\n\n');
+    var headed = parts.some(function (s) { return titleOf(s.rank); });
+    return parts.map(function (s) { return (titleOf(s.rank) ? titleOf(s.rank) + '\n' : '') + s.lines.join('\n'); }).join(headed ? '\n\n' : '\n');
   };
   var ranked = orderPlanItems_(t, items, roleOf);
   if (!ranked.length) return t.emptyText;
@@ -325,7 +394,7 @@ function generateLink_(t, ctx, teamsById, staffCache) {
       return v;
     };
     var roleOf = linkIdReader_('role', teamsById, staffCache); // the staff sheet's Role column
-    res.text = buildPlanText_(t, items, names, reader, roleOf);
+    res.text = buildPlanText_(t, items, names, reader, roleOf, ctx.date);
     var listed = orderPlanItems_(t, items, roleOf).map(function (p) { return p.x; });
     res.count = listed.length;
     res.people = uniq_(listed.map(function (x) { return x.identity; })).length;
@@ -435,7 +504,7 @@ function apiLinksBootstrap() {
       templates: loadLinkTemplates_(),
       idFields: linkIdFieldOptions_(),
       teams: Object.keys(teams).map(function (k) { return { teamId: k, teamName: teams[k].teamName, active: teams[k].active }; }),
-      who: LINK_WHO, kinds: LINK_KINDS, include: PLAN_INCLUDE, roleModes: PLAN_ROLE_MODES, defaultLine: PLAN_DEFAULT_LINE_,
+      who: LINK_WHO, kinds: LINK_KINDS, include: PLAN_INCLUDE, tagModes: PLAN_TAG_MODES, tagWindowModes: PLAN_TAG_WINDOW_MODES_, defaultLine: PLAN_DEFAULT_LINE_,
       today: ctx.today
     };
   });
