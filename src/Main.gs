@@ -26,7 +26,8 @@ function onOpen() {
       .addItem('Select Schedule Date', 'menuSelectDate')
       .addItem('Refresh Schedule Data', 'menuRefresh')
       .addSeparator()
-      .addItem('View Staff Directory', 'menuViewStaff'))
+      .addItem('View Staff Directory', 'menuViewStaff')
+      .addItem('Import Employee IDs', 'menuImportEmployeeIds'))
     .addSubMenu(ui.createMenu('Maintenance')
       .addItem('Rebuild Missing Sheets', 'menuRebuildMissing')
       .addItem('Repair Formatting', 'menuRepairFormatting')
@@ -73,7 +74,7 @@ function checkInstall() {
     ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
     AuditService: 'readImportLog_', Main: 'onOpen', Tests: 'runUnitTests'
   };
-  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
     if (typeof g[scripts[file]] === 'undefined') problems.push('Script file "' + file + '" is missing, empty, incomplete or contains another file\'s code (expected to define ' + scripts[file] + ').');
@@ -269,6 +270,10 @@ function menuViewTeamSchedule() {
 
 function menuViewStaff() {
   menuRun_('menuViewStaff', function () { showHtml_('StaffSidebar', 'Staff Directory', {}, 0, 0, true); });
+}
+
+function menuImportEmployeeIds() {
+  menuRun_('menuImportEmployeeIds', function () { showHtml_('EmployeeIdDialog', 'Import Employee IDs', {}, DIALOG_SIZE.LARGE); });
 }
 
 /* ------------------------------------------------------------------------ */

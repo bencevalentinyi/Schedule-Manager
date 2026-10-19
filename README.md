@@ -68,6 +68,7 @@ All files in `src/` belong in **one** Apps Script project bound to the spreadshe
 | `SetupDialog.html`, `ReportDialog.html`, `HistoryDialog.html`, `SettingsDialog.html`, `TeamManager.html`, `StaffFieldsDialog.html` | Setup, reports and help, import history, display settings, team list, custom fields | their services |
 | `TeamDialog.html` | Five-step team dialog (create and edit) | TeamService |
 | `StaffSidebar.html` | Staff directory sidebar | StaffService |
+| `EmployeeIdDialog.html` | Import Employee IDs from a Quinyx "Custom report" (Badge no. + Name) into the staff sheets | StaffService |
 | `Navigator.html` | Schedule Viewer sidebar (date navigation, filters, summary) | ScheduleService |
 | `ImportDialog.html`, `ImportPreview.html` | Import wizard, preview and confirmation | ImportService |
 | `ThemeSky.html`, `ThemeEmber.html` | **Optional** themes (a `<style>` block each), chosen in *Configure Display Settings → Theme*. Leave them out and the default look is used. To add a theme: create `Theme<Name>.html` and add one entry to `THEMES` in `Schema.gs`. | Styles (loaded after it by `include`) |

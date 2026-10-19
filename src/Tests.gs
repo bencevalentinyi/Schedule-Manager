@@ -776,9 +776,45 @@ function unitTestsThemes_() {
   ];
 }
 
+function unitTestsIdImport_() {
+  var report = [['Custom report', ''], ['Badge no.', 'Name as First name, Last name'],
+    ['0123', 'Ann, Lee'], ['555', 'Bob Ray'], ['777', 'Fox, Dee'], ['900', 'Zed New'], ['', 'No Badge'], ['555', 'Cy Moe']];
+  var sheets = function () {
+    return [
+      { teamId: 'T1', teamName: 'Alpha', rows: [{ _row: 4, employeeId: '', employeeName: 'Ann Lee' }, { _row: 5, employeeId: 'B9', employeeName: 'Bob Ray' },
+        { _row: 6, employeeId: '', employeeName: 'Cy Moe' }] },
+      { teamId: 'T2', teamName: 'Beta', rows: [{ _row: 4, employeeId: '', employeeName: 'Dee Fox' }, { _row: 5, employeeId: '0123', employeeName: 'Ann Lee' }] }
+    ];
+  };
+  var byName = function (plan) { var o = {}; plan.items.forEach(function (i) { o[i.name] = i.status; }); return o; };
+  return [
+    ['Employee IDs: the Custom report header is found in row 2 and every person is read', function () {
+      var p = parseIdReport_(report);
+      assertEq_([p.error, p.headerRow, p.idHeader, p.entries.length, p.entries[0].id, p.entries[0].row], ['', 2, 'Badge no.', 6, '0123', 3]);
+      assert_(parseIdReport_([['Custom report'], ['Something', 'Else']]).error, 'a report without the columns is refused');
+    }],
+    ['Employee IDs: names match in every staff sheet; existing IDs are never overwritten silently', function () {
+      var plan = planIdImport_(parseIdReport_(report).entries, sheets(), {});
+      var s = byName(plan);
+      assertEq_([s['Ann, Lee'], s['Zed New'], s['No Badge']], ['SET', 'NOT_FOUND', 'INVALID']);
+      assertEq_([s['Bob Ray'], s['Cy Moe']], ['DUPLICATE_IN_FILE', 'DUPLICATE_IN_FILE'], 'one badge for two names is refused');
+      var ann = plan.items.filter(function (i) { return i.name === 'Ann, Lee'; })[0];
+      assertEq_(ann.matches.map(function (m) { return m.teamName + ':' + m.status; }), ['Alpha:SET', 'Beta:SAME'], 'leading zeros kept; same ID in Beta');
+      assertEq_(s['Fox, Dee'], 'SET', '"Last, First" is tried when "First Last" finds nobody');
+      assertEq_(plan.summary.writes, 2);
+    }],
+    ['Employee IDs: a different existing ID is a conflict unless replacing is chosen; an ID used by someone else is refused', function () {
+      var rep = [['Custom report'], ['Badge no.', 'Name'], ['B7', 'Bob Ray'], ['B9', 'Cy Moe']];
+      var keep = planIdImport_(parseIdReport_(rep).entries, sheets(), {});
+      assertEq_([byName(keep)['Bob Ray'], byName(keep)['Cy Moe'], keep.summary.writes], ['CONFLICT', 'ID_IN_USE', 0]);
+      assertEq_(planIdImport_(parseIdReport_(rep).entries, sheets(), { overwrite: true }).summary.writes, 1, 'only the conflict is replaced');
+    }]
+  ];
+}
+
 function runUnitTests() {
   return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_())
-    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()));
+    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()));
 }
 
 /** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */
