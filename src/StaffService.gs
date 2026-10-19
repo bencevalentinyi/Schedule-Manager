@@ -30,12 +30,6 @@ var EXTERNAL_ID_PATTERN_ = /^\S{1,80}$/;
 /* Pure helpers                                                              */
 /* ------------------------------------------------------------------------ */
 
-function isActiveValue_(v) {
-  if (v === false) return false;
-  var s = str_(v).toLowerCase();
-  return !(s === 'inactive' || s === 'false' || s === 'no' || s === '0');
-}
-
 function staffKeyFromNote_(note) {
   var m = /sm-field:\s*([A-Za-z0-9_:\-]+)/.exec(str_(note));
   return m ? m[1] : '';
@@ -146,6 +140,7 @@ function findDuplicateIdentifiers_(rows, keys, header, registry) {
  */
 function layoutStaffSheet_(sh, team) {
   var cfg = getConfig_();
+  var th = sheetTheme_(cfg);
   var registry = getStaffFieldMap_();
   var H = STAFF_LAYOUT.HEADER_ROW;
   var lc = Math.max(sh.getLastColumn(), 1);
@@ -155,12 +150,7 @@ function layoutStaffSheet_(sh, team) {
   var keys = resolveStaffColumns_(header, notes, registry);
   while (header.length && !header[header.length - 1] && !keys[keys.length - 1]) { header.pop(); keys.pop(); notes.pop(); }
 
-  // A shared directory shows the union of the fields selected by every team using it.
-  var sharing = teamsUsingStaffSheet_(sh.getSheetId());
-  if (!sharing.some(function (t) { return t.teamId === team.teamId; })) sharing.push(team);
-  var selected = [];
-  sharing.forEach(function (t) { t.settings.staffFields.forEach(function (f) { if (selected.indexOf(f) < 0) selected.push(f); }); });
-  selected = normalizeStaffFields_(selected);
+  var selected = normalizeStaffFields_(team.settings.staffFields);
   var regOrder = {};
   Object.keys(registry).forEach(function (k) { regOrder[STAFF_REGISTRY_PREFIX + k] = registry[k].displayOrder; });
   selected = selected.slice(0, 2).concat(selected.slice(2).sort(function (a, b) {
@@ -181,16 +171,14 @@ function layoutStaffSheet_(sh, team) {
   var hdrRange = sh.getRange(H, 1, 1, header.length);
   hdrRange.setValues([header]).setNotes([newNotes]);
 
-  sh.getRange(STAFF_LAYOUT.TITLE_ROW, 1).setValue(sharing.length > 1
-    ? 'Shared Staff Directory — ' + sharing.map(function (t) { return t.teamName; }).join(', ') + ' (team membership: View Staff Directory)'
-    : team.teamName + ' — Staff Directory')
-    .setFontSize(14).setFontWeight('bold').setFontColor(cfg.HEADER_COLOR);
+  sh.getRange(STAFF_LAYOUT.TITLE_ROW, 1).setValue(team.teamName + ' — Staff Directory')
+    .setFontSize(14).setFontWeight('bold').setFontColor(th.accent);
   var sched = resolveTeamSheet_(team, 'schedule');
   sh.getRange(STAFF_LAYOUT.NAV_ROW, 1).setValue(sched ? '=HYPERLINK("#gid=' + sched.getSheetId() + '","→ Daily schedule")' : '');
   sh.getRange(STAFF_LAYOUT.NAV_ROW, 2).setValue('Employee ID is the internal key. Identifier columns are stored as text. Use Schedule Manager → Schedule Management → View Staff Directory to add or edit staff safely.')
     .setFontColor('#5f6368').setFontStyle('italic');
 
-  hdrRange.setFontWeight('bold').setBackground(cfg.HEADER_COLOR).setFontColor(cfg.HEADER_FONT_COLOR).setVerticalAlignment('middle');
+  hdrRange.setFontWeight('bold').setBackground(th.header).setFontColor(th.headerText).setVerticalAlignment('middle');
   sh.setFrozenRows(H);
 
   var dataRows = sh.getMaxRows() - H;
@@ -205,15 +193,7 @@ function layoutStaffSheet_(sh, team) {
       var L = columnLetter_(c);
       rules.push(SpreadsheetApp.newConditionalFormatRule()
         .whenFormulaSatisfied('=AND($' + L + r0 + '<>"",COUNTIF($' + L + '$' + r0 + ':$' + L + ',$' + L + r0 + ')>1)')
-        .setBackground(cfg.ERROR_COLOR).setRanges([sh.getRange(r0, c, dataRows, 1)]).build());
-    }
-    if (k === 'active') {
-      sh.getRange(r0, c, dataRows, 1).setDataValidation(
-        SpreadsheetApp.newDataValidation().requireValueInList(STAFF_ACTIVE_VALUES, true).setAllowInvalid(false)
-          .setHelpText('Active or Inactive. Blank is treated as Active.').build());
-      rules.push(SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied('=$' + columnLetter_(c) + r0 + '="Inactive"')
-        .setFontColor('#9aa0a6').setRanges([full]).build());
+        .setBackground(th.error).setRanges([sh.getRange(r0, c, dataRows, 1)]).build());
     }
     if (k === 'email') {
       sh.getRange(r0, c, dataRows, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireTextIsEmail().setAllowInvalid(true).build());
@@ -224,7 +204,7 @@ function layoutStaffSheet_(sh, team) {
   if (textCols.length) sh.getRangeList(textCols).setNumberFormat('@');
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied('=AND(COUNTA($A' + r0 + ':$' + columnLetter_(header.length) + r0 + ')>0,ISEVEN(ROW()))')
-    .setBackground(cfg.BAND_COLOR).setRanges([full]).build());
+    .setBackground(th.band).setRanges([full]).build());
   sh.setConditionalFormatRules(rules);
 
   // Visibility: managed fields show only if selected (and visible in the registry).
@@ -242,7 +222,8 @@ function layoutStaffSheet_(sh, team) {
   var filter = sh.getFilter();
   if (filter && filter.getRange().getNumColumns() !== header.length) { filter.remove(); filter = null; }
   if (!filter) sh.getRange(H, 1, dataRows + 1, header.length).createFilter();
-  sh.setTabColor(cfg.HEADER_COLOR);
+  sh.setTabColor(th.accent);
+  applySheetFont_(sh, th);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -266,7 +247,7 @@ function readStaff_(team) {
   var notes = sh.getRange(H, 1, 1, lc).getNotes()[0];
   var header = values[0].map(str_);
   var keys = resolveStaffColumns_(header, notes, registry);
-  var iId = keys.indexOf('employeeId'), iName = keys.indexOf('employeeName'), iActive = keys.indexOf('active');
+  var iId = keys.indexOf('employeeId'), iName = keys.indexOf('employeeName');
   if (iId < 0 || iName < 0) fail_('SCHEMA', 'The staff sheet "' + sh.getName() + '" must have "Employee ID" and "Employee Name" columns in row ' + H + '. Run Maintenance → Repair Formatting.');
   var strip = cfgBool_(cfg, 'STRIP_LEADING_ZEROS');
   var rows = [];
@@ -281,7 +262,7 @@ function readStaff_(team) {
     });
     o.employeeId = normalizeEmployeeId_(row[iId], strip);
     o.employeeName = str_(row[iName]).replace(/\s+/g, ' ');
-    o.active = iActive < 0 ? true : isActiveValue_(row[iActive]);
+    o.active = true; // the Active column is retired: everyone in the staff sheet is active
     rows.push(o);
   }
   return { sheet: sh, header: header, keys: keys, registry: registry, rows: rows };
@@ -301,10 +282,6 @@ function tryStaffIndex_(team, forImport) {
     idx.nameMatch = imp.nameMatch || '';
     idx.matchFieldLabel = staffFieldLabel_(matchField, st.registry);
     idx.matchFieldMissing = matchField !== 'employeeId' && st.keys.indexOf(matchField) < 0;
-    // Shared directories: employees are members only with an explicit ACTIVE membership.
-    var teams = listTeams_();
-    idx.shared = isSharedDirectory_(team, teams);
-    idx.isMember = memberCheckForTeam_(team, teams);
     return idx;
   } catch (e) {
     logError_('tryStaffIndex_', e);
@@ -376,7 +353,6 @@ function upsertStaff_(team, values, originalId) {
     if (k === 'employeeId') out[i] = id;
     else if (k === 'employeeName') out[i] = safeCell_(name);
     else if (k === 'lastUpdated') out[i] = new Date();
-    else if (k === 'active') out[i] = isActiveValue_(v === undefined ? existingRow[i] : v) ? 'Active' : 'Inactive';
     else if (k === 'team' && !target && !v) out[i] = team.teamName;
     else if (v !== undefined) out[i] = isIdentifierStaffKey_(k, st.registry) ? v : safeCell_(v);
     if (isIdentifierStaffKey_(k, st.registry)) textCells.push(columnLetter_(i + 1) + rowNum);
@@ -384,24 +360,7 @@ function upsertStaff_(team, values, originalId) {
   ensureRows_(sh, rowNum);
   if (textCells.length) sh.getRangeList(textCells).setNumberFormat('@');
   sh.getRange(rowNum, 1, 1, width).setValues([out]);
-  // In a shared directory, a new employee added for this team becomes a member of this team only.
-  if (!target && isSharedDirectory_(team)) {
-    setMemberships_([{ employeeId: id, teamId: team.teamId, status: MEMBERSHIP_STATUS.ACTIVE, source: 'STAFF_SIDEBAR' }]);
-  }
   return { employeeId: id, employeeName: name, row: rowNum, created: !target };
-}
-
-function setStaffActive_(team, employeeId, active) {
-  var st = readStaff_(team);
-  var iActive = st.keys.indexOf('active');
-  var iUpd = st.keys.indexOf('lastUpdated');
-  if (iActive < 0) fail_('SCHEMA', 'The staff sheet has no "Active" column. Run Maintenance → Repair Formatting.');
-  var row = null;
-  st.rows.forEach(function (r) { if (idKey_(r.employeeId) === idKey_(employeeId)) row = r; });
-  if (!row) fail_('NOT_FOUND', 'Employee ' + employeeId + ' was not found in the staff sheet.');
-  st.sheet.getRange(row._row, iActive + 1).setValue(active ? 'Active' : 'Inactive');
-  if (iUpd >= 0) st.sheet.getRange(row._row, iUpd + 1).setValue(new Date());
-  return { employeeId: row.employeeId, active: !!active };
 }
 
 /**
@@ -411,18 +370,14 @@ function setStaffActive_(team, employeeId, active) {
  */
 function unknownStaffCandidates_(team) {
   var idx = buildStaffIndex_(readStaff_(team).rows);
-  var isMember = memberCheckForTeam_(team);
   var strategy = (team.settings.import && team.settings.import.nameMatch) || getConfig_().NAME_MATCH_STRATEGY;
   var out = {};
   queryScheduleRecords_({ teamIds: [team.teamId] }).forEach(function (r) {
     if (r.recordStatus !== RECORD_STATUS.ACTIVE) return;
     var m = matchEmployee_(idx, r.employeeId, r.employeeName, strategy);
-    var inDirectory = m.status === STAFF_MATCH.ID || m.status === STAFF_MATCH.NAME;
-    if (inDirectory && isMember(m.staff).member) return;
+    if (m.status === STAFF_MATCH.ID || m.status === STAFF_MATCH.NAME) return;
     var k = r.employeeId ? 'ID:' + idKey_(r.employeeId) : 'NM:' + normName_(r.employeeName);
-    // In a shared directory, a known employee who is not a member can be added as a member.
-    if (!out[k]) out[k] = { employeeId: inDirectory ? m.staff.employeeId : r.employeeId, employeeName: inDirectory ? m.staff.employeeName : r.employeeName,
-      shifts: 0, lastDate: r.shiftDate, canAdd: inDirectory || !!r.employeeId, membershipOnly: inDirectory };
+    if (!out[k]) out[k] = { employeeId: r.employeeId, employeeName: r.employeeName, shifts: 0, lastDate: r.shiftDate, canAdd: !!r.employeeId };
     out[k].shifts++;
     if (r.shiftDate > out[k].lastDate) out[k].lastDate = r.shiftDate;
     if (!out[k].employeeName && r.employeeName) out[k].employeeName = r.employeeName;
@@ -435,17 +390,10 @@ function addUnknownStaff_(team, employeeIds) {
   var wanted = (employeeIds || []).map(idKey_);
   var candidates = unknownStaffCandidates_(team).filter(function (c) { return c.canAdd && wanted.indexOf(idKey_(c.employeeId)) >= 0; });
   var added = [];
-  var memberships = candidates.filter(function (c) { return c.membershipOnly; }).map(function (c) {
-    added.push(c.employeeId);
-    return { employeeId: c.employeeId, teamId: team.teamId, status: MEMBERSHIP_STATUS.ACTIVE, source: 'STAFF_SIDEBAR' };
-  });
-  setMemberships_(memberships);
-  candidates = candidates.filter(function (c) { return !c.membershipOnly; });
   candidates.forEach(function (c) {
     var v = {};
     v[STAFF_FIELD_DEFS.employeeId.label] = c.employeeId;
     v[STAFF_FIELD_DEFS.employeeName.label] = c.employeeName || c.employeeId;
-    v[STAFF_FIELD_DEFS.active.label] = 'Active';
     v[STAFF_FIELD_DEFS.notes.label] = 'Added from imported schedule';
     added.push(upsertStaff_(team, v, '').employeeId);
   });
@@ -525,7 +473,7 @@ function apiStaffBootstrap() {
   });
 }
 
-function apiStaffList(teamId, query, includeInactive) {
+function apiStaffList(teamId, query) {
   return apiCall_('apiStaffList', function () {
     var team = requireTeam_(teamId);
     var st = readStaff_(team);
@@ -545,24 +493,18 @@ function apiStaffList(teamId, query, includeInactive) {
     });
     var q = normText_(query);
     var rows = st.rows.filter(function (r) {
-      if (!includeInactive && !r.active) return false;
       if (!q) return true;
       return Object.keys(r.values).some(function (h) { return normText_(r.values[h]).indexOf(q) >= 0; });
     });
     var total = rows.length;
     rows.sort(function (a, b) { return a.employeeName.localeCompare(b.employeeName); });
     var dupMap = findDuplicateIdentifiers_(st.rows, st.keys, st.header, st.registry);
-    var teams = listTeams_();
-    var shared = isSharedDirectory_(team, teams);
-    var isMember = memberCheckForTeam_(team, teams);
     return {
       fields: visible,
-      shared: shared,
-      sharedWith: shared ? teamsUsingStaffSheet_(team.settings.staffSheetId, teams).map(function (t) { return t.teamName; }) : [],
       rows: rows.slice(0, 200).map(function (r) {
         var v = {};
         Object.keys(r.values).forEach(function (h) { v[h] = isDate_(r.values[h]) ? formatTimestamp_(r.values[h]) : r.values[h]; });
-        return { employeeId: r.employeeId, employeeName: r.employeeName, active: r.active, row: r._row, values: v, member: isMember(r).member };
+        return { employeeId: r.employeeId, employeeName: r.employeeName, row: r._row, values: v };
       }),
       total: total,
       duplicates: Object.keys(dupMap).map(function (l) { return l + ': ' + dupMap[l].join(', '); })
@@ -574,16 +516,6 @@ function apiStaffSave(teamId, values, originalId) {
   return apiCall_('apiStaffSave', function () {
     return withLock_(function () {
       var r = upsertStaff_(requireTeam_(teamId), values, originalId);
-      rebuildStaffMasterSafe_();
-      return r;
-    });
-  });
-}
-
-function apiStaffSetActive(teamId, employeeId, active) {
-  return apiCall_('apiStaffSetActive', function () {
-    return withLock_(function () {
-      var r = setStaffActive_(requireTeam_(teamId), employeeId, active);
       rebuildStaffMasterSafe_();
       return r;
     });

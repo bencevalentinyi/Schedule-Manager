@@ -1,6 +1,5 @@
 <!-- Included by ImportDialog.html: renders the analysis returned by apiImportAnalyze / apiImportCommit. -->
 <script>
-  var ROUTING_NEEDS_DECISION = ['AMBIGUOUS', 'UNKNOWN_EMPLOYEE', 'NO_MEMBERSHIP', 'AMBIGUOUS_NAME', 'ASSIGNED_MANUALLY', 'SKIPPED'];
 
   /** Collapsible detail section; open when it needs attention. */
   function detailSection(title, count, bodyHtml, open, kind) {
@@ -15,10 +14,37 @@
   }
   function n(v) { return Number(v) || 0; }
 
+  var HELD_REASONS = {
+    NOT_IN_STAFF: 'Not in any staff sheet',
+    IN_SEVERAL: 'In several staff sheets',
+    NOT_IN_TEAM: 'Not in this team\'s staff sheet'
+  };
+  /**
+   * Employees held back for review, each with a team / Skip choice. The choices are kept in the
+   * page's `decisions` object (ImportDialog) and sent with the next Re-check.
+   */
+  function heldHtml(people) {
+    if (!people.length) return '';
+    var chosen = typeof decisions !== 'undefined' ? decisions : {};
+    var rows = people.map(function (h, k) {
+      var cur = chosen[h.key] || '';
+      var opts = '<option value="">— decide —</option>' + h.candidates.map(function (c) {
+        var label = h.reason === 'NOT_IN_TEAM' ? 'Import to ' + c.teamName + ' anyway' : c.teamName;
+        return '<option value="' + esc(c.teamId) + '"' + (cur === c.teamId ? ' selected' : '') + '>' + esc(label) + '</option>';
+      }).join('') + '<option value="SKIP"' + (cur === 'SKIP' ? ' selected' : '') + '>Skip</option>';
+      return '<tr class="attention"><td>' + esc(h.employeeName || '(no name)') + '</td><td>' + esc(h.employeeId || '—') + '</td><td class="num">' + h.rows + '</td><td>' + esc(HELD_REASONS[h.reason] || h.reason) + '</td>' +
+        '<td><label class="sr-only" for="held' + k + '">Decision for ' + esc(h.employeeName) + '</label><select id="held' + k + '" data-held="' + esc(h.key) + '" onchange="decisionChanged(this)">' + opts + '</select></td></tr>';
+    });
+    return '<div class="panel mt-3"><div class="panel-head"><h3>Held back for review ' + badge('bad', String(people.length)) + '</h3></div>' +
+      '<p class="hint mt-0">These people were not imported yet. Choose a team or Skip for each, then click <b>Re-check</b>. To match them automatically next time, add them to the right staff sheet (View Staff Directory) with exactly the name used in Quinyx.</p>' +
+      tableHtml(['Employee', 'Employee ID', 'Rows', 'Why', 'Decision'], rows, [2]) +
+      '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="skipAllHeld()">Skip all listed</button><span class="spacer"></span>' +
+      '<button type="button" class="btn sm primary" onclick="analyze()">Re-check</button></div></div>';
+  }
+
   function renderPreview(p) {
     var S = p.summary;
     var html = '';
-    if (p.previewOnly) html += alertHtml('info', 'Preview mode', 'Nothing will be written. Use Schedule Import → Import Quinyx Export to apply a file.');
 
     // Source facts
     html += '<dl class="facts">' +
@@ -26,7 +52,6 @@
       '<div><dt>Format</dt><dd>' + esc(p.format) + '</dd></div>' +
       (S.scheduleDate ? '<div><dt>Schedule date</dt><dd>' + esc(S.scheduleDate) + '</dd></div>' : '') +
       '<div><dt>Shift dates</dt><dd>' + esc(S.dateFrom ? S.dateFrom + (S.dateTo !== S.dateFrom ? ' → ' + S.dateTo : '') : '—') + '</dd></div>' +
-      '<div><dt>Team routing</dt><dd>' + esc(p.teamMode) + '</dd></div>' +
       (p.dateOrder ? '<div><dt>Date order</dt><dd>' + esc(p.dateOrder) + '</dd></div>' : '') + '</dl>';
     if (S.shiftTypeFilters && S.shiftTypeFilters.length) {
       html += '<p class="small"><b>Selected shift types</b> — ' + S.shiftTypeFilters.map(function (f) {
@@ -36,8 +61,9 @@
     (p.fileWarnings || []).forEach(function (w) { html += alertHtml('warning', '', esc(w)); });
 
     // Status of the whole import
-    if (p.blockers.length && !p.previewOnly) html += alertHtml('error', 'The import cannot be applied yet', '', p.blockers);
-    else if (!p.previewOnly) html += alertHtml('success', 'Ready to apply', 'Review the summary and the confirmation below, then click <b>Apply import</b>.');
+    if (p.blockers.length) html += alertHtml('error', 'The import cannot be applied yet', '', p.blockers);
+    else html += alertHtml('success', 'Ready to apply', 'Review the summary and the confirmation below, then click <b>Apply import</b>.');
+    html += heldHtml(S.heldPeople || []);
 
     // Metrics, grouped
     var group = function (title, tiles) { return '<div class="stat-group"><div class="eyebrow">' + esc(title) + '</div><div class="stats mb-0">' + tiles.join('') + '</div></div>'; };
@@ -61,13 +87,13 @@
       stat('Meetings excluded', S.meetingsExcluded, S.meetingsExcluded ? 'warn' : '')
     ]);
     var attention = [
-      ['Unknown employees', S.unknownEmployeeCount, 'warn'], ['Ambiguous team', S.ambiguousRouting, 'bad'], ['Unroutable rows', S.unroutable, 'bad'],
+      ['Held for review', (S.heldPeople || []).length, 'bad'], ['Unknown employees', S.unknownEmployeeCount, 'warn'],
       ['Invalid times', S.invalidTimes, 'bad'], ['Unreadable shift info', S.unparseableShiftInfo, 'bad'], ['Missing employee name', S.missingEmployee, 'bad'],
       ['Hours missing / invalid', n(S.hoursMissing) + n(S.hoursInvalid), 'warn'], ['Hours differ', S.hoursDiscrepancies, 'warn'], ['Overlaps', S.overlapsCount, 'warn']
     ];
     var hits = attention.filter(function (a) { return n(a[1]) > 0; });
     html += hits.length ? group('Needs attention', hits.map(function (a) { return stat(a[0], a[1], a[2]); }))
-      : '<div class="stat-group"><div class="eyebrow">Needs attention</div><p class="small mb-0">' + badge('ok', 'Nothing') + ' No unknown employees, routing problems, invalid times or overlaps.</p></div>';
+      : '<div class="stat-group"><div class="eyebrow">Needs attention</div><p class="small mb-0">' + badge('ok', 'Nothing') + ' No unknown employees, invalid times or overlaps.</p></div>';
 
     html += renderReport(p.report);
 
@@ -78,29 +104,6 @@
           return '<tr><td>' + esc(t.type || '(blank)') + '</td><td class="num">' + t.rows + '</td><td class="num">' + t.included + '</td><td class="num">' + t.excluded + '</td><td>' +
             (t.isNew ? badge('warn', 'New') : '') + (t.excluded && !t.included ? ' ' + badge('', 'Excluded') : '') + '</td></tr>';
         }), [1, 2, 3]), S.shiftTypes.some(function (t) { return t.isNew; }));
-    }
-    if (p.routing && p.routing.length) {
-      var teamsList = (typeof boot !== 'undefined' && boot && boot.teams) ? boot.teams.filter(function (t) { return t.status === 'READY'; }) : [];
-      var ov = (typeof routingOverrides !== 'undefined') ? routingOverrides : {};
-      var problems = p.routing.filter(function (r) { return ROUTING_NEEDS_DECISION.indexOf(r.status) >= 0; }).length;
-      var body = (problems ? alertHtml('warning', problems + ' row(s) need a decision', 'Choose a team or "Skip this row" for each highlighted row, then click <b>Re-analyze</b>.') : '') +
-        tableHtml(['Row', 'Employee (Quinyx)', 'Matched ID', 'Staff name', 'Match', 'Membership', 'Resolved team', 'Routing'],
-          p.routing.map(function (r) {
-            var cell = esc(r.team || '—');
-            var needs = ROUTING_NEEDS_DECISION.indexOf(r.status) >= 0;
-            if (needs && teamsList.length) {
-              var cur = ov[String(r.row)] || '';
-              var opts = '<option value="">— decide —</option><option value="SKIP"' + (cur === 'SKIP' ? ' selected' : '') + '>Skip this row</option>' +
-                r.candidates.concat(teamsList.filter(function (t) { return !r.candidates.some(function (c) { return c.teamId === t.teamId; }); }))
-                  .map(function (t) { return '<option value="' + esc(t.teamId) + '"' + (cur === t.teamId ? ' selected' : '') + '>' + esc(t.teamName) + '</option>'; }).join('');
-              cell = '<label class="sr-only" for="route' + r.row + '">Team for row ' + r.row + '</label><select id="route' + r.row + '" data-route="' + r.row + '" onchange="routeChanged(this)">' + opts + '</select>';
-            }
-            var cls = needs && r.status !== 'ASSIGNED_MANUALLY' && r.status !== 'SKIPPED' ? 'bad' : (r.status === 'ROUTED' || r.status === 'SELECTED_TEAM' || r.status === 'TEAM_COLUMN' ? 'ok' : 'warn');
-            return '<tr' + (cls === 'bad' ? ' class="attention"' : '') + '><td class="num">' + r.row + '</td><td>' + esc(r.sourceName || r.sourceId) + '</td><td>' + esc(r.employeeId || '—') + '</td><td>' + esc(r.staffName || '—') +
-              '</td><td>' + esc(r.method) + '</td><td>' + esc(r.membership || '—') + '</td><td>' + cell + '</td><td>' + badge(cls, r.status) + '</td></tr>';
-          }), [0]) +
-        (p.routingTotal > p.routing.length ? '<p class="hint">Showing ' + p.routing.length + ' of ' + p.routingTotal + ' rows (problems first).</p>' : '');
-      html += detailSection('Employee matching and team routing', p.routingTotal, body, problems > 0, problems ? 'bad' : '');
     }
     if (S.teams.length) {
       html += detailSection('Teams', S.teams.length, tableHtml(['Team', 'Valid rows', 'Dates', 'New', 'Updated', 'Removed', 'Unchanged', 'Skipped', 'Pending', 'Rejected'],
@@ -140,7 +143,7 @@
    */
   function renderConfirmation(p, strategies) {
     var S = p.summary;
-    if (p.previewOnly || !S.teams.length) return '';
+    if (!S.teams.length) return '';
     var imported = (S.shiftTypes || []).filter(function (t) { return t.included > 0; }).map(function (t) { return t.type || '(blank)'; });
     var rows = [
       ['Teams affected', esc(S.teams.map(function (t) { return t.teamName; }).join(', '))],

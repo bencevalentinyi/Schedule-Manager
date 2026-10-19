@@ -39,7 +39,6 @@ Other assumptions:
 **What to collect to finalize a deployment:** one real export per export setting your teams use (with personal data scrubbed if necessary). Import it once, correct the mapping or layout, tick *Save this mapping/layout*, and the format is pinned. Check in particular:
 
 - whether a stable shift ID column exists (if so, map it);
-- how breaks are expressed (minutes, `h:mm`, or start/end);
 - whether the team/section column values match your team names (if not, add them as aliases).
 
 ## 2. System architecture
@@ -77,7 +76,7 @@ Configuration lives in tables (`_CONFIG`, `_TEAMS`, `_TEAM_TYPES`, `_IMPORT_MAPP
 | Wall-clock date-time strings stored as plain text | Avoids script/spreadsheet time-zone conversion bugs. Values look exactly like the export. | Durations across a DST change are off by the DST delta. |
 | Soft delete (`REMOVED`) instead of deleting rows | Preserves history. Undo can restore records. | `_SCHEDULE_DATA` only grows. Archiving is a documented future extension. |
 | Team sheets found by **sheet ID**, falling back to name | Renaming a tab by hand does not break the system. The registry heals itself. | None significant. |
-| One JSON field map per profile row in `_IMPORT_MAPPINGS` | One profile per row is easy to list, match and edit. The UI edits it safely. | Editing the JSON directly in the sheet is possible but error-prone. Use *Configure Import Settings → Mapping profiles*. |
+| One JSON field map per profile row in `_IMPORT_MAPPINGS` | One profile per row is easy to list, match and edit. The import wizard creates and updates profiles. | Editing the JSON directly in the sheet is possible but error-prone; there is no profile editor at the moment. |
 
 ## 3. Data model
 
@@ -100,7 +99,7 @@ Configuration lives in tables (`_CONFIG`, `_TEAMS`, `_TEAM_TYPES`, `_IMPORT_MAPP
 
 ### Configurable staff fields (v1.1)
 
-- **Built-in fields** live in code (`STAFF_FIELD_DEFS`): Employee ID, Employee Name, Active, Role, Notes, Email, Team, Skills, Last Updated.
+- **Built-in fields** live in code (`STAFF_FIELD_DEFS`): Employee ID, Employee Name, Role, Notes, Email, Team, Skills, Last Updated. (Active is retired: hidden in older sheets, everyone counts as active.)
 - **Configurable fields** live in `_STAFF_FIELDS`, e.g. `external_id_1` = "Converse ID". Teams reference them as `field:<key>` in `settings.staffFields`.
 - **Column linking.** Every managed staff-sheet header carries the note `sm-field: <key>`. Columns are resolved by note first, then by header text, so renaming "Converse ID" to "CRM ID" changes only the header.
 - **Unselected or hidden fields** are hidden columns; values are never deleted.
@@ -141,7 +140,7 @@ Headcount covers exactly the window.
 - **Updates:** a re-import with the *Update* or *Replace* strategy overwrites the mapped fields of the matching record. Its previous values are journaled.
 - **Deletions:** imports never delete rows. *Replace* marks records `REMOVED`. A later import containing the same key restores them.
 - **History:** `REMOVED` records, the import log and the journal are kept indefinitely. Deleting a team keeps its records (reported as "records of an unregistered team" by *Validate Data*).
-- **Employees moving teams:** add them to the new team's staff sheet and mark them *Inactive* in the old one. Past shifts keep their original Team ID. New imports route by the export's team column (or the selected team).
+- **Employees moving teams:** add them to the new team's staff sheet and remove them from the old one. Past shifts keep their original Team ID. New imports route by the export's team column (or the selected team).
 - **View refresh:** a view is re-rendered from `_SCHEDULE_DATA` for the selected date and filters. This happens on any edit of B3/E3/G3/I3, after commits/undos, on *Refresh Schedule Data*, and on *Repair Formatting*. Rendering never writes to `_SCHEDULE_DATA`.
 
 ## 4. Duplicate strategy
@@ -173,7 +172,7 @@ Because the composite key includes start, end and activity, a shift whose time c
 ## 5. Import integrity
 
 1. The upload is parsed and staged in `_IMPORT_STAGING`. Nothing touches production data.
-2. **Analyze** validates every row: required fields, calendar validity, time ranges, break consistency, team routing, staff match, keys, and the diff. The result is a plan with a token (a hash of every action, the strategy and the counts).
+2. **Analyze** validates every row: required fields, calendar validity, time ranges, team routing, staff match, keys, and the diff. The result is a plan with a token (a hash of every action, the strategy and the counts).
 3. **Commit** (under `LockService` document lock):
    1. Recompute the plan. If the token differs, return a fresh preview (`PLAN_CHANGED`) and write nothing.
    2. If there are blockers (fatal errors, *Ask* with conflicts, or rejected rows without *Import valid rows*), stop and write nothing.
@@ -188,7 +187,7 @@ If step 4 or 5 throws, the log row becomes `FAILED` and no data has changed. If 
 
 ## 6. Spreadsheet schema (Phase 2)
 
-All internal sheets start with `_`. They are protected with *warning only* and can be hidden (`HIDE_SYSTEM_SHEETS`). **Neither protection nor hiding is security:** every editor can read and change them. Text-typed columns are formatted as plain text (`@`) so IDs like `00123` and times like `08:00` are never converted by Sheets. Columns are found by header label, so admins may add their own columns (they are preserved on every write).
+All internal sheets start with `_`. They are protected with *warning only* and hidden by setup and Repair Formatting (as long as another sheet is visible). **Neither protection nor hiding is security:** every editor can read and change them. Text-typed columns are formatted as plain text (`@`) so IDs like `00123` and times like `08:00` are never converted by Sheets. Columns are found by header label, so admins may add their own columns (they are preserved on every write).
 
 ### Internal sheets
 
@@ -201,7 +200,7 @@ All internal sheets start with `_`. They are protected with *warning only* and c
 | Description | text |
 | Updated At | datetime |
 
-Keys include `SYSTEM_VERSION`, `INITIALIZED`, `INITIALIZED_AT`, `TEAM_ID_SEQ`, `TEST_MODE`, `TIMEZONE`, `DATE_FORMAT`, `TIME_FORMAT`, `SCHEDULE_SHEET_PATTERN`, `STAFF_SHEET_PATTERN`, `DASHBOARD_SHEET`, `SHOW_CARRY_OVER`, `HIDE_SYSTEM_SHEETS`, colors, `DEFAULT_DUPLICATE_STRATEGY`, `DEFAULT_DATE_ORDER`, `NAME_MATCH_STRATEGY`, `STRIP_LEADING_ZEROS`, `MAX_SHIFT_HOURS`, `MIN_SHIFT_MINUTES`, `MAX_FILE_MB`, `STAGING_RETENTION_HOURS` and `AUTO_MAP_SYNONYMS`. See `CONFIG_DEFAULTS` in `ConfigService.gs` for descriptions.
+Keys include `SYSTEM_VERSION`, `INITIALIZED`, `INITIALIZED_AT`, `TEAM_ID_SEQ`, `TEST_MODE`, `TIMEZONE`, `DATE_FORMAT`, `TIME_FORMAT`, `SCHEDULE_SHEET_PATTERN`, `STAFF_SHEET_PATTERN`, `DASHBOARD_SHEET`, `SHOW_CARRY_OVER`, `UI_THEME`, `DEFAULT_DUPLICATE_STRATEGY`, `DEFAULT_DATE_ORDER`, `NAME_MATCH_STRATEGY`, `STRIP_LEADING_ZEROS`, `MAX_SHIFT_HOURS`, `MIN_SHIFT_MINUTES`, `MAX_FILE_MB`, `STAGING_RETENTION_HOURS` and `AUTO_MAP_SYNONYMS`. See `CONFIG_DEFAULTS` in `ConfigService.gs` for descriptions.
 
 **`_TEAMS`**: key: `Team ID`.
 
@@ -228,7 +227,7 @@ Keys include `SYSTEM_VERSION`, `INITIALIZED`, `INITIALIZED_AT`, `TEAM_ID_SEQ`, `
 |---|---|
 | Profile Name, Description | text |
 | Field Map JSON | `{"employeeId": "<exact header>", "start": "<header>", …}` |
-| Options JSON | `{dateOrder, breakUnit, headerRow, defaultTeamId, teamValueMap}` |
+| Options JSON | `{dateOrder, headerRow, defaultTeamId, teamValueMap}` |
 | Header Signature | hash of the sorted normalized headers, used for automatic recognition |
 | Created At / Updated At | datetime |
 
@@ -244,8 +243,7 @@ Keys include `SYSTEM_VERSION`, `INITIALIZED`, `INITIALIZED_AT`, `TEAM_ID_SEQ`, `
 | Staff Match | text | `ID`, `NAME`, `AMBIGUOUS` or `UNKNOWN` |
 | Activity, Role | text | |
 | Shift Start, Shift End | text | `yyyy-MM-dd HH:mm`; End may fall on the next day |
-| Break Start, Break End | text | `yyyy-MM-dd HH:mm` or blank |
-| Break Minutes, Gross Minutes, Net Minutes | number | |
+| Gross Minutes | number | Shift length. Breaks are not stored (older sheets may still have unused Break and Net Minutes columns). |
 | Shift Status | text | from source |
 | Record Status | text | `ACTIVE` or `REMOVED` |
 | Source Shift ID | text | |
@@ -257,17 +255,6 @@ Keys include `SYSTEM_VERSION`, `INITIALIZED`, `INITIALIZED_AT`, `TEAM_ID_SEQ`, `
 | Source Shift Info | text | v1.1, original shift-information cell |
 | Source Hours | text | v1.1, original hours cell |
 | Scheduled Minutes | number | v1.1, parsed hours (blank if missing or invalid) |
-
-**`_TEAM_MEMBERSHIP`** (v1.1.1): key = Employee ID + Team ID.
-
-| Column | Contents |
-|---|---|
-| Membership Status | `ACTIVE` or `INACTIVE` |
-| Team Role | optional |
-| Source | `BACKFILL`, `ADMIN` or `STAFF_SIDEBAR` |
-| Created At / Updated At | datetime |
-
-**`_SLACK_PAYLOADS`** (v1.1.1): key `Payload ID`. Columns: Generation ID, Generated At, Schedule Date, Employee ID / Name / Display, Team ID / Name, Activity Type / Category, Start/End DateTime, Start/End Time, Dashboard ID / URL, Block Number, Group Key, Source Schedule Record ID, Source Import ID, Payload Status, Message, Line Text, Slack User ID, Content Hash. This is derived output: regenerate it rather than editing it.
 
 **`_SCHEDULE_DATA`** v1.1.1 adds **Activity Category** (`SHIFT` or `MEETING`; blank in older rows means `SHIFT`). **`_IMPORT_LOG`** adds Meetings Imported and Meetings Excluded. **`_STAFF_FIELDS`** adds **Display Order**.
 
@@ -316,7 +303,7 @@ Status flags: `OK`, Overnight, Overlap, Unknown employee, Name match, Long shift
 | Row 3 | Headers, linked to field keys by header notes (`sm-field: …`) |
 | Row 4 onward | Data (default columns below) |
 
-- **Default columns (v1.1):** Employee ID, Employee Name, Converse ID, Aircall ID, AstraID, Active, Role, Notes.
+- **Default columns:** Employee ID, Employee Name, Role, Notes (v1.1 also had Converse ID, Aircall ID, AstraID and Active).
 - **Identifier columns** are plain text, and duplicates are highlighted.
 - **Active** is a dropdown (`Active`/`Inactive`, blank = Active).
 - A basic filter supports searching.
@@ -339,11 +326,9 @@ Status flags: `OK`, Overnight, Overlap, Unknown employee, Name match, Long shift
 - **Header layout profile.** The header row and first data row are stored in the mapping profile, so teams that share a profile share the layout.
 - **Overnight shifts in a one-day export** are dated on the schedule date. A shift that started the day before cannot be recognized from times alone.
 - **Meeting detection** depends on the shift/activity type text in the export. Meetings that Quinyx exports as part of a shift row (rather than as their own row) cannot be separated.
-- **Directory routing** matches by Employee ID, or by a unique exact name using the global name strategy. A team's alternative match key is not used for routing.
-- **Slack payloads** are normalized sheet rows. The Slack Workflow input schema has not been verified, so no specific schema is claimed (see §9).
 - **Display Order** sets the order of new columns and of fields in the dialogs. Existing staff-sheet columns are never moved.
 
-## 8. Meetings, shared directories and routing (v1.1.1)
+## 8. Meetings and staff sheets
 
 ### Meetings
 
@@ -360,80 +345,13 @@ Status flags: `OK`, Overnight, Overlap, Unknown employee, Name match, Long shift
 | Shift + shift, meeting + meeting, or a meeting partly outside a shift | **Conflict** (*Overlap*) |
 | Identical source rows | Duplicate in the file; skipped |
 
-**Working hours (documented rule).** For each employee and day: the net minutes of every shift (gross minus recorded break), plus only the part of each meeting that no shift covers. Activity durations and source hours (column F) are stored unchanged. The view's *Scheduled Hours* shows the source value per row.
+**Working hours (documented rule).** For each employee and day: the full length of every shift, plus only the part of each meeting that no shift covers. Activity durations and source hours (column F) are stored unchanged. The view's *Scheduled Hours* shows the source value per row.
 
-### Shared staff directories and membership
+### Staff sheets
 
-- **Directory = staff sheet** (by sheet ID). A team uses either a **dedicated** sheet or **shares** another team's sheet. Only sheets registered as some team's staff sheet can be shared.
-- **One record per employee.** Each employee exists once per directory. Updates are visible to every team using it.
-- **Membership:**
+Every team has its own staff sheet, and the staff sheets decide where people belong: an *All teams* import sends each row to the team whose staff sheet lists the employee (by ID, else by exact normalized name), then applies that team's shift-type filter. People who are not found, or are found in several sheets, are held back with a per-person decision (team or Skip) that is part of the plan token. Shared staff sheets, team membership (`_TEAM_MEMBERSHIP`) and routing by membership were removed. Setup / Configure Spreadsheet gives a team that still shares a sheet its own copy (values, notes and number formats); the team with the lowest Team ID keeps the original. The old `_TEAM_MEMBERSHIP` sheet is left unused and hidden.
 
-| Directory | Who is a member of team T |
-|---|---|
-| Dedicated (one team) | Everyone in the sheet (implicit, unchanged from earlier versions) |
-| Shared (2+ teams) | Only employees with an ACTIVE row (Employee ID, T) in `_TEAM_MEMBERSHIP`; a team-specific role is optional |
-
-- **Backfill.** When a directory becomes shared, its current employees get explicit memberships for the team(s) that already used it, so nothing changes for them. The joining team gets members only if the administrator ticks *Make all current employees members*.
-- **Staff added for a team** in a shared directory become members of that team only.
-- **Moving between teams** means changing memberships (Staff sidebar); stored schedules keep the team they were imported for.
-- **In the daily view,** employees who are in the directory but not members of the team are flagged *Not a team member*.
-
-### Routing by staff directory membership
-
-This is the import mode **Route by staff directory membership**. It covers all READY teams with *Use staff directory for employee matching and team routing* enabled. For each row:
-
-1. **Identify the employee:** Employee ID if mapped, otherwise a unique exact name (global name strategy).
-2. **Resolve them** against the routing teams' directories.
-3. **Collect candidate teams** where the employee is an active member.
-4. **Narrow the candidates:** first by the export's team column (if mapped and recognized), then by the teams' shift-type and meeting settings.
-5. **Route only when exactly one team remains.**
-   - **Ambiguous** rows (several teams) and **unroutable** rows (unknown employee, ambiguous name, or no membership) are rejected and listed in the preview's routing table.
-   - The administrator assigns each one to a team or skips it, then re-analyzes. These decisions are part of the plan token.
-   - Nothing is ever copied into several teams.
-
-The preview's routing table shows the Quinyx name, matched Employee ID, staff name, match method, membership status, resolved team and routing status for every row, problems first.
-
-## 9. Slack Workflow payloads and dashboard URLs (v1.1.1)
-
-**Source.** Payloads are built only from ACTIVE records in `_SCHEDULE_DATA` and the authoritative staff directories. Quinyx files are never re-parsed and schedule data is never modified.
-
-**Pipeline.** `buildPayloadPlan_` is pure and unit-tested:
-
-1. **Retrieve and validate.**
-   - Records are filtered by the selected teams and dates (by the shift's start date, so overnight shifts belong to the day they start), by activity types, and by meeting inclusion.
-   - Employees are resolved in the team's directory and membership is checked.
-   - Unresolved employees, non-members and inactive employees are excluded or kept with a status, per configuration. Every exclusion is counted.
-2. **Group into blocks** (`groupIntoBlocks_`).
-   - Records are sorted by the grouping keys (team / date / employee / activity), and groups are kept together.
-   - **Without a records-per-block limit:** groups are spread over at most *N* blocks, combining consecutive groups when needed.
-   - **With a limit:** blocks hold at most *M* records, and a group larger than *M* is split (with a warning). If more than *N* blocks would be needed, generation is **refused**; records are never dropped.
-   - An internal check verifies that the record count is preserved.
-3. **Serialize** with `PAYLOAD_SERIALIZERS.ROWS`, one `_SLACK_PAYLOADS` row per record. A serializer for a verified Slack schema can be added without touching stages 1–2.
-
-**Records.** Every shift and meeting becomes its own record. Each record carries: Payload ID (`GEN_…-0001`), Generation ID and time, Schedule Date, Employee ID, name, display value, Team ID/Name, activity type and category, start/end date-time and time, Dashboard ID and URL, block number, group key, source Schedule Record Key, source Import ID, status, message, a rendered line text, an optional Slack user ID, and a content hash.
-
-**Employee display.** The template defaults to `@{EMPLOYEE_NAME}`, built from the staff record (e.g. "@Bence Valentinyi"). This is a **display string**, not a Slack mention: a real mention needs a Slack user ID (`<@U…>`). If a staff field holding Slack user IDs is selected, its value is written to *Slack User ID*. No IDs are ever invented.
-
-**Dashboard URL.**
-
-| Setting | Behaviour |
-|---|---|
-| Template | Literal text plus supported placeholders only: `{EMPLOYEE_ID}`, `{EMPLOYEE_NAME}`, `{TEAM_ID}`, `{TEAM_NAME}`, `{DATE}`, `{START_TIME}`, `{END_TIME}`. Anything else makes the URL invalid. Templates are text; nothing is evaluated. |
-| `{EMPLOYEE_ID}` | Becomes *text before* + identifier + *text after*. The identifier comes from the configured field (Employee ID or any staff field). The text before and after is inserted exactly, so custom delimiters such as `"…"%2"…"` are preserved. |
-| Encoding | `COMPONENT` encodes each inserted value; `NONE` inserts values unchanged. The template itself and the text before/after are never encoded or altered. |
-| Validation | **Invalid:** not http(s), whitespace, or leftover placeholders. The URL is left blank and the record is flagged. **Warning:** characters that are usually encoded, malformed `%` escapes, non-ASCII. These are kept as configured and flagged. |
-| Missing identifier | Blank URL + warning, skip the record (counted), or block generation. |
-| Preview | Uses the same `buildDashboardUrl_` as generation, so the preview always matches the generated URL. |
-
-**Output modes.**
-- **Replace** removes earlier payload rows of the selected teams within the selected dates, and keeps everything else.
-- **Append** adds a new generation. Content identical to an earlier generation (same hash) needs explicit confirmation.
-
-Generation always follows a preview: the plan token must match, and runs under the document lock.
-
-**Automation.** None. No triggers are created by setup, the upgrade, or this module. A future scheduled run would need explicit administrator activation.
-
-## 10. User interface (v1.1.2)
+## 9. User interface (v1.1.2)
 
 **Pages.** Every dialog and sidebar is an HtmlService template that includes two shared files:
 
@@ -480,30 +398,3 @@ Status is always written in text (badge text, alert title or icon glyph), never 
 **Meeting shading.** `layoutScheduleSheet_` adds a row rule that shades a row when its Flags text starts with "Meeting", or when its Category is "Meeting". The rule is applied when a sheet is created, rebuilt or repaired.
 
 **Static checks.** `tests/run-ui-checks.js` enforces the conventions that keep controls connected and labelled. Run it after every UI change.
-## 11. Slack Workflow message (v1.1.3)
-
-`SlackMessageService.gs` produces **one row**: headers in row 1 and values in row 2 of an output sheet (default `Slack Workflow`, never a `_` sheet). It is the configurable successor of the old hardcoded `daily_wf` script.
-
-**Pipeline.** `prepareWorkflowMessage_(cfg, runDate)` collects data and calls the pure builder `buildWorkflowMessage_`. `writeWorkflowMessage_` then rewrites rows 1–2 as plain text, so values are never read as formulas.
-
-1. **Collect:** the schedule records of the teams and days the columns need (`queryScheduleRecords_`), and each team's staff index.
-2. **Resolve each record:** staff match (`matchEmployee_`), membership, and role. The role is the team role from `_TEAM_MEMBERSHIP`, otherwise the staff Role column, otherwise the role from the export.
-3. **Select per column:** day = run date + `dayOffset`; then team, category, activity type, eligibility and role filters, per assignment.
-4. **Merge and filter by time:** assignments are merged per person (earliest start, latest end), unless `merge` is off. The time rule then runs on the merged span, in minutes from 00:00 of that day, so overnight shifts and `24:30`-style times work.
-5. **Render:**
-   - a list column becomes lines from the line template, sorted by start time, then name;
-   - a link column becomes `{IDS}` = each distinct identifier as before + encoded ID + after, joined with the separator;
-   - missing identifiers are reported and left out.
-
-**Validation (refuses to write):**
-- headers missing or used twice;
-- unsupported placeholders;
-- a link without `{IDS}`, or not http(s);
-- invalid times;
-- a role filter with no roles;
-- unknown teams or identifier fields;
-- a value over 49,000 characters.
-
-**Triggers.** `generateSlackWorkflowMessage()` is a plain entry point for a time-driven trigger that the administrator adds; the code never creates triggers. A single function writes every column, so morning and evening runs never overwrite each other's columns.
-
-**Configuration** is the `SLACK_MESSAGE_CONFIG` key in `_CONFIG` (JSON): `{sheetName, columns[]}`. When the key is missing, `getConfig_` supplies `{}`, which normalizes to the five starter columns.

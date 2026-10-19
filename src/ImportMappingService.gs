@@ -22,9 +22,6 @@ var DEFAULT_SYNONYMS = {
   endDate: ['end date', 'stop date', 'finish date'],
   start: ['start', 'start time', 'shift start', 'from', 'begin', 'begin time', 'starts', 'time from'],
   end: ['end', 'end time', 'shift end', 'to', 'stop', 'stop time', 'finish', 'finish time', 'ends', 'time to'],
-  breakStart: ['break start', 'break from', 'pause start'],
-  breakEnd: ['break end', 'break to', 'pause end'],
-  breakMinutes: ['break', 'breaks', 'break duration', 'break length', 'break minutes', 'break time', 'unpaid break', 'pause'],
   shiftType: ['shift type', 'shifttype', 'shift type name', 'type of shift'],
   shiftInfo: ['shift', 'shift information', 'shift info', 'shift time', 'shift times', 'working time', 'time range'],
   scheduledHours: ['hours', 'scheduled hours', 'hours worked', 'worked hours', 'total hours', 'planned hours'],
@@ -35,7 +32,7 @@ var DEFAULT_SYNONYMS = {
 };
 
 var DEFAULT_PROFILE_OPTIONS = {
-  format: 'TABLE', dateOrder: 'AUTO', breakUnit: 'MINUTES', hoursUnit: 'HOURS', headerRow: 0,
+  format: 'TABLE', dateOrder: 'AUTO', hoursUnit: 'HOURS', headerRow: 0,
   defaultTeamId: '', teamValueMap: {}, dailyLayout: null
 };
 var QUINYX_DAILY_PROFILE_ID = 'MAP_QUINYX_DAILY_SCHEDULE';
@@ -137,7 +134,7 @@ function validateMapping_(columns) {
     if (!has('end')) rep.fatal.push('No column is mapped to "Shift End" (or "Shift Information").');
   }
   if (!has('date')) rep.info.push('No "Shift Date" column is mapped: every start (or shift information) value must then contain a full date and time.');
-  if (!has('employeeId')) rep.warnings.push('No Employee ID column is mapped. Employees will be matched by name only, and those matches are flagged as uncertain.');
+  if (!has('employeeId')) rep.info.push('No Employee ID column is mapped. Employees are matched by their exact name in the staff sheet.');
   if (!has('shiftId')) rep.info.push('No source Shift ID is mapped. Duplicates are detected with a composite key (team + employee + start + end + activity).');
   if (!has('team')) rep.info.push('No team column is mapped. You must choose the target team explicitly.');
   if (has('firstName') !== has('lastName') && !has('employeeName')) rep.warnings.push('Only one of First Name / Last Name is mapped; names will be incomplete.');
@@ -236,10 +233,6 @@ function normalizeProfileOptions_(o, rep) {
   if (o.dateOrder) {
     if (['AUTO', 'DMY', 'MDY', 'YMD'].indexOf(o.dateOrder) < 0) rep.fatal.push('Date order must be AUTO, DMY, MDY or YMD.');
     else out.dateOrder = o.dateOrder;
-  }
-  if (o.breakUnit) {
-    if (['MINUTES', 'HOURS'].indexOf(o.breakUnit) < 0) rep.fatal.push('Break unit must be MINUTES or HOURS.');
-    else out.breakUnit = o.breakUnit;
   }
   var hr = toNumber_(o.headerRow, 0);
   if (!(hr >= 0 && hr <= 50 && Math.floor(hr) === hr)) rep.fatal.push('Header row must be 0 (auto-detect) or a row number up to 50.');
@@ -349,13 +342,6 @@ function seedDailyProfileIfMissing_() {
   return true;
 }
 
-function profilesReferencing_(profileId) {
-  var refs = [];
-  listTeams_().forEach(function (t) { if (t.importProfileId === profileId) refs.push('team "' + t.teamName + '"'); });
-  listTeamTypes_(true).forEach(function (t) { if (t.defaultImportProfileId === profileId) refs.push('team type "' + t.typeName + '"'); });
-  return refs;
-}
-
 /* ------------------------------------------------------------------------ */
 /* Client API                                                                */
 /* ------------------------------------------------------------------------ */
@@ -371,20 +357,6 @@ function apiSaveMappingProfile(input, headers) {
         if (!getTeam_(tvm[k])) fail_('VALIDATION', 'Team value "' + k + '" points to a team that does not exist (' + tvm[k] + ').');
       });
       return saveProfile_(input || {}, headers || null);
-    });
-  });
-}
-
-function apiDeleteMappingProfile(profileId) {
-  return apiCall_('apiDeleteMappingProfile', function () {
-    requireInitialized_();
-    return withLock_(function () {
-      var p = getProfile_(profileId);
-      if (!p) fail_('NOT_FOUND', 'That profile no longer exists.');
-      var refs = profilesReferencing_(profileId);
-      if (refs.length) fail_('IN_USE', 'Profile "' + p.profileName + '" is used by ' + refs.join(', ') + '. Change those first.');
-      deleteSheetRows_(requireSheet_(T_MAPPINGS.sheet), [p._row]);
-      return { deleted: profileId };
     });
   });
 }

@@ -32,11 +32,7 @@ function rowToRecord_(row, idx, tz, rowNumber) {
     role: str_(g('role')),
     shiftStart: cellToIsoDateTime_(g('shiftStart'), tz),
     shiftEnd: cellToIsoDateTime_(g('shiftEnd'), tz),
-    breakStart: cellToIsoDateTime_(g('breakStart'), tz),
-    breakEnd: cellToIsoDateTime_(g('breakEnd'), tz),
-    breakMinutes: toNumber_(g('breakMinutes'), 0),
     grossMinutes: toNumber_(g('grossMinutes'), 0),
-    netMinutes: toNumber_(g('netMinutes'), 0),
     shiftStatus: str_(g('shiftStatus')),
     recordStatus: str_(g('recordStatus')) || RECORD_STATUS.ACTIVE,
     sourceShiftId: str_(g('sourceShiftId')),
@@ -168,7 +164,7 @@ function findConflicts_(records) {
 
 /**
  * Working minutes per employee for a set of assignments (documented rule):
- *   shifts:   net minutes (gross minus recorded break) of every SHIFT;
+ *   shifts:   the full length of every SHIFT;
  *   meetings: only the part of a MEETING not covered by any of the employee's
  *             shifts is added (a meeting inside a shift is already paid time).
  * Activity durations themselves are never changed.
@@ -182,11 +178,7 @@ function workMinutesByEmployee_(rows) {
   Object.keys(groups).forEach(function (id) {
     var shifts = groups[id].filter(function (r) { return activityCategoryOf_(r) === ACTIVITY_CATEGORY.SHIFT; });
     var total = 0;
-    shifts.forEach(function (s) {
-      var rec = s.rec || s;
-      var net = toNumber_(rec.netMinutes, NaN);
-      total += isFinite(net) && net > 0 ? net : (s.endMin - s.startMin - toNumber_(rec.breakMinutes, 0));
-    });
+    shifts.forEach(function (s) { total += s.endMin - s.startMin; });
     groups[id].forEach(function (m) {
       if (activityCategoryOf_(m) !== ACTIVITY_CATEGORY.MEETING) return;
       // Subtract the covered parts: walk the meeting interval against the sorted shift intervals.
@@ -246,21 +238,17 @@ function buildDayRows_(records, dateIso, staffIdx, opts) {
     if (endMin - startMin > opts.maxShiftMinutes) flags.push('Long shift');
     var sched = r.scheduledMinutes;
     if (sched !== '' && sched !== null && sched !== undefined && isFinite(sched)) {
-      var gross = endMin - startMin, net = gross - (r.breakMinutes || 0);
-      if (Math.abs(sched - net) > tol && Math.abs(sched - gross) > tol) flags.push('Hours differ');
+      var gross = endMin - startMin;
+      if (Math.abs(sched - gross) > tol) flags.push('Hours differ');
     }
     var m = matchEmployee_(staffIdx, r.employeeId, r.employeeName, opts.nameStrategy);
     if (staffIdx) {
       if (m.status === STAFF_MATCH.UNKNOWN || m.status === STAFF_MATCH.AMBIGUOUS) flags.push('Unknown employee');
-      else if (m.status === STAFF_MATCH.NAME) flags.push('Name match');
       if (m.staff && !m.staff.active) flags.push('Inactive employee');
-      if (m.staff && staffIdx.isMember && !staffIdx.isMember(m.staff).member) flags.push('Not a team member');
     }
     rows.push({
       rec: r, startMin: startMin, endMin: endMin, carry: carry || nextDay, flags: flags,
-      staffMatch: m.status, staffName: m.staff ? m.staff.employeeName : '',
-      bsMin: isIsoDateTime_(r.breakStart) ? wallMinutes_(r.breakStart) : null,
-      beMin: isIsoDateTime_(r.breakEnd) ? wallMinutes_(r.breakEnd) : null
+      staffMatch: m.status, staffName: m.staff ? m.staff.employeeName : ''
     });
   });
   // Meetings: label them; a meeting inside a shift is expected, not an overlap.
@@ -309,7 +297,6 @@ function typeOptionLabel_(row) {
 /**
  * Headcount at the midpoint of each slot of up to one hour within [fromMin, toMin)
  * relative to 00:00 of the date; toMin may exceed 1440 (windows crossing midnight).
- * Employees on a recorded break at the midpoint are not counted.
  */
 function headcountByHour_(rows, dateIso, fromMin, toMin) {
   var base = dayNumber_(dateIso) * 1440;
@@ -321,7 +308,6 @@ function headcountByHour_(rows, dateIso, fromMin, toMin) {
     var seen = {};
     rows.forEach(function (r) {
       if (!(r.startMin <= mid && mid < r.endMin)) return;
-      if (r.bsMin !== null && r.beMin !== null && r.bsMin <= mid && mid < r.beMin) return;
       seen[employeeIdentity_(r.rec)] = true;
     });
     out.push({ label: minutesToHm_(h) + '–' + hm(slotEnd), count: Object.keys(seen).length });
@@ -357,11 +343,7 @@ function displayCell_(field, row, ctx) {
     case 'role': return [safeCell_(r.role), '@'];
     case 'start': return timeCell(row.startMin);
     case 'end': return timeCell(row.endMin);
-    case 'breakStart': return timeCell(row.bsMin);
-    case 'breakEnd': return timeCell(row.beMin);
-    case 'breakMinutes': return dur(r.breakMinutes);
     case 'grossDuration': return dur(r.grossMinutes || (row.endMin - row.startMin));
-    case 'netDuration': return dur(r.netMinutes || (row.endMin - row.startMin - r.breakMinutes));
     case 'shiftStatus': return [safeCell_(r.shiftStatus), '@'];
     case 'flags': return [row.flags.length ? row.flags.join(', ') : 'OK', '@'];
     case 'staffMatch': return [row.staffMatch, '@'];
@@ -394,6 +376,7 @@ function headcountColumn_(fields) {
  */
 function layoutScheduleSheet_(sh, team) {
   var cfg = getConfig_();
+  var th = sheetTheme_(cfg);
   var fields = effectiveScheduleFields_(team);
   var hcCol = headcountColumn_(fields);
   var width = hcCol + 1;
@@ -413,16 +396,16 @@ function layoutScheduleSheet_(sh, team) {
   dateCell.setNumberFormat(cfg.DATE_FORMAT)
     .setDataValidation(SpreadsheetApp.newDataValidation().requireDate().setAllowInvalid(false)
       .setHelpText('Double-click to pick a date. The schedule refreshes automatically.').build())
-    .setBackground('#e8f0fe').setFontWeight('bold').setBorder(true, true, true, true, false, false, cfg.HEADER_COLOR, SpreadsheetApp.BorderStyle.SOLID);
+    .setBackground(th.soft).setFontWeight('bold').setBorder(true, true, true, true, false, false, th.accent, SpreadsheetApp.BorderStyle.SOLID);
   [VIEW.EMPLOYEE_COL, VIEW.ACTIVITY_COL, VIEW.STATUS_COL].forEach(function (c) {
     var cell = sh.getRange(VIEW.FILTER_ROW, c);
     if (isBlank_(cell.getValue())) cell.setValue(ALL_OPTION);
-    cell.setBackground('#e8f0fe').setBorder(true, true, true, true, false, false, '#9aa0a6', SpreadsheetApp.BorderStyle.SOLID);
+    cell.setBackground(th.soft).setBorder(true, true, true, true, false, false, '#9aa0a6', SpreadsheetApp.BorderStyle.SOLID);
   });
   sh.getRange(VIEW.FILTER_ROW, VIEW.STATUS_COL).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(STATUS_FILTER_OPTIONS, true).setAllowInvalid(false).build());
 
-  sh.getRange(VIEW.TITLE_ROW, 1).setFontSize(16).setFontWeight('bold').setFontColor(cfg.HEADER_COLOR);
+  sh.getRange(VIEW.TITLE_ROW, 1).setFontSize(16).setFontWeight('bold').setFontColor(th.accent);
   sh.getRange(VIEW.SUMMARY_ROW, 1, 1, VIEW.HEADER_COLS).setBackground('#f8f9fa').setFontColor('#202124');
   sh.getRange(VIEW.MESSAGE_ROW, 1).setFontColor('#b06000').setFontStyle('italic');
   sh.setFrozenRows(VIEW.HEADER_ROW);
@@ -453,12 +436,12 @@ function layoutScheduleSheet_(sh, team) {
     var F = '$' + columnLetter_(flagsIdx + 1) + r0;
     var flagRange = sh.getRange(r0, flagsIdx + 1, dataRows, 1);
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR(ISNUMBER(SEARCH("Overlap",' + F + ')),ISNUMBER(SEARCH("Unknown",' + F + ')))')
-      .setBackground(cfg.ERROR_COLOR).setFontColor('#a50e0e').setRanges([flagRange]).build());
+      .setBackground(th.error).setFontColor('#a50e0e').setRanges([flagRange]).build());
     // A meeting without other flags is not a warning.
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND(LEFT(' + F + ',7)="Meeting",ISERROR(SEARCH(",",' + F + ')))')
       .setBackground('#efe6fa').setFontColor('#66399b').setRanges([flagRange]).build());
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND(' + F + '<>"",' + F + '<>"OK")')
-      .setBackground(cfg.WARN_COLOR).setRanges([flagRange]).build());
+      .setBackground(th.warn).setRanges([flagRange]).build());
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=' + F + '="OK"')
       .setFontColor('#188038').setRanges([flagRange]).build());
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR(ISNUMBER(SEARCH("From previous day",' + F + ')),ISNUMBER(SEARCH("Starts next day",' + F + ')),ISNUMBER(SEARCH("Outside operating",' + F + ')))')
@@ -470,9 +453,9 @@ function layoutScheduleSheet_(sh, team) {
   }
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied('=AND(COUNTA($A' + r0 + ':$' + lastL + r0 + ')>0,ISEVEN(ROW()))')
-    .setBackground(cfg.BAND_COLOR).setRanges([tableRange]).build());
+    .setBackground(th.band).setRanges([tableRange]).build());
   var hcRange = sh.getRange(r0, hcCol + 1, 24, 1);
-  rules.push(SpreadsheetApp.newConditionalFormatRule().setGradientMaxpoint(cfg.HEADER_COLOR)
+  rules.push(SpreadsheetApp.newConditionalFormatRule().setGradientMaxpoint(th.accent)
     .setGradientMinpoint('#ffffff').setRanges([hcRange]).build());
   sh.setConditionalFormatRules(rules);
 
@@ -483,7 +466,8 @@ function layoutScheduleSheet_(sh, team) {
     .setUnprotectedRanges([VIEW.DATE_COL, VIEW.EMPLOYEE_COL, VIEW.ACTIVITY_COL, VIEW.STATUS_COL].map(function (c) {
       return sh.getRange(VIEW.FILTER_ROW, c);
     }));
-  sh.setTabColor(cfg.HEADER_COLOR);
+  sh.setTabColor(th.accent);
+  applySheetFont_(sh, th);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -504,6 +488,7 @@ function renderTeamView_(team, opts) {
 
 function renderDailyView_(team, opts) {
   var cfg = getConfig_();
+  var th = sheetTheme_(cfg);
   var tz = getTz_();
   var sh = resolveTeamSheet_(team, 'schedule');
   if (!sh) fail_('MISSING_SHEET', 'The schedule sheet of team "' + team.teamName + '" is missing. Run Maintenance → Rebuild Missing Sheets.');
@@ -605,9 +590,9 @@ function renderDailyView_(team, opts) {
   }
 
   // --- table ---
-  var cfgHdr = cfg.HEADER_COLOR, cfgHdrFont = cfg.HEADER_FONT_COLOR;
+  var cfgHdr = th.header, cfgHdrFont = th.headerText;
   sh.getRange(VIEW.HEADER_ROW, 1, 1, fields.length).setValues([fields.map(fieldHeaderLabel_)])
-    .setFontWeight('bold').setBackground(cfgHdr).setFontColor(cfgHdrFont).setVerticalAlignment('middle');
+    .setFontWeight('bold').setBackground(cfgHdr).setFontColor(cfgHdrFont).setFontFamily(th.font).setVerticalAlignment('middle');
   if (visible.length) {
     var ctx = { dateIso: dateIso, timeFormat: timeFormat, dateFormat: cfg.DATE_FORMAT, teamName: team.teamName };
     var values = [], formats = [];

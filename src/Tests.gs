@@ -50,9 +50,9 @@ function runTestList_(title, tests) {
 var TEST_CFG_ = { MAX_SHIFT_HOURS: '16', MIN_SHIFT_MINUTES: '15', NAME_MATCH_STRATEGY: 'EXACT_FLAGGED', STRIP_LEADING_ZEROS: 'FALSE' };
 
 var CSV_BASIC_ = [
-  'Employee ID,Employee Name,Date,Start Time,End Time,Break,Activity',
-  'E1,Ann Lee,2026-10-15,08:00,16:30,30,Phone',
-  'E2,Bob Ray,2026-10-15,09:00,17:00,0:45,Chat'
+  'Employee ID,Employee Name,Date,Start Time,End Time,Activity',
+  'E1,Ann Lee,2026-10-15,08:00,16:30,Phone',
+  'E2,Bob Ray,2026-10-15,09:00,17:00,Chat'
 ].join('\n');
 
 function testTeams_() {
@@ -80,7 +80,7 @@ function planFromCsv_(csv, overrides) {
   var auto = autoMapHeaders_(headers, buildSynonymIndex_(DEFAULT_SYNONYMS));
   var staff = testStaff_();
   var input = {
-    table: table, headerRow: 0, fieldMap: auto.fieldMap, options: { dateOrder: 'AUTO', breakUnit: 'MINUTES' },
+    table: table, headerRow: 0, fieldMap: auto.fieldMap, options: { dateOrder: 'AUTO' },
     teamMode: 'EXPLICIT', teamId: 'TEAM_001', strategy: 'UPDATE', allowPartial: false,
     teams: testTeams_(), profileOptions: {}, existing: [],
     getStaffIndex: function (id) { return staff[id] || null; }, cfg: TEST_CFG_
@@ -189,12 +189,12 @@ function unitTests_() {
       var v = parseDateTimeValue_('2026-10-15T22:00:00Z', 'DMY');
       assertEq_([v.date, v.minutes, v.tz], ['2026-10-15', 1320, true]);
     }],
-    ['Normalize: basic shift with break', function () {
-      var r = normalizeRow_(['E1', 'Ann', '2026-10-15', '08:00', '16:30', '30'], ['id', 'n', 'd', 's', 'e', 'b'],
-        { employeeId: 0, employeeName: 1, date: 2, start: 3, end: 4, breakMinutes: 5 },
-        { dateOrder: 'DMY', breakUnit: 'MINUTES', maxShiftMinutes: 960, minShiftMinutes: 15 });
+    ['Normalize: basic shift', function () {
+      var r = normalizeRow_(['E1', 'Ann', '2026-10-15', '08:00', '16:30'], ['id', 'n', 'd', 's', 'e'],
+        { employeeId: 0, employeeName: 1, date: 2, start: 3, end: 4 },
+        { dateOrder: 'DMY', maxShiftMinutes: 960, minShiftMinutes: 15 });
       assertEq_(r.errors, []);
-      assertEq_([r.shiftStart, r.shiftEnd, r.grossMinutes, r.breakMinutes, r.netMinutes], ['2026-10-15 08:00', '2026-10-15 16:30', 510, 30, 480]);
+      assertEq_([r.shiftStart, r.shiftEnd, r.grossMinutes], ['2026-10-15 08:00', '2026-10-15 16:30', 510]);
     }],
     ['Normalize: overnight shift ends next day', function () {
       var r = normalizeRow_(['E1', '2026-10-15', '22:00', '06:00'], ['a', 'b', 'c', 'd'], { employeeId: 0, date: 1, start: 2, end: 3 },
@@ -205,11 +205,6 @@ function unitTests_() {
       var r = normalizeRow_(['E1', '2026-10-15', '16:00', '24:00'], ['a', 'b', 'c', 'd'], { employeeId: 0, date: 1, start: 2, end: 3 },
         { dateOrder: 'DMY', maxShiftMinutes: 960, minShiftMinutes: 15 });
       assertEq_([r.shiftEnd, r.grossMinutes, r.overnight], ['2026-10-16 00:00', 480, false]);
-    }],
-    ['Normalize: break across midnight is placed on the right day', function () {
-      var r = normalizeRow_(['E1', '2026-10-15', '20:00', '04:00', '23:45', '00:15'], ['a', 'b', 'c', 'd', 'e', 'f'],
-        { employeeId: 0, date: 1, start: 2, end: 3, breakStart: 4, breakEnd: 5 }, { dateOrder: 'DMY', maxShiftMinutes: 960, minShiftMinutes: 15 });
-      assertEq_([r.breakStart, r.breakEnd, r.breakMinutes, r.netMinutes], ['2026-10-15 23:45', '2026-10-16 00:15', 30, 450]);
     }],
     ['Normalize: errors for identical times, explicit end before start, missing date, bad time', function () {
       var o = { dateOrder: 'DMY', maxShiftMinutes: 960, minShiftMinutes: 15 };
@@ -258,8 +253,8 @@ function unitTests_() {
       assertEq_([p.summary.validRows, p.summary.insert, p.canCommit], [2, 2, true]);
     }],
     ['Plan: different column order produces identical keys', function () {
-      var csv2 = ['Activity,End Time,Start Time,Date,Employee Name,Employee ID,Break',
-        'Phone,16:30,08:00,2026-10-15,Ann Lee,E1,30', 'Chat,17:00,09:00,2026-10-15,Bob Ray,E2,0:45'].join('\n');
+      var csv2 = ['Activity,End Time,Start Time,Date,Employee Name,Employee ID',
+        'Phone,16:30,08:00,2026-10-15,Ann Lee,E1', 'Chat,17:00,09:00,2026-10-15,Bob Ray,E2'].join('\n');
       var k1 = planFromCsv_(CSV_BASIC_).actions.map(function (a) { return a.key; }).sort();
       var k2 = planFromCsv_(csv2).actions.map(function (a) { return a.key; }).sort();
       assertEq_(k2, k1);
@@ -289,7 +284,7 @@ function unitTests_() {
     ['Plan: re-import is unchanged; exact duplicate row in file skipped', function () {
       var first = planFromCsv_(CSV_BASIC_);
       var stored = applyPlanInMemory_([], first, 'IMP_1');
-      var again = planFromCsv_(CSV_BASIC_ + '\nE1,Ann Lee,2026-10-15,08:00,16:30,30,Phone', { existing: stored });
+      var again = planFromCsv_(CSV_BASIC_ + '\nE1,Ann Lee,2026-10-15,08:00,16:30,Phone', { existing: stored });
       assertEq_([again.actions.length, again.summary.unchanged, again.summary.duplicatesInFile], [0, 2, 1]);
     }],
     ['Plan: conflicting copies of one shift in the file are rejected', function () {
@@ -298,12 +293,12 @@ function unitTests_() {
     }],
     ['Plan: changed shift with SKIP, UPDATE and ASK strategies', function () {
       var stored = applyPlanInMemory_([], planFromCsv_(CSV_BASIC_), 'IMP_1');
-      var changed = CSV_BASIC_.replace('16:30,30,Phone', '16:30,45,Phone');
+      var changed = CSV_BASIC_.replace('E1,Ann Lee,', 'E1,Ann Lee-Smith,');
       var skip = planFromCsv_(changed, { existing: stored, strategy: 'SKIP' });
       var upd = planFromCsv_(changed, { existing: stored, strategy: 'UPDATE' });
       var ask = planFromCsv_(changed, { existing: stored, strategy: 'ASK' });
       assertEq_([skip.summary.skippedExisting, skip.actions.length], [1, 0]);
-      assertEq_([upd.summary.update, upd.actions[0].type, upd.actions[0].record.breakMinutes], [1, 'UPDATE', 45]);
+      assertEq_([upd.summary.update, upd.actions[0].type, upd.actions[0].record.employeeName], [1, 'UPDATE', 'Ann Lee-Smith']);
       assertEq_([ask.summary.changedPending, ask.canCommit], [1, false]);
     }],
     ['Plan: REPLACE_RANGE removes only inside the imported range', function () {
@@ -365,15 +360,15 @@ function unitTests_() {
     }],
     ['Daily view rows: carry-over, overnight flag and headcount', function () {
       var recs = [
-        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E1', employeeName: 'Ann', shiftDate: '2026-10-14', shiftStart: '2026-10-14 22:00', shiftEnd: '2026-10-15 07:00', breakStart: '', breakEnd: '', breakMinutes: 0 },
-        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E2', employeeName: 'Bob', shiftDate: '2026-10-15', shiftStart: '2026-10-15 05:00', shiftEnd: '2026-10-15 09:00', breakStart: '2026-10-15 05:00', breakEnd: '2026-10-15 05:45', breakMinutes: 45 },
-        { recordStatus: 'REMOVED', teamId: 'T', employeeId: 'E3', employeeName: 'Cy', shiftDate: '2026-10-15', shiftStart: '2026-10-15 05:00', shiftEnd: '2026-10-15 09:00', breakMinutes: 0 }
+        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E1', employeeName: 'Ann', shiftDate: '2026-10-14', shiftStart: '2026-10-14 22:00', shiftEnd: '2026-10-15 07:00' },
+        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E2', employeeName: 'Bob', shiftDate: '2026-10-15', shiftStart: '2026-10-15 05:00', shiftEnd: '2026-10-15 09:00' },
+        { recordStatus: 'REMOVED', teamId: 'T', employeeId: 'E3', employeeName: 'Cy', shiftDate: '2026-10-15', shiftStart: '2026-10-15 05:00', shiftEnd: '2026-10-15 09:00' }
       ];
       var rows = buildDayRows_(recs, '2026-10-15', null, { maxShiftMinutes: 960, nameStrategy: 'NONE', showCarryOver: true });
       assertEq_(rows.length, 2);
       assert_(rows[0].flags.indexOf('From previous day') >= 0 && rows[0].flags.indexOf('Overnight') >= 0, 'carry-over flags');
       var hc = headcountByHour_(rows, '2026-10-15', 300, 420);
-      assertEq_(hc.map(function (h) { return h.count; }), [1, 2]);
+      assertEq_(hc.map(function (h) { return h.count; }), [2, 2]);
     }]
   ];
 }
@@ -555,9 +550,9 @@ function unitTestsV11_() {
     }],
     ['Daily view: 24/7 shows midnight-crossing shifts and 24 headcount slots', function () {
       var recs = [
-        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E1', employeeName: 'Ann', shiftDate: '2026-10-14', shiftStart: '2026-10-14 22:00', shiftEnd: '2026-10-15 06:00', breakMinutes: 0 },
-        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E2', employeeName: 'Bob', shiftDate: '2026-10-15', shiftStart: '2026-10-15 00:30', shiftEnd: '2026-10-15 08:00', breakMinutes: 0 },
-        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E3', employeeName: 'Cy', shiftDate: '2026-10-15', shiftStart: '2026-10-15 23:00', shiftEnd: '2026-10-16 07:00', breakMinutes: 0 }
+        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E1', employeeName: 'Ann', shiftDate: '2026-10-14', shiftStart: '2026-10-14 22:00', shiftEnd: '2026-10-15 06:00' },
+        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E2', employeeName: 'Bob', shiftDate: '2026-10-15', shiftStart: '2026-10-15 00:30', shiftEnd: '2026-10-15 08:00' },
+        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E3', employeeName: 'Cy', shiftDate: '2026-10-15', shiftStart: '2026-10-15 23:00', shiftEnd: '2026-10-16 07:00' }
       ];
       var w = operatingWindow_(mergeDisplay_({ operatingHoursMode: '24_7' }));
       var rows = buildDayRows_(recs, '2026-10-15', null, { maxShiftMinutes: 960, nameStrategy: 'NONE', showCarryOver: false, window: w });
@@ -567,8 +562,8 @@ function unitTestsV11_() {
     }],
     ['Daily view: custom night window includes next-day starts; standard flags outside hours', function () {
       var recs = [
-        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E1', employeeName: 'Ann', shiftDate: '2026-10-16', shiftStart: '2026-10-16 02:00', shiftEnd: '2026-10-16 06:00', breakMinutes: 0 },
-        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E2', employeeName: 'Bob', shiftDate: '2026-10-15', shiftStart: '2026-10-15 02:00', shiftEnd: '2026-10-15 04:00', breakMinutes: 0 }
+        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E1', employeeName: 'Ann', shiftDate: '2026-10-16', shiftStart: '2026-10-16 02:00', shiftEnd: '2026-10-16 06:00' },
+        { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E2', employeeName: 'Bob', shiftDate: '2026-10-15', shiftStart: '2026-10-15 02:00', shiftEnd: '2026-10-15 04:00' }
       ];
       var night = operatingWindow_(mergeDisplay_({ operatingHoursMode: 'CUSTOM', operatingHoursStart: '18:00', operatingHoursEnd: '06:00' }));
       var rows = buildDayRows_(recs, '2026-10-15', null, { maxShiftMinutes: 960, showCarryOver: false, window: night });
@@ -582,16 +577,17 @@ function unitTestsV11_() {
     }],
     ['Daily view: hours differ flag from stored scheduled minutes', function () {
       var rec = { recordStatus: 'ACTIVE', teamId: 'T', employeeId: 'E1', employeeName: 'Ann', shiftDate: '2026-10-15',
-        shiftStart: '2026-10-15 08:00', shiftEnd: '2026-10-15 16:30', breakMinutes: 0, scheduledMinutes: 480 };
+        shiftStart: '2026-10-15 08:00', shiftEnd: '2026-10-15 16:30', scheduledMinutes: 480 };
       var rows = buildDayRows_([rec], '2026-10-15', null, { maxShiftMinutes: 960, window: operatingWindow_(mergeDisplay_({ operatingHoursMode: '24_7' })) });
       assert_(rows[0].flags.indexOf('Hours differ') >= 0, 'flag');
       rec.scheduledMinutes = 510;
       rows = buildDayRows_([rec], '2026-10-15', null, { maxShiftMinutes: 960, window: operatingWindow_(mergeDisplay_({ operatingHoursMode: '24_7' })) });
       assert_(rows[0].flags.indexOf('Hours differ') < 0, 'no flag when equal');
     }],
-    ['Staff (v1.1.1): default columns are exactly Employee ID, Name, Active, Role, Notes', function () {
+    ['Staff: default columns are exactly Employee ID, Name, Role, Notes (Active is retired)', function () {
       var f = normalizeStaffFields_(DEFAULT_STAFF_FIELDS);
-      assertEq_(f.map(function (k) { return staffFieldLabel_(k, {}); }), ['Employee ID', 'Employee Name', 'Active', 'Role', 'Notes']);
+      assertEq_(f.map(function (k) { return staffFieldLabel_(k, {}); }), ['Employee ID', 'Employee Name', 'Role', 'Notes']);
+      assertEq_(normalizeStaffFields_(['employeeId', 'employeeName', 'active', 'role']), ['employeeId', 'employeeName', 'role'], 'a stored Active field is dropped');
       assert_(f.every(function (k) { return k.indexOf('field:') < 0; }) && f.indexOf('email') < 0, 'no identifier fields and no Email by default');
       assertEq_(SEED_STAFF_FIELDS_, [], 'no identifier fields are seeded');
     }],
@@ -660,45 +656,6 @@ function itemsOf_(recs) {
   return recs.map(function (r) { return { rec: r, startMin: wallMinutes_(r.shiftStart), endMin: wallMinutes_(r.shiftEnd) }; });
 }
 
-/** Router fixture: one directory shared by TEAM_001 and TEAM_002 with explicit memberships. */
-function routerFixture_() {
-  var staff = [{ employeeId: 'E1', employeeName: 'Ann Lee', active: true }, { employeeId: 'E2', employeeName: 'Bob Ray', active: true },
-    { employeeId: 'E3', employeeName: 'Cy Moe', active: true }];
-  var mIdx = membershipIndex_([
-    { employeeId: 'E1', teamId: 'TEAM_001', status: 'ACTIVE' },
-    { employeeId: 'E2', teamId: 'TEAM_001', status: 'ACTIVE' }, { employeeId: 'E2', teamId: 'TEAM_002', status: 'ACTIVE' },
-    { employeeId: 'E3', teamId: 'TEAM_002', status: 'INACTIVE' }
-  ]);
-  return makeDirectoryRouter_([{ teamIds: ['TEAM_001', 'TEAM_002'], index: buildStaffIndex_(staff),
-    checkers: { TEAM_001: membershipChecker_('TEAM_001', true, mIdx), TEAM_002: membershipChecker_('TEAM_002', true, mIdx) } }], 'EXACT_FLAGGED');
-}
-
-function payloadInput_(over) {
-  var recs = [
-    { recordKey: 'K1', teamId: 'TEAM_001', shiftDate: '2026-10-15', employeeId: 'E1', employeeName: 'Ann Lee', shiftStart: '2026-10-15 08:00', shiftEnd: '2026-10-15 16:00', recordStatus: 'ACTIVE', shiftType: 'Customer Support', activityCategory: 'SHIFT', lastImportId: 'IMP_A' },
-    { recordKey: 'K2', teamId: 'TEAM_001', shiftDate: '2026-10-15', employeeId: 'E1', employeeName: 'Ann Lee', shiftStart: '2026-10-15 10:00', shiftEnd: '2026-10-15 10:30', recordStatus: 'ACTIVE', shiftType: 'Meeting', activityCategory: 'MEETING', lastImportId: 'IMP_A' },
-    { recordKey: 'K3', teamId: 'TEAM_002', shiftDate: '2026-10-16', employeeId: 'E7', employeeName: 'Dee Fox', shiftStart: '2026-10-16 22:00', shiftEnd: '2026-10-17 06:00', recordStatus: 'ACTIVE', shiftType: 'Night', activityCategory: 'SHIFT', lastImportId: 'IMP_A' },
-    { recordKey: 'K4', teamId: 'TEAM_001', shiftDate: '2026-10-15', employeeId: 'E2', employeeName: 'Bob Ray', shiftStart: '2026-10-15 09:00', shiftEnd: '2026-10-15 17:00', recordStatus: 'ACTIVE', shiftType: 'Customer Support', activityCategory: 'SHIFT', lastImportId: 'IMP_A' },
-    { recordKey: 'K5', teamId: 'TEAM_001', shiftDate: '2026-10-15', employeeId: 'E1', employeeName: 'Ann Lee', shiftStart: '2026-10-15 18:00', shiftEnd: '2026-10-15 19:00', recordStatus: 'REMOVED', shiftType: 'Customer Support', activityCategory: 'SHIFT' }
-  ];
-  var staff = {
-    E1: { employeeId: 'E1', employeeName: 'Ann Lee', active: true, fields: { 'field:crm': 'CRM-001' } },
-    E2: { employeeId: 'E2', employeeName: 'Bob Ray', active: true, fields: {} },
-    E7: { employeeId: 'E7', employeeName: 'Dee Fox', active: true, fields: { 'field:crm': '007' } }
-  };
-  var input = {
-    records: recs, cfg: normalizePayloadConfig_({ teamIds: ['TEAM_001', 'TEAM_002'], groupBy: ['team'], blockCount: 2 }),
-    urlCfg: normalizeUrlConfig_({ template: 'https://example.com/user={EMPLOYEE_ID}&d={DATE}', identifierField: 'field:crm' }),
-    from: '2026-10-15', to: '2026-10-16',
-    teamsById: { TEAM_001: { teamId: 'TEAM_001', teamName: 'Alpha' }, TEAM_002: { teamId: 'TEAM_002', teamName: 'Beta' } },
-    resolve: function (t, r) { return { staff: staff[r.employeeId] || null, member: !!staff[r.employeeId] }; },
-    identifierOf: function (s) { return s.fields['field:crm'] || ''; }, slackIdOf: function () { return ''; },
-    generationId: 'GEN_TEST', existingHashes: {}
-  };
-  Object.keys(over || {}).forEach(function (k) { input[k] = over[k]; });
-  return input;
-}
-
 function unitTestsV111_() {
   var MEET_ON = { mode: 'SELECTED', types: ['Customer Support'], known: ['Customer Support', 'Meeting'], importMeetings: true, meetingTypes: ['Meeting'] };
   var MEET_OFF = { mode: 'SELECTED', types: ['Customer Support'], known: ['Customer Support', 'Meeting'], importMeetings: false, meetingTypes: ['Meeting'] };
@@ -737,99 +694,6 @@ function unitTestsV111_() {
       assertEq_(findConflicts_(itemsOf_([mk('08:00', '16:00', 'SHIFT'), mk('15:30', '16:30', 'MEETING')])).length, 1);
       assertEq_(findConflicts_(itemsOf_([mk('08:00', '16:00', 'SHIFT'), mk('12:00', '20:00', 'SHIFT')])).length, 1);
       assertEq_(findConflicts_(itemsOf_([mk('08:00', '16:00', 'SHIFT'), mk('09:00', '10:00', 'MEETING')])).length, 0);
-    }],
-    ['Membership: dedicated = implicit; shared = explicit ACTIVE rows only', function () {
-      var idx = membershipIndex_([{ employeeId: 'E1', teamId: 'T1', status: 'ACTIVE' }, { employeeId: 'E2', teamId: 'T1', status: 'INACTIVE' }]);
-      var staff = function (id) { return { employeeId: id }; };
-      assertEq_(membershipChecker_('T1', false, idx)(staff('E9')).member, true);
-      assertEq_([membershipChecker_('T1', true, idx)(staff('e1')).member, membershipChecker_('T1', true, idx)(staff('E2')).member,
-        membershipChecker_('T1', true, idx)(staff('E3')).member, membershipChecker_('T2', true, idx)(staff('E1')).member], [true, false, false, false]);
-    }],
-    ['Routing (#13–16): shared directory routes members, flags ambiguity, never guesses', function () {
-      var csv = 'Employee ID,Employee Name,Date,Start,End\nE1,Ann Lee,2026-10-15,08:00,16:00\nE2,Bob Ray,2026-10-15,08:00,16:00\nE3,Cy Moe,2026-10-15,08:00,16:00\nE9,Zed Unknown,2026-10-15,08:00,16:00';
-      var router = routerFixture_();
-      var p = planFromCsv_(csv, { teamMode: 'DIRECTORY', teamId: '', allowPartial: true, getDirectoryRouter: function () { return router; } });
-      var st = {}; p.routing.forEach(function (r) { st[r.sourceName] = r.status + ':' + (r.teamId || ''); });
-      assertEq_([st['Ann Lee'], st['Bob Ray'], st['Cy Moe'], st['Zed Unknown']], ['ROUTED:TEAM_001', 'AMBIGUOUS:', 'NO_MEMBERSHIP:', 'UNKNOWN_EMPLOYEE:']);
-      assertEq_([p.summary.ambiguousRouting, p.summary.unroutable, p.summary.insert], [1, 2, 1]);
-      assert_(p.actions.every(function (a) { return a.teamId === 'TEAM_001'; }), 'nothing copied into every sharing team');
-      var p2 = planFromCsv_(csv, { teamMode: 'DIRECTORY', teamId: '', allowPartial: true, getDirectoryRouter: function () { return router; },
-        routingOverrides: { '3': 'TEAM_002', '4': 'SKIP' } });
-      assertEq_([p2.summary.ambiguousRouting, p2.summary.manuallyAssigned, p2.summary.skippedByAdmin, p2.summary.insert], [0, 1, 1, 2]);
-      assert_(p2.actions.some(function (a) { return a.teamId === 'TEAM_002' && a.record.employeeId === 'E2'; }), 'manual assignment applied');
-    }],
-    ['Routing: shift-type settings resolve an otherwise ambiguous member', function () {
-      var csv = 'Shift Type,Employee ID,Date,Start,End\nNight,E2,2026-10-15,22:00,06:00';
-      var filters = { TEAM_001: { mode: 'SELECTED', types: ['Day'], known: [] }, TEAM_002: { mode: 'SELECTED', types: ['Night'], known: [] } };
-      var p = planFromCsv_(csv, { teamMode: 'DIRECTORY', teamId: '', getDirectoryRouter: routerFixture_, getShiftTypeFilter: function (t) { return filters[t]; } });
-      assertEq_([p.routing[0].status, p.routing[0].teamId, p.summary.insert], ['ROUTED', 'TEAM_002', 1]);
-    }],
-    ['Dashboard URL (#22,#24,#25): template, exact delimiters, encoding', function () {
-      var c = normalizeUrlConfig_({ template: 'https://google.com/user={EMPLOYEE_ID}', prefix: '"', suffix: '"%2"yx"', encoding: 'NONE' });
-      var r = buildDashboardUrl_(c, { identifier: 'xy' });
-      assertEq_([r.url, r.status], ['https://google.com/user="xy"%2"yx"', 'WARNING'], 'delimiters preserved exactly, flagged as unusual');
-      var e = buildDashboardUrl_(normalizeUrlConfig_({ template: 'https://example.com/u?id={EMPLOYEE_ID}&n={EMPLOYEE_NAME}' }), { identifier: 'A B/7', employeeName: 'Ann Lee' });
-      assertEq_([e.url, e.status], ['https://example.com/u?id=A%20B%2F7&n=Ann%20Lee', 'OK'], 'values encoded, template untouched');
-    }],
-    ['Dashboard URL (#26): missing identifiers and invalid templates are never silent', function () {
-      assertEq_(buildDashboardUrl_(normalizeUrlConfig_({ template: 'https://x.io/{EMPLOYEE_ID}' }), { identifier: '' }).status, 'MISSING_ID');
-      var bad = buildDashboardUrl_(normalizeUrlConfig_({ template: 'https://x.io/{EMPLOYEE_CODE}' }), { identifier: '1' });
-      assertEq_([bad.status, bad.url], ['INVALID', '']);
-      assertEq_(buildDashboardUrl_(normalizeUrlConfig_({ template: 'ftp://x.io/{EMPLOYEE_ID}' }), { identifier: '1' }).status, 'INVALID');
-      assert_(validateUrlConfig_(normalizeUrlConfig_({ template: 'https://x.io/{EMPLOYEE_ID}', identifierField: 'field:gone' }), ['employeeId']).fatal.length > 0, 'unknown field');
-    }],
-    ['Payloads (#17–21,#23,#27): teams, dates, separate activities, @Name, configured identifier, preview = final', function () {
-      var p = buildPayloadPlan_(payloadInput_());
-      assertEq_(p.report.fatal, []);
-      assertEq_([p.summary.considered, p.summary.generated], [4, 4], 'REMOVED record ignored; shift + meeting of Ann are separate');
-      var ann = p.records.filter(function (r) { return r.employeeId === 'E1'; });
-      assertEq_(ann.map(function (r) { return r.activityCategory; }).sort(), ['MEETING', 'SHIFT']);
-      assertEq_(ann[0].employeeDisplay, '@Ann Lee');
-      assertEq_(ann[0].dashboardUrl, 'https://example.com/user=CRM-001&d=2026-10-15');
-      var dee = p.records.filter(function (r) { return r.employeeId === 'E7'; })[0];
-      assertEq_([dee.dashboardId, dee.endDateTime, dee.teamName], ['007', '2026-10-17 06:00', 'Beta'], 'leading zeros and overnight end preserved');
-      var preview = buildDashboardUrl_(payloadInput_().urlCfg, { identifier: 'CRM-001', date: '2026-10-15' });
-      assertEq_(preview.url, ann[0].dashboardUrl, 'preview uses the same builder');
-      var one = buildPayloadPlan_(payloadInput_({ from: '2026-10-16', to: '2026-10-16' }));
-      assertEq_(one.records.map(function (r) { return r.employeeId; }), ['E7'], 'date filter');
-      var t1 = buildPayloadPlan_(payloadInput_({ cfg: normalizePayloadConfig_({ teamIds: ['TEAM_001'] }) }));
-      assert_(t1.records.every(function (r) { return r.teamId === 'TEAM_001'; }), 'one team');
-    }],
-    ['Payloads (#26): missing identifier policies', function () {
-      var blank = buildPayloadPlan_(payloadInput_());
-      var bob = blank.records.filter(function (r) { return r.employeeId === 'E2'; })[0];
-      assertEq_([bob.payloadStatus, bob.dashboardUrl, blank.summary.missingIds], ['MISSING_DASHBOARD_ID', '', 1]);
-      var skip = buildPayloadPlan_(payloadInput_({ urlCfg: normalizeUrlConfig_({ template: 'https://example.com/{EMPLOYEE_ID}', identifierField: 'field:crm', missingPolicy: 'SKIP_RECORD' }) }));
-      assertEq_([skip.summary.generated, skip.summary.skippedMissingId], [3, 1]);
-      var block = buildPayloadPlan_(payloadInput_({ urlCfg: normalizeUrlConfig_({ template: 'https://example.com/{EMPLOYEE_ID}', identifierField: 'field:crm', missingPolicy: 'BLOCK' }) }));
-      assert_(block.report.fatal.some(function (m) { return /no dashboard identifier/.test(m); }), 'blocked');
-    }],
-    ['Payloads: meetings excluded, unresolved/inactive policies', function () {
-      var p = buildPayloadPlan_(payloadInput_({ cfg: normalizePayloadConfig_({ teamIds: ['TEAM_001', 'TEAM_002'], includeMeetings: false }) }));
-      assertEq_([p.summary.skippedMeetings, p.summary.generated], [1, 3]);
-      var inp = payloadInput_({ cfg: normalizePayloadConfig_({ teamIds: ['TEAM_001', 'TEAM_002'], excludeUnresolved: false }) });
-      inp.resolve = function (t, r) { return r.employeeId === 'E2' ? { staff: null, member: false } : { staff: { employeeId: r.employeeId, employeeName: r.employeeName, active: true, fields: {} }, member: true }; };
-      var u = buildPayloadPlan_(inp);
-      assertEq_(u.records.filter(function (r) { return r.employeeId === 'E2'; })[0].payloadStatus, 'UNRESOLVED_EMPLOYEE');
-    }],
-    ['Blocks (#28–29): requested block count, grouping, nothing dropped', function () {
-      var recs = ['A', 'A', 'B', 'C', 'C'].map(function (t, i) { return { teamName: t, employeeName: 'E' + i, employeeId: 'E' + i, scheduleDate: '2026-10-15' }; });
-      var two = groupIntoBlocks_(recs, ['team'], 2, 0);
-      assertEq_([two.blocks.length, two.blocks.reduce(function (s, b) { return s + b.length; }, 0), two.fatal.length], [2, 5, 0]);
-      assert_(two.blocks.every(function (b) { return b.length; }), 'no empty blocks');
-      var three = groupIntoBlocks_(recs, ['team'], 3, 0);
-      assertEq_(three.blocks.map(function (b) { return b.length; }), [2, 1, 2]);
-      var tooFew = groupIntoBlocks_(recs, ['team'], 2, 2);
-      assert_(tooFew.fatal.length === 1, 'cannot fit 5 records in 2 blocks of 2 → refuse, never drop');
-      var ok = groupIntoBlocks_(recs, ['team'], 3, 2);
-      assertEq_([ok.fatal.length, ok.blocks.map(function (b) { return b.length; })], [0, [2, 1, 2]]);
-    }],
-    ['Payload content hash is stable and detects identical generations', function () {
-      var a = buildPayloadPlan_(payloadInput_({ generationId: 'GEN_1' }));
-      var b = buildPayloadPlan_(payloadInput_({ generationId: 'GEN_2', existingHashes: (function () { var h = {}; h[a.hash] = 'GEN_1'; return h; })() }));
-      assertEq_(a.hash, b.hash);
-      assert_(b.report.warnings.some(function (w) { return /Identical payloads/.test(w); }), 'duplicate generation flagged');
-      assert_(b.records[0].payloadId.indexOf('GEN_2-') === 0, 'payload IDs carry the generation ID');
     }]
   ];
 }
@@ -840,140 +704,72 @@ function unitTestsV112_() {
       assertEq_(APP.VERSION, '1.1.3');
       assertEq_([versionNeedsUpgrade_('1.1.3'), versionNeedsUpgrade_('1.1.2'), versionNeedsUpgrade_('1.1.1')], [false, false, false]);
       assertEq_([versionNeedsUpgrade_('1.1.0'), versionNeedsUpgrade_('1.0.0'), versionNeedsUpgrade_(''), versionNeedsUpgrade_(undefined)], [true, true, true, true]);
-    }],
-    ['v1.1.2: payload summary counts distinct employees (ID first, else normalized name)', function () {
-      assertEq_(payloadEmployeeCount_([{ employeeId: 'E1' }, { employeeId: 'E1' }, { employeeId: 'E2' }, { employeeId: '', employeeName: 'Ann  Lee' }, { employeeName: 'Ann Lee' }]), 3);
-      var plan = buildPayloadPlan_(payloadInput_());
-      assertEq_(payloadEmployeeCount_(plan.records), uniq_(plan.records.map(function (r) { return r.employeeId; })).length);
     }]
   ];
 }
 
-/** Fixture for the Slack Workflow message (v1.1.3): one team day with agents, a shift lead, a meeting and overnight shifts. */
-function workflowInput_(columns, over) {
-  var rec = function (id, name, date, start, end, cat, type, team) {
-    return { recordKey: 'K_' + id + '_' + start.replace(/\D/g, ''), teamId: team || 'TEAM_001', shiftDate: date, employeeId: id, employeeName: name,
-      shiftStart: start, shiftEnd: end, recordStatus: 'ACTIVE', activityCategory: cat || 'SHIFT', shiftType: type || 'Customer Support' };
-  };
-  var staff = {
-    E1: { employeeId: 'E1', employeeName: 'Ann Lee', active: true, fields: { role: 'Agent', 'field:aircall': 'A1', 'field:slack': 'U1' } },
-    E2: { employeeId: 'E2', employeeName: 'Bob Ray', active: true, fields: { role: 'Agent' } },
-    E3: { employeeId: 'E3', employeeName: 'Cy Moe', active: true, fields: { role: 'Shift Lead', 'field:aircall': 'A3' } },
-    E4: { employeeId: 'E4', employeeName: 'Dee Fox', active: true, fields: { role: 'Agent', 'field:aircall': 'D 4' } },
-    E5: { employeeId: 'E5', employeeName: 'Eve Kim', active: true, fields: { role: 'Agent' } },
-    E6: { employeeId: 'E6', employeeName: 'Fay Ng', active: true, fields: { role: 'Agent' } },
-    E7: { employeeId: 'E7', employeeName: 'Gus Old', active: false, fields: { role: 'Agent' } }
-  };
-  var input = {
-    cfg: normalizeWorkflowConfig_({ sheetName: 'Slack Workflow', columns: columns }), runDate: '2026-10-15',
-    records: [
-      rec('E1', 'Ann Lee', '2026-10-15', '2026-10-15 08:00', '2026-10-15 12:00'),
-      rec('E1', 'Ann Lee', '2026-10-15', '2026-10-15 12:30', '2026-10-15 16:00'),
-      rec('E1', 'Ann Lee', '2026-10-15', '2026-10-15 10:00', '2026-10-15 10:30', 'MEETING', 'Team Meeting'),
-      rec('E2', 'Bob Ray', '2026-10-15', '2026-10-15 14:00', '2026-10-15 22:00'),
-      rec('E3', 'Cy Moe', '2026-10-15', '2026-10-15 07:00', '2026-10-15 15:00'),
-      rec('E4', 'Dee Fox', '2026-10-15', '2026-10-15 23:40', '2026-10-16 08:00'),
-      rec('E5', 'Eve Kim', '2026-10-14', '2026-10-14 17:00', '2026-10-15 01:00'),
-      rec('E6', 'Fay Ng', '2026-10-15', '2026-10-15 09:00', '2026-10-15 17:00', 'SHIFT', 'Customer Support', 'TEAM_002'),
-      rec('E7', 'Gus Old', '2026-10-15', '2026-10-15 06:00', '2026-10-15 14:00'),
-      rec('X9', 'Not In Staff', '2026-10-15', '2026-10-15 06:30', '2026-10-15 10:00')
-    ],
-    teamsById: { TEAM_001: { teamId: 'TEAM_001', teamName: 'Alpha' }, TEAM_002: { teamId: 'TEAM_002', teamName: 'Beta' } },
-    allTeamIds: ['TEAM_001'],
-    resolve: function (t, r) { var s = staff[r.employeeId]; return { staff: s || null, member: !!s, role: s ? s.fields.role : '' }; },
-    fieldOf: function (s, key) { return key === 'employeeId' ? s.employeeId : (s.fields[key] || ''); },
-    slackIdOf: function (s) { return s.fields['field:slack'] || ''; },
-    displayTemplate: '@{EMPLOYEE_NAME}',
-    formatDate: function (iso, fmt) { return fmt.replace('yyyy', iso.substr(0, 4)).replace('MM', iso.substr(5, 2)).replace('dd', iso.substr(8, 2)); }
-  };
-  Object.keys(over || {}).forEach(function (k) { input[k] = over[k]; });
-  return input;
-}
+/* ------------- staff-sheet routing and held-back employees (unit) ------------- */
 
-function wfValues_(columns, over) {
-  var r = buildWorkflowMessage_(workflowInput_(columns, over));
-  if (r.report.fatal.length) throw new Error('Unexpected fatal: ' + r.report.fatal.join(' | '));
-  return r.values;
-}
-
-function unitTestsV113_() {
-  var agents = { header: 'Agents', type: 'ROSTER', roleMode: 'EXCLUDE', roles: ['Shift Lead'] };
-  var col = function (extra) { var c = JSON.parse(JSON.stringify(agents)); Object.keys(extra).forEach(function (k) { c[k] = extra[k]; }); return c; };
+function unitTestsStaffRouting_() {
+  var heldKeys = function (p) { return p.summary.heldPeople.map(function (h) { return h.employeeName + ':' + h.reason; }); };
+  var teamsOf = function (p) { return p.actions.map(function (a) { return a.record.employeeName + '>' + a.teamId; }).sort(); };
+  var csv = 'Employee Name,Date,Start,End\nann  lee,2026-10-15,08:00,16:00\nDee Fox,2026-10-15,09:00,17:00\nZed New,2026-10-15,10:00,18:00';
   return [
-    ['v1.1.3 message: one row; agents merged per person, sorted by start; shift leads, meetings, text and date columns', function () {
-      var r = buildWorkflowMessage_(workflowInput_([
-        { header: 'Key', type: 'TEXT', text: 'DAILY' }, { header: 'Header_Date', type: 'DATE', dateFormat: 'yyyy. MM. dd' },
-        { header: 'Shift_Leads', type: 'ROSTER', roleMode: 'ONLY', roles: ['shift lead'] }, agents,
-        { header: 'Meetings', type: 'ROSTER', category: 'MEETING', merge: false, lineTemplate: '{START_TIME} - {END_TIME} — {DISPLAY} ({ACTIVITY})' }
-      ]));
-      assertEq_(r.report.fatal, []);
-      assertEq_(r.headers, ['Key', 'Header_Date', 'Shift_Leads', 'Agents', 'Meetings']);
-      assertEq_(r.values[0], 'DAILY');
-      assertEq_(r.values[1], '2026. 10. 15');
-      assertEq_(r.values[2], '07:00 - 15:00 — @Cy Moe', 'role match ignores case');
-      assertEq_(r.values[3].split('\n'), ['06:30 - 10:00 — @Not In Staff', '08:00 - 16:00 — @Ann Lee', '14:00 - 22:00 — @Bob Ray', '23:40 - 08:00 — @Dee Fox'],
-        'inactive excluded, other team excluded, split shift merged, overnight kept, meeting not in the shift list');
-      assertEq_(r.values[4], '10:00 - 10:30 — @Ann Lee (Team Meeting)');
+    ['All teams: each row goes to the team whose staff sheet lists the person; others are held back', function () {
+      var p = planFromCsv_(csv, { teamMode: 'STAFF', teamId: '' });
+      assertEq_(teamsOf(p), ['Dee Fox>TEAM_002', 'ann lee>TEAM_001'], 'matched by name, ignoring case and spaces');
+      assertEq_(heldKeys(p), ['Zed New:NOT_IN_STAFF']);
+      assertEq_([p.summary.heldPeople[0].candidates.length, p.canCommit], [2, false], 'any team can be chosen; held people block the import');
     }],
-    ['v1.1.3 message: time rules (window, across a time, past midnight, yesterday, starts before) and tags', function () {
-      var v = wfValues_([
-        col({ header: 'Aircall', timeMode: 'OVERLAPS', timeFrom: '08:00', timeTo: '14:00', onlyMembers: true }),
-        col({ header: 'At14', timeMode: 'COVERS', timeFrom: '14:00', lineTemplate: '{DISPLAY}' }),
-        col({ header: 'Late', timeMode: 'ENDS_AFTER', timeFrom: '24:30', lineTemplate: '{DISPLAY}' }),
-        col({ header: 'YesterdayLate', dayOffset: -1, timeMode: 'ENDS_AFTER', timeFrom: '24:30', lineTemplate: '{DISPLAY}' }),
-        col({ header: 'Morning', timeMode: 'STARTS_BEFORE', timeFrom: '14:00', lineTemplate: '{DISPLAY}', onlyMembers: true }),
-        col({ header: 'Tagged', onlyMembers: true, tagText: ':aircall:', tagMode: 'COVERS', tagFrom: '14:00' })
-      ]);
-      assertEq_(v[0], '08:00 - 16:00 — @Ann Lee', 'only Ann works inside 08–14 (Bob starts at 14:00); unknown employee excluded');
-      assertEq_(v[1], '@Ann Lee');
-      assertEq_(v[2], '@Dee Fox', 'overnight shift ends 08:00 the next day');
-      assertEq_(v[3], '@Eve Kim', 'yesterday 17:00–01:00');
-      assertEq_(v[4], '@Ann Lee');
-      assertEq_(v[5].split('\n')[0], '08:00 - 16:00 — @Ann Lee :aircall:');
-      assertEq_(v[5].split('\n')[1], '14:00 - 22:00 — @Bob Ray', 'no tag, no trailing space');
+    ['All teams: a decision imports or skips every row of the held person', function () {
+      var key = 'NM:' + normName_('Zed New');
+      var imp = planFromCsv_(csv, { teamMode: 'STAFF', teamId: '', decisions: (function () { var d = {}; d[key] = 'TEAM_002'; return d; })() });
+      assertEq_([imp.summary.insert, imp.summary.heldPeople.length, imp.summary.unknownEmployeeCount, imp.canCommit], [3, 0, 1, true]);
+      var skip = planFromCsv_(csv, { teamMode: 'STAFF', teamId: '', decisions: (function () { var d = {}; d[key] = 'SKIP'; return d; })() });
+      assertEq_([skip.summary.insert, skip.summary.skippedByDecision, skip.canCommit], [2, 1, true]);
+      assert_(imp.token !== skip.token, 'decisions are part of the plan token');
     }],
-    ['v1.1.3 message: one dashboard link with all IDs (joined, prefixed, encoded); missing IDs reported, never invented', function () {
-      var r = buildWorkflowMessage_(workflowInput_([
-        col({ header: 'Aircall_URL', type: 'URL', urlTemplate: 'https://calls.example/live?users={IDS}', identifierField: 'field:aircall', separator: '%2C', onlyMembers: true }),
-        col({ header: 'Converse_URL', type: 'URL', urlTemplate: 'https://chat.example/team?page=1{IDS}', identifierField: 'field:aircall', itemPrefix: '&userIds=', separator: '', onlyMembers: true }),
-        col({ header: 'Late_URL', type: 'URL', urlTemplate: 'https://calls.example/live?users={IDS}&n={COUNT}', identifierField: 'field:aircall', timeMode: 'STARTS_FROM', timeFrom: '15:00', onlyMembers: true }),
-        col({ header: 'Split_URL', type: 'URL', urlTemplate: 'https://calls.example/live?users={IDS}', identifierField: 'field:aircall', merge: false, timeMode: 'STARTS_BEFORE', timeFrom: '13:00', onlyMembers: true })
-      ]));
-      assertEq_(r.report.fatal, []);
-      assertEq_(r.values[3], 'https://calls.example/live?users=A1', 'an ID appears once even when the person has two assignments');
-      assertEq_(r.values[0], 'https://calls.example/live?users=A1%2CD%204');
-      assertEq_(r.values[1], 'https://chat.example/team?page=1&userIds=A1&userIds=D%204');
-      assertEq_(r.values[2], 'https://calls.example/live?users=D%204&n=1');
-      assertEq_(r.columns[0].missing, ['Bob Ray']);
-      assert_(r.report.warnings.some(function (w) { return /Aircall_URL.*Bob Ray/.test(w); }), 'missing ID warned');
+    ['All teams: a person in two staff sheets is never guessed', function () {
+      var staff = testStaff_();
+      staff.TEAM_002 = buildStaffIndex_([{ employeeId: 'E1', employeeName: 'Ann Lee', active: true }]);
+      var p = planFromCsv_(csv, { teamMode: 'STAFF', teamId: '', getStaffIndex: function (id) { return staff[id] || null; } });
+      var ann = p.summary.heldPeople.filter(function (h) { return h.reason === 'IN_SEVERAL'; })[0];
+      assertEq_(ann && ann.candidates.map(function (c) { return c.teamId; }), ['TEAM_001', 'TEAM_002']);
+      assert_(!p.actions.some(function (a) { return /ann/i.test(a.record.employeeName); }), 'no row imported for Ann');
     }],
-    ['v1.1.3 message: per-assignment lines, Slack mention, empty text', function () {
-      var v = wfValues_([
-        col({ header: 'Split', merge: false, lineTemplate: '{START_TIME}-{END_TIME} {MENTION}', onlyMembers: true, timeMode: 'STARTS_BEFORE', timeFrom: '13:00' }),
-        col({ header: 'Nobody', dayOffset: 2, emptyText: 'No agents scheduled' })
-      ]);
-      assertEq_(v[0].split('\n'), ['08:00-12:00 <@U1>', '12:30-16:00 <@U1>']);
-      assertEq_(v[1], 'No agents scheduled');
-    }],
-    ['v1.1.3 message: configuration errors block generation', function () {
-      var r = buildWorkflowMessage_(workflowInput_([
-        { header: '', type: 'TEXT' }, { header: 'A', type: 'TEXT' }, { header: 'a', type: 'TEXT' },
-        { header: 'U', type: 'URL', urlTemplate: 'https://x.example/?ids=' },
-        { header: 'R', type: 'ROSTER', roleMode: 'ONLY', roles: [] },
-        { header: 'T', type: 'ROSTER', timeMode: 'OVERLAPS', timeFrom: '14:00', timeTo: '08:00' },
-        { header: 'P', type: 'ROSTER', lineTemplate: '{NOPE}' }
-      ]));
-      var f = r.report.fatal.join(' | ');
-      ['enter a header', 'used twice', '{IDS}', 'list the roles', 'end time after', '{NOPE}'].forEach(function (s) { assert_(f.indexOf(s) >= 0, 'expected "' + s + '" in ' + f); });
-      assertEq_(r.values, []);
-      assertEq_(validateWorkflowConfig_(normalizeWorkflowConfig_({ sheetName: '_X', columns: [{ header: 'A', type: 'TEXT' }] })).fatal.length, 1, 'internal sheet name refused');
-      assertEq_(normalizeWorkflowConfig_({}).columns.length, 5, 'starter configuration');
+    ['One team: people missing from its staff sheet are held back only when review is asked for', function () {
+      var one = 'Employee ID,Employee Name,Date,Start,End\nE1,Ann Lee,2026-10-15,08:00,16:00\nE9,Zed New,2026-10-15,09:00,17:00';
+      var held = planFromCsv_(one, { reviewUnknown: true });
+      assertEq_([held.summary.insert, heldKeys(held), held.canCommit], [1, ['Zed New:NOT_IN_TEAM'], false]);
+      var go = planFromCsv_(one, { reviewUnknown: true, decisions: { 'ID:E9': 'TEAM_001' } });
+      assertEq_([go.summary.insert, go.canCommit], [2, true]);
+      assertEq_(planFromCsv_(one).summary.insert, 2, 'without review, unknown employees are imported and flagged (API behaviour)');
+    }]
+  ];
+}
+
+function unitTestsThemes_() {
+  return [
+    ['Themes: every theme has a label, a font and a complete sheet palette; UI_THEME accepts only known themes', function () {
+      assert_(THEMES.DEFAULT && THEMES.DEFAULT.file === '', 'the default theme needs no file');
+      Object.keys(THEMES).forEach(function (k) {
+        var s = THEMES[k].sheet;
+        assert_(THEMES[k].label && s && s.font, k + ' has a label and a font');
+        ['header', 'headerText', 'accent', 'band', 'soft', 'warn', 'error'].forEach(function (c) {
+          assert_(/^#[0-9a-f]{6}$/i.test(s[c]), k + '.' + c + ' is a hex color');
+        });
+      });
+      assertEq_(sheetTheme_({ UI_THEME: 'EMBER' }).accent, '#eb1700');
+      assertEq_(sheetTheme_({ UI_THEME: 'GONE' }), THEMES.DEFAULT.sheet, 'an unknown theme falls back to the default');
+      assertEq_(validateConfigUpdates_({ UI_THEME: 'SKY' }).fatal, []);
+      assertEq_(validateConfigUpdates_({ UI_THEME: 'NEON' }).fatal.length, 1);
     }]
   ];
 }
 
 function runUnitTests() {
-  return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_()).concat(unitTestsV113_()));
+  return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_())
+    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()));
 }
 
 /** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */
@@ -1038,9 +834,9 @@ function runIntegrationTests() {
       var staff = {};
       staff[STAFF_FIELD_DEFS.employeeId.label] = 'ZT1'; staff[STAFF_FIELD_DEFS.employeeName.label] = 'Test Ann';
       upsertStaff_(ctx.teams.alpha, staff, '');
-      var csv = 'Employee ID,Employee Name,Date,Start,End,Break,Activity\n' +
-        'ZT1,Test Ann,2026-10-15,08:00,12:00,0,Phone\nZT1,Test Ann,2026-10-15,13:00,17:00,15,Chat\n' +
-        'ZT9,Test Unknown,2026-10-15,22:00,06:00,30,Night\nZT1,Test Ann,2026-10-16,08:00,12:00,0,Phone';
+      var csv = 'Employee ID,Employee Name,Date,Start,End,Activity\n' +
+        'ZT1,Test Ann,2026-10-15,08:00,12:00,Phone\nZT1,Test Ann,2026-10-15,13:00,17:00,Chat\n' +
+        'ZT9,Test Unknown,2026-10-15,22:00,06:00,Night\nZT1,Test Ann,2026-10-16,08:00,12:00,Phone';
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'UPDATE');
       assertEq_([r.status, r.inserted], ['COMMITTED', 4]);
       var recs = queryScheduleRecords_({ teamIds: [ctx.teams.alpha.teamId] }).filter(function (x) { return x.recordStatus === 'ACTIVE'; });
@@ -1050,19 +846,19 @@ function runIntegrationTests() {
       assertEq_(view.shifts, 3);
     }],
     ['9/14. Re-import with different column order changes nothing', function () {
-      var csv = 'Activity,Break,End,Start,Date,Employee Name,Employee ID\n' +
-        'Phone,0,12:00,08:00,2026-10-15,Test Ann,ZT1\nChat,15,17:00,13:00,2026-10-15,Test Ann,ZT1\n' +
-        'Night,30,06:00,22:00,2026-10-15,Test Unknown,ZT9\nPhone,0,12:00,08:00,2026-10-16,Test Ann,ZT1';
+      var csv = 'Activity,End,Start,Date,Employee Name,Employee ID\n' +
+        'Phone,12:00,08:00,2026-10-15,Test Ann,ZT1\nChat,17:00,13:00,2026-10-15,Test Ann,ZT1\n' +
+        'Night,06:00,22:00,2026-10-15,Test Unknown,ZT9\nPhone,12:00,08:00,2026-10-16,Test Ann,ZT1';
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'UPDATE');
       assertEq_([r.inserted, r.updated, r.unchanged], [0, 0, 4]);
     }],
     ['15. Update an existing schedule', function () {
-      var csv = 'Employee ID,Employee Name,Date,Start,End,Break,Activity\nZT1,Test Ann,2026-10-15,13:00,17:00,30,Chat';
+      var csv = 'Employee ID,Employee Name,Date,Start,End,Activity,Role\nZT1,Test Ann,2026-10-15,13:00,17:00,Chat,Lead';
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'UPDATE');
       assertEq_(r.updated, 1);
     }],
     ['16/17. Replace within range keeps records outside the range', function () {
-      var csv = 'Employee ID,Employee Name,Date,Start,End,Break,Activity\nZT1,Test Ann,2026-10-15,08:00,12:00,0,Phone';
+      var csv = 'Employee ID,Employee Name,Date,Start,End,Activity\nZT1,Test Ann,2026-10-15,08:00,12:00,Phone';
       var r = itImport_(ctx, csv, ctx.teams.alpha.teamId, 'REPLACE_RANGE');
       assertEq_(r.removed, 2);
       var active = queryScheduleRecords_({ teamIds: [ctx.teams.alpha.teamId] }).filter(function (x) { return x.recordStatus === 'ACTIVE'; });
@@ -1121,10 +917,10 @@ function runIntegrationTests() {
         ['STANDARD', '07:00', '19:00', 'TABLE']);
       assertEq_(migrateTeamsV11_().filter(function (m) { return m.indexOf(IT_PREFIX_) >= 0; }), [], 'second run changes nothing');
     }],
-    ['v1.1.1 #9–12 + v1.1 #10: 5 default columns; custom identifier added, renamed without data loss; leading zeros kept', function () {
+    ['v1.1.1 #9–12 + v1.1 #10: 4 default columns; custom identifier added, renamed without data loss; leading zeros kept', function () {
       var team = getTeam_(ctx.teams.t247.teamId);
       var st = readStaff_(team);
-      assertEq_(st.keys.filter(Boolean), ['employeeId', 'employeeName', 'active', 'role', 'notes']);
+      assertEq_(st.keys.filter(Boolean), ['employeeId', 'employeeName', 'role', 'notes']);
       var before = listStaffFields_().length;
       var f = saveStaffField_({ displayName: IT_PREFIX_ + 'Converse ID', fieldType: 'IDENTIFIER' }).field;
       ctx.fieldKeys = (ctx.fieldKeys || []).concat([f.fieldKey]);
@@ -1181,67 +977,24 @@ function runIntegrationTests() {
       var view = renderTeamView_(t2, { date: '2026-11-03' });
       assertEq_(view.shifts, 2);
     }],
-    ['v1.1.1 #13–16: shared staff directory with explicit membership and routed import', function () {
+    ['Shared staff sheets are split: each team gets its own copy and IDs keep leading zeros', function () {
       var owner = getTeam_(ctx.teams.night.teamId);
-      var staff = function (id, name) { var v = {}; v['Employee ID'] = id; v['Employee Name'] = name; return v; };
-      upsertStaff_(owner, staff('ZS1', 'Shared One'), '');
-      upsertStaff_(owner, staff('ZS2', 'Shared Two'), '');
-      var dir = listStaffDirectories_(null).filter(function (d) { return String(d.sheetId) === String(owner.settings.staffSheetId); })[0];
-      assert_(dir, 'owner directory is listed as shareable');
-      var shared = createTeam_({ teamName: IT_PREFIX_ + 'Shared', typeMode: 'EXISTING', teamTypeId: owner.teamTypeId,
-        staffMode: 'SHARED', sharedStaffSheetId: dir.sheetId, addAllMembers: false }).team;
-      ctx.teams.shared = shared;
-      shared = getTeam_(shared.teamId);
-      owner = getTeam_(owner.teamId);
-      assertEq_(String(shared.settings.staffSheetId), String(owner.settings.staffSheetId), 'one directory');
-      assertEq_(readStaff_(shared).rows.filter(function (r) { return /^ZS/.test(r.employeeId); }).length, 2, 'no duplicated employee records');
-      var isOwnerMember = memberCheckForTeam_(owner), isSharedMember = memberCheckForTeam_(shared);
-      var zs1 = readStaff_(owner).rows.filter(function (r) { return r.employeeId === 'ZS1'; })[0];
-      assertEq_([isOwnerMember(zs1).member, isSharedMember(zs1).member], [true, false], 'owner backfilled, new team has no implicit members');
-      setMemberships_([{ employeeId: 'ZS2', teamId: shared.teamId, status: 'ACTIVE', source: 'TEST' }]);
-      // Route an import by membership: ZS1 → owner only; ZS2 → both teams → ambiguous until decided.
-      [owner, shared].forEach(function (t) { t.settings.import.useStaffDirectoryRouting = true; t.settings.import.shiftTypeMode = 'ALL'; saveTeamRow_(t); });
-      var csv = 'Employee ID,Employee Name,Date,Start,End\nZS1,Shared One,2026-11-10,08:00,16:00\nZS2,Shared Two,2026-11-10,09:00,17:00';
-      var table = trimTable_(parseCsv_(csv, ','));
-      var importId = newId_('IMP'); ctx.imports.push(importId);
-      stageTable_(importId, { meta: { fileName: 'route.csv', format: 'CSV', fileHash: 'r', warnings: [] }, table: table });
-      var req = { importId: importId, format: 'TABLE', headerRow: 1, fieldMap: { employeeId: 'Employee ID', employeeName: 'Employee Name', date: 'Date', start: 'Start', end: 'End' },
-        options: {}, teamMode: 'DIRECTORY', teamId: '', strategy: 'UPDATE', allowPartial: false, profileId: '' };
-      var plan = analyzeStaged_(req).plan;
-      assertEq_([plan.summary.ambiguousRouting, plan.canCommit], [1, false], 'ambiguous row blocks the import');
-      req.routingOverrides = { '3': shared.teamId };
-      req.token = analyzeStaged_(req).plan.token;
-      var r = commitImport_(req);
-      assertEq_([r.status, r.inserted], ['COMMITTED', 2]);
-      var recs = queryScheduleRecords_({ dates: ['2026-11-10'] }).filter(function (x) { return /^ZS/.test(x.employeeId); });
-      assertEq_(recs.map(function (x) { return x.employeeId + '>' + x.teamId; }).sort(), ['ZS1>' + owner.teamId, 'ZS2>' + shared.teamId]);
-    }],
-    ['v1.1.1 #17–31: payload generation writes; Replace keeps unrelated rows; Append gets a new Generation ID', function () {
-      var owner = getTeam_(ctx.teams.night.teamId), shared = getTeam_(ctx.teams.shared.teamId);
-      ctx.savedSlack = { p: getConfig_().SLACK_PAYLOAD_CONFIG, u: getConfig_().DASHBOARD_URL_CONFIG };
-      setConfigValues_({
-        DASHBOARD_URL_CONFIG: JSON.stringify({ template: 'https://dash.example/u={EMPLOYEE_ID}', identifierField: 'employeeId', missingPolicy: 'BLANK_WARN' }),
-        SLACK_PAYLOAD_CONFIG: JSON.stringify({ teamIds: [owner.teamId], dateMode: 'DATE', dateFrom: '2026-11-10', blockCount: 1, outputMode: 'REPLACE', excludeUnresolved: false })
-      });
-      var p1 = preparePayloadRun_(null);
-      assertEq_([p1.report.fatal.length, p1.records.length], [0, 1]);
-      assertEq_([p1.records[0].employeeDisplay, p1.records[0].dashboardUrl], ['@Shared One', 'https://dash.example/u=ZS1']);
-      writePayloads_(p1);
-      setConfigValues_({ SLACK_PAYLOAD_CONFIG: JSON.stringify({ teamIds: [shared.teamId], dateMode: 'DATE', dateFrom: '2026-11-10', outputMode: 'REPLACE', excludeUnresolved: false }) });
-      writePayloads_(preparePayloadRun_(null));
-      setConfigValues_({ SLACK_PAYLOAD_CONFIG: JSON.stringify({ teamIds: [owner.teamId], dateMode: 'DATE', dateFrom: '2026-11-10', outputMode: 'REPLACE', excludeUnresolved: false }) });
-      var again = preparePayloadRun_(null);
-      writePayloads_(again);
-      var rows = readTable_(T_SLACK_PAYLOADS).rows.filter(function (r) { return [owner.teamId, shared.teamId].indexOf(str_(r.teamId)) >= 0; });
-      assertEq_(rows.length, 2, 'replace did not duplicate and kept the other team');
-      assertEq_(rows.filter(function (r) { return str_(r.teamId) === shared.teamId; }).length, 1, 'unrelated team untouched');
-      setConfigValues_({ SLACK_PAYLOAD_CONFIG: JSON.stringify({ teamIds: [owner.teamId], dateMode: 'DATE', dateFrom: '2026-11-10', outputMode: 'APPEND', excludeUnresolved: false }) });
-      var app = preparePayloadRun_(null);
-      assert_(app.report.warnings.some(function (w) { return /Identical payloads/.test(w); }), 'append of identical content is flagged');
-      writePayloads_(app);
-      var gens = uniq_(readTable_(T_SLACK_PAYLOADS).rows.filter(function (r) { return str_(r.teamId) === owner.teamId; }).map(function (r) { return str_(r.generationId); }));
-      assertEq_(gens.length, 2, 'append adds a distinct generation');
-      assert_(validatePayloads_().fatal.length === 0, 'stored payloads validate');
+      var staff = {}; staff['Employee ID'] = '007'; staff['Employee Name'] = 'Split One';
+      upsertStaff_(owner, staff, '');
+      var other = createTeam_({ teamName: IT_PREFIX_ + 'Shared', typeMode: 'EXISTING', teamTypeId: owner.teamTypeId }).team;
+      ctx.teams.shared = other;
+      other = getTeam_(other.teamId);
+      // Simulate an older spreadsheet in which both teams use the owner's staff sheet.
+      var ownSheet = resolveTeamSheet_(other, 'staff');
+      other.settings.staffSheetId = owner.settings.staffSheetId; other.staffSheet = owner.staffSheet; saveTeamRow_(other);
+      ss.deleteSheet(ownSheet);
+      var msgs = splitSharedStaffSheets_();
+      assertEq_(msgs.length, 1, msgs.join(' | '));
+      other = getTeam_(other.teamId); owner = getTeam_(owner.teamId);
+      assert_(String(other.settings.staffSheetId) !== String(owner.settings.staffSheetId), 'separate staff sheets');
+      var copied = readStaff_(other).rows.filter(function (r) { return r.employeeName === 'Split One'; })[0];
+      assertEq_(copied && copied.employeeId, '007', 'staff copied with the leading zeros');
+      assertEq_(splitSharedStaffSheets_(), [], 'a second run changes nothing');
     }],
     ['v1.1.2: Schedule Viewer renders with filters, stores them in the sheet, and meeting rows are shaded', function () {
       var team = getTeam_(ctx.teams.alpha.teamId);
@@ -1258,30 +1011,6 @@ function runIntegrationTests() {
       var formulas = sh.getConditionalFormatRules().map(ruleFormula_);
       assert_(formulas.some(function (f) { return /^=LEFT\(\$[A-Z]+7,7\)="Meeting"$/.test(f); }), 'meeting row rule present: ' + formulas.join(' | '));
       assert_(!apiViewerRender('NO_SUCH_TEAM', '', null).ok, 'unknown team is refused');
-    }],
-    ['v1.1.3: workflow message is written as one row; the trigger entry point uses the saved configuration', function () {
-      var team = getTeam_(ctx.teams.alpha.teamId);
-      ctx.savedMessage = getConfig_().SLACK_MESSAGE_CONFIG;
-      var name = IT_PREFIX_ + 'Workflow';
-      var cfg = { sheetName: name, columns: [
-        { header: 'Key', type: 'TEXT', text: 'DAILY' },
-        { header: 'Header_Date', type: 'DATE', dateFormat: 'yyyy. MM. dd' },
-        { header: 'Agents', type: 'ROSTER', teamIds: [team.teamId], emptyText: 'No agents scheduled' }] };
-      var prev = apiWorkflowPreview(cfg, '2026-10-15');
-      assert_(prev.ok, prev.error && prev.error.message);
-      var agents = prev.data.values[2];
-      assert_(/^\d\d:\d\d - \d\d:\d\d — @/.test(agents), 'agents listed: ' + agents);
-      assert_(!ss.getSheetByName(name), 'preview writes nothing');
-      var gen = apiWorkflowGenerate(cfg, '2026-10-15');
-      assert_(gen.ok, gen.error && gen.error.message);
-      var sh = ss.getSheetByName(name);
-      assertEq_(sh.getRange(1, 1, 1, 3).getValues()[0], ['Key', 'Header_Date', 'Agents']);
-      assertEq_(sh.getRange(2, 1, 1, 3).getValues()[0], ['DAILY', '2026. 10. 15', agents]);
-      assert_(!apiWorkflowGenerate({ sheetName: name, columns: [{ header: 'U', type: 'URL', urlTemplate: 'ftp://x/{IDS}' }] }, '2026-10-15').ok, 'invalid configuration refused');
-      assertEq_(sh.getRange(1, 1).getValue(), 'Key', 'a refused run leaves the sheet as it was');
-      var r = generateSlackWorkflowMessage();
-      assertEq_([r.sheet, r.columns], [name, 3]);
-      assertEq_(sh.getRange(2, 1).getValue(), 'DAILY');
     }],
     ['18. Recover from a missing team worksheet', function () {
       var team = getTeam_(ctx.teams.beta.teamId);
@@ -1306,7 +1035,7 @@ function itImport_(ctx, csv, teamId, strategy, forceToken) {
   var importId = newId_('IMP');
   stageTable_(importId, { meta: { fileName: 'integration-test.csv', format: 'CSV', fileHash: hash64_(csv), warnings: [] }, table: table });
   var insp = inspectTable_(table, { profileId: 'NONE', headerRow: 0 }, getConfig_());
-  var req = { importId: importId, headerRow: insp.headerRow, fieldMap: insp.fieldMap, options: { dateOrder: 'AUTO', breakUnit: 'MINUTES' },
+  var req = { importId: importId, headerRow: insp.headerRow, fieldMap: insp.fieldMap, options: { dateOrder: 'AUTO' },
     profileId: '', teamMode: 'EXPLICIT', teamId: teamId, strategy: strategy, allowPartial: false };
   var a = analyzeStaged_(req);
   req.token = forceToken || a.plan.token;
@@ -1331,16 +1060,6 @@ function itCleanup_(ctx) {
       var type = getTeamType_(ctx.newTypeId);
       if (type) deleteSheetRows_(requireSheet_(T_TEAM_TYPES.sheet), [type._row]);
     }
-    [T_MEMBERSHIP, T_SLACK_PAYLOADS].forEach(function (def) {
-      if (!getSheet_(def.sheet)) return;
-      var tt = readTable_(def);
-      var rows = tt.values.slice(1).filter(function (row) { return !row.every(isBlank_) && ids.indexOf(str_(row[tt.idx.teamId])) < 0; });
-      replaceAllRows_(tt.sheet, def, tt.header, rows, tt.lastRow);
-    });
-    if (ctx.savedSlack) setConfigValues_({ SLACK_PAYLOAD_CONFIG: ctx.savedSlack.p, DASHBOARD_URL_CONFIG: ctx.savedSlack.u });
-    if (ctx.savedMessage !== undefined) setConfigValues_({ SLACK_MESSAGE_CONFIG: ctx.savedMessage });
-    var wfSheet = getSs_().getSheetByName(IT_PREFIX_ + 'Workflow');
-    if (wfSheet) getSs_().deleteSheet(wfSheet);
     var fieldRows = listStaffFields_().filter(function (f) { return f.displayName.indexOf(IT_PREFIX_) === 0; }).map(function (f) { return f._row; });
     if (fieldRows.length) deleteSheetRows_(requireSheet_(T_STAFF_FIELDS.sheet), fieldRows);
     rebuildSheetIndex_();

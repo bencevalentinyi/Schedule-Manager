@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased — simplification
+
+Removed features and settings that were hard to understand, so they can be rebuilt one at a time. No team, staff or schedule data changes, and no upgrade is required.
+
+### Removed
+
+- **Slack Workflow Automation**, completely: the menu, `SlackDialog.html`, `SlackMessageService.gs`, `SlackPayloadService.gs`, the `_SLACK_PAYLOADS` schema, the `SLACK_PAYLOAD_CONFIG` / `DASHBOARD_URL_CONFIG` / `SLACK_MESSAGE_CONFIG` keys and their tests. Existing spreadsheets keep the old sheet and keys; they are ignored and can be deleted by hand.
+- **Configure Team Types** (`TeamTypeDialog.html` and its API). Team types still exist internally: new teams use the first enabled type (the starter "Standard Team").
+- **Configure Import Settings**: the Import and Mapping profiles tabs. The import settings keep their values in `_CONFIG`; profiles are still created by the import wizard. The settings dialog now shows display settings only.
+- **Preview Import (no changes)**: every import already previews before anything is written.
+
+### Simplified
+
+- **Team dialog** (create and edit): 5 steps: General, Schedule, Staff sheet, Shift types (with meetings), Review. Removed from the dialog: active switch (use Activate/Deactivate in the team list), team type, default date, time format, schedule columns, team-specific fields, shared staff sheet choice, inline custom field creation, legacy free-text columns, export type, import profile, employee match key, name matching, staff-directory routing, duplicate handling, header rows and import aliases.
+  Settings that are no longer shown are **kept unchanged** when a team is edited; new teams get the defaults of the starter type.
+- **Import wizard**: choose the team and the file; check the date (Daily Schedule) or the columns (table); choose the shift types; review. Removed: export type, mapping profile, file encoding and workbook sheet (auto-detected), day/month order (now an option under "Row of column names, date format"), team assignment modes (rows always go to the chosen team) and the duplicated duplicate-handling choice on the shift types step. The Daily Schedule layout fields are now behind "The rows or columns look wrong?" and open automatically when the default layout does not fit.
+- **Team list**: no team type or import aliases.
+- **System sheets are always hidden** after Setup and Repair Formatting (the `HIDE_SYSTEM_SHEETS` setting was removed). Nothing is hidden while no other sheet is visible, because Sheets needs one visible sheet. *Open System Configuration* still shows `_CONFIG`.
+- **Breaks removed from the whole system**: no break import fields, no break or Net Hours columns in the daily view, no Breaks switch, no break unit in profiles, and `_SCHEDULE_DATA` no longer has Break Start / Break End / Break Minutes / Net Minutes. Working hours and "Hours differ" use the full shift length. A Break column in an export is kept as unmapped extra data. Existing spreadsheets keep their old break columns in `_SCHEDULE_DATA` (unused; delete them by hand if you like), and teams that showed *Net Hours* now show *Shift Length*.
+- **Staff "Active" column retired.** It is no longer offered, created or required. In existing staff sheets the column is hidden (its values are kept) and everyone in a staff sheet counts as active. The staff sidebar no longer has "Include inactive" or "Mark inactive".
+- **Team membership and shared staff sheets removed.** Every team has its own staff sheet. Removed: `MembershipService.gs`, the `_TEAM_MEMBERSHIP` schema, the import mode "Route by staff directory membership", the preview's routing table, the "Not a team member" flag, and the membership box and "Not a member" badge in the staff sidebar. *Setup / Configure Spreadsheet* gives a team that still shares a staff sheet its own copy (the team with the lowest Team ID keeps the original); nothing is deleted. Old `_TEAM_MEMBERSHIP` / `_SLACK_PAYLOADS` sheets are left unused and hidden.
+- **Themes** (new): *Configure Display Settings → Theme* switches every dialog and sidebar between **Default**, **Sky** (bright blue, soft and rounded, pill buttons, Nunito) and **Ember** (bold red, high contrast, black table headers, Inter). Each theme is an optional file (`ThemeSky.html`, `ThemeEmber.html`) loaded after `Styles` and shows a logo in the dialog header (Sky: the Wolt app icon, Ember: the DoorDash logo, both loaded from Wikimedia Commons; Sky falls back to a drawn mark if the image cannot load); a missing file falls back to the default look. The theme also styles every generated sheet (daily schedules, staff sheets, Dashboard): header, title, tab, stripe and flag colors plus the font (Arial / Nunito / Inter); changing it reformats them all at once. The separate HEADER_COLOR, HEADER_FONT_COLOR, BAND_COLOR, WARN_COLOR and ERROR_COLOR settings were removed (old values in `_CONFIG` are ignored). The Dashboard column "Net Hours" is now "Hours". `checkInstall` lists which theme files are present.
+- **Import for all teams at once** (new): choose *All teams (find each employee in the staff sheets)* in the import. Each row goes to the team whose staff sheet lists the employee (by Employee ID, or by exact name ignoring case and extra spaces); that team's shift types then decide which rows are imported. Meetings follow the person.
+- **Held back for review** (new): people not found in any staff sheet, found in several, or (for a one-team import) missing from that team's staff sheet are not imported. The preview lists them with a choice per person: a team, or Skip. "Skip all listed" and "Re-check" are next to the list. Nothing is guessed.
+- **Name matching is normal now**: the "Name match" flag in the daily view and the per-row "matched by name only" warnings were removed, because exports without Employee IDs are matched by name by design.
+- **Own staff columns from the team dialog**: the Staff sheet step has "Add your own column". It creates a visible text column, ticks it for the team, and other teams can tick it too.
+
 ## 1.1.3 — Slack Workflow message (one combined row)
 
 The logic of the earlier "daily plan" script (`daily_wf`), rebuilt on the normalized schedule data. Teams, roles, times, URLs and IDs are now settings, not code.

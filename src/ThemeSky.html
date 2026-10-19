@@ -1,0 +1,74 @@
+<!-- Theme "Sky" (Wolt style): bright sky blue, soft and rounded, with the Wolt app icon in dialog headers.
+     Loaded after Styles when Display Settings → Theme = SKY. Only overrides; delete this
+     file and the default look is used. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap">
+<style>
+  :root {
+    --primary: #009de0;        --primary-hover: #0086c2;   --primary-soft: #e6f6fd;  --primary-text: #ffffff;
+    --bg: #f4f7f9;             --surface: #ffffff;         --surface-2: #f6f9fb;     --muted-bg: #eef3f6;
+    --text: #202125;           --text-2: #5e6268;          --text-3: #8a8f96;
+    --border: #e4e9ed;         --border-strong: #cfd7de;
+    --info: #0077ad;           --info-bg: #e6f6fd;         --info-border: #b3e2f6;
+    --focus: #009de0;          --focus-ring: 0 0 0 3px rgba(0, 157, 224, .25);
+    --font: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    --fs-title: 18px;
+    --radius-sm: 8px; --radius: 12px; --radius-lg: 16px;
+    --shadow: 0 2px 8px rgba(32, 33, 37, .06);
+    --control-h: 36px;
+  }
+
+  /* Header with the Wolt app icon at the top right (same place as the logo in the Ember theme) */
+  .app-header { position: relative; padding-right: calc(var(--pad-x) + 48px); border-top: 4px solid var(--primary); border-bottom: 0; box-shadow: 0 1px 0 var(--border); }
+  .app-header::after {
+    content: ""; position: absolute; right: var(--pad-x); top: 14px; width: 34px; height: 34px;
+    /* The Wolt app icon (Wikimedia Commons); the drawn mark underneath shows if the image cannot load. */
+    border-radius: 9px;
+    background: url("https://upload.wikimedia.org/wikipedia/commons/b/b0/Wolt-app-icon-2019.png") center / cover no-repeat, no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23009de0'/%3E%3Crect x='8' y='9.5' width='16' height='14.5' rx='4' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M12.5 7.5v3.5M19.5 7.5v3.5' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M12.3 17.4l2.6 2.5 4.8-5' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+  .app-header h1 { font-weight: 800; letter-spacing: -.01em; }
+  body.sidebar .app-header { padding-right: calc(var(--pad-x) + 40px); }
+  body.sidebar .app-header::after { width: 28px; height: 28px; top: 12px; }
+
+  /* Soft page */
+  .app-body { background: var(--bg); }
+  .app-footer { background: var(--surface); border-top: 0; box-shadow: 0 -1px 0 var(--border); }
+  h2, .h2 { font-weight: 800; font-size: 15px; }
+  h3, .h3 { font-weight: 700; }
+
+  /* Pill buttons */
+  .btn { border-radius: 999px; font-weight: 700; padding: 0 18px; border-color: transparent; background: var(--primary-soft); color: var(--primary); }
+  .btn:hover { background: #d4effb; }
+  .btn.primary { box-shadow: 0 2px 6px rgba(0, 157, 224, .3); }
+  .btn.ghost { background: transparent; }
+  .btn.danger { border-color: transparent; background: #fdeeed; }
+  .btn.sm, .btn.small { height: 28px; padding: 0 12px; }
+  .btn-group .btn:first-child { border-radius: 999px 0 0 999px; }
+  .btn-group .btn:last-child { border-radius: 0 999px 999px 0; }
+
+  /* Rounded, filled inputs */
+  input[type=text], input[type=number], input[type=date], input[type=time], input[type=search], input[type=url], select, textarea {
+    border-radius: var(--radius-sm); background-color: var(--surface-2); border-color: var(--border);
+  }
+  input:focus, select:focus, textarea:focus { background-color: var(--surface); }
+  .search input { border-radius: 999px; }
+
+  /* Cards everywhere */
+  .panel, details.disclosure, .summary-box, .table-wrap, .list, .check-list { border-color: var(--border); box-shadow: var(--shadow); }
+  .panel, details.disclosure, .summary-box { background: var(--surface); }
+  .panel.subtle { background: var(--surface); }
+  .choice { border-radius: var(--radius); }
+  .choice:has(input:checked) { box-shadow: inset 0 0 0 2px var(--primary); }
+  .stat { border: 0; border-radius: var(--radius); box-shadow: var(--shadow); border-left: 4px solid var(--border-strong); }
+  .stat b { font-weight: 800; font-size: 19px; }
+  .badge { border-radius: 999px; font-weight: 700; }
+  .badge.shift { border-color: #b3e2f6; }
+  .alert { border-radius: var(--radius); }
+  table.table th { background: var(--surface-2); }
+  table.table tbody tr:hover td { background: #f3fafe; }
+  .list-item.sel, .list-item[aria-selected="true"] { box-shadow: inset 4px 0 0 var(--primary); }
+
+  /* Stepper and tabs */
+  .stepper .num { border-radius: 50%; }
+  .stepper li[aria-current="step"] { color: var(--primary); }
+  .tabs [role="tab"][aria-selected="true"] { border-bottom-width: 3px; }
+</style>

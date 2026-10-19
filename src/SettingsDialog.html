@@ -4,223 +4,58 @@
   <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
-  <style> .setting .label code { font-weight: 400; margin-left: 6px; font-size: 11px; color: var(--text-2); } </style>
 </head>
 <body>
   <header class="app-header">
-    <h1>Settings</h1>
-    <p class="subtitle">Global defaults. Per-team settings (operating hours, shift types, meetings) are edited under Manage Existing Teams.</p>
-    <div class="tabs" role="tablist" id="tabs" aria-label="Settings sections">
-      <button type="button" role="tab" data-tab="display" id="t-display" aria-controls="tab-display">Display</button>
-      <button type="button" role="tab" data-tab="import" id="t-import" aria-controls="tab-import">Import</button>
-      <button type="button" role="tab" data-tab="profiles" id="t-profiles" aria-controls="tab-profiles">Mapping profiles</button>
-    </div>
+    <h1>Display Settings</h1>
+    <p class="subtitle">Apply to all teams. Per-team settings (operating hours, shift types) are under Manage Existing Teams.</p>
   </header>
   <main class="app-body" id="main">
     <div id="status" aria-live="polite"></div>
-
-    <section id="tab-display" class="hidden" role="tabpanel" aria-labelledby="t-display"><div id="display-fields"></div></section>
-    <section id="tab-import" class="hidden" role="tabpanel" aria-labelledby="t-import"><div id="import-fields"></div></section>
-
-    <section id="tab-profiles" class="hidden" role="tabpanel" aria-labelledby="t-profiles">
-      <p class="hint mt-0">A mapping profile pins the layout or column headers of one Quinyx export format. Profiles are normally created in the import wizard; here you can review and adjust them.</p>
-      <div class="split mt-3">
-        <div class="list" id="profileList" role="listbox" aria-label="Mapping profiles"></div>
-        <div>
-          <div id="profilePlaceholder"><div class="empty"><div class="empty-icon" aria-hidden="true">⇄</div><p class="empty-title">Select a profile</p><p>Choose a profile on the left to review or adjust it.</p></div></div>
-          <div id="profileEditor" class="hidden">
-            <div class="row">
-              <div class="field"><label class="label" for="pName">Profile name<span class="req" aria-hidden="true">*</span></label><input type="text" id="pName" required></div>
-              <div class="field"><label class="label" for="pFormat">Export format</label><select id="pFormat" onchange="formatChanged()"></select></div>
-            </div>
-            <div class="field"><label class="label" for="pDesc">Description<span class="optional">optional</span></label><input type="text" id="pDesc"></div>
-            <div class="row">
-              <div class="field"><label class="label" for="pDateOrder">Day/month order of numeric dates</label>
-                <select id="pDateOrder"><option value="AUTO">Auto-detect</option><option value="DMY">Day/Month/Year</option><option value="MDY">Month/Day/Year</option><option value="YMD">Year-Month-Day</option></select></div>
-              <div class="field"><label class="label" for="pHoursUnit">Plain-number hours values are</label>
-                <select id="pHoursUnit"><option value="HOURS">hours (7.5)</option><option value="MINUTES">minutes (450)</option></select></div>
-            </div>
-
-            <div id="pDaily" class="panel subtle">
-              <div class="panel-head"><h3>Daily Schedule layout</h3></div>
-              <p class="hint mt-0">The default layout follows the description of the export and has not yet been verified against a real file.</p>
-              <div class="row tight mt-2">
-                <div class="field"><label class="label" for="lTitleRow">Title row (date)</label><input type="number" id="lTitleRow" min="0" max="20"></div>
-                <div class="field"><label class="label" for="lTitleCol">Title column</label><input type="text" id="lTitleCol" maxlength="3"></div>
-                <div class="field"><label class="label" for="lHeaderRow">Header row (0 = none)</label><input type="number" id="lHeaderRow" min="0" max="50"></div>
-                <div class="field"><label class="label" for="lFirstRow">First data row</label><input type="number" id="lFirstRow" min="1" max="60"></div>
-              </div>
-              <div class="row tight">
-                <div class="field"><label class="label" for="lShiftType">Shift type col.</label><input type="text" id="lShiftType" maxlength="3"></div>
-                <div class="field"><label class="label" for="lName">Employee name col.</label><input type="text" id="lName" maxlength="3"></div>
-                <div class="field"><label class="label" for="lInfo">Shift info col.</label><input type="text" id="lInfo" maxlength="3"></div>
-                <div class="field"><label class="label" for="lHours">Hours col.</label><input type="text" id="lHours" maxlength="3"></div>
-                <div class="field"><label class="label" for="lEmpId">Employee ID col.<span class="optional">opt.</span></label><input type="text" id="lEmpId" maxlength="3"></div>
-              </div>
-              <label class="check"><input type="checkbox" id="lFill"> <span>Fill empty shift types from the row above <span class="hint">For exports that list the type once per group.</span></span></label>
-            </div>
-
-            <div id="pTable">
-              <div class="row">
-                <div class="field"><label class="label" for="pBreakUnit">Plain-number break values are</label>
-                  <select id="pBreakUnit"><option value="MINUTES">minutes</option><option value="HOURS">hours</option></select></div>
-                <div class="field"><label class="label" for="pHeaderRow">Header row (0 = auto-detect)</label><input type="number" id="pHeaderRow" min="0" max="50"></div>
-                <div class="field"><label class="label" for="pDefaultTeam">Default team</label><select id="pDefaultTeam"></select></div>
-              </div>
-              <h3>Column mapping <span class="hint" style="display:inline;font-weight:400">exact source header text</span></h3>
-              <div class="table-wrap"><table class="table" id="pMap"></table></div>
-            </div>
-
-            <div class="field mt-3">
-              <label class="label" for="pTeamMap">Team value mapping</label>
-              <textarea id="pTeamMap" rows="3" spellcheck="false"></textarea>
-              <p class="hint">One per line: <code>source value = TEAM_ID</code>.</p>
-            </div>
-            <div class="cluster">
-              <button type="button" class="btn primary" onclick="saveProfile()">Save profile</button>
-              <span class="spacer"></span>
-              <button type="button" class="btn danger" onclick="deleteProfile()">Delete profile…</button>
-            </div>
-            <div id="profileConfirm" class="hidden"></div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <div id="fields"></div>
   </main>
   <footer class="app-footer">
     <button type="button" class="btn" onclick="closeDialog()">Close</button>
     <span class="spacer"></span>
-    <span class="foot-note" id="footNote">Changes apply to all teams.</span>
-    <button type="button" class="btn primary" id="saveSettingsBtn" onclick="saveSettings()">Save settings</button>
+    <button type="button" class="btn primary" onclick="saveSettings()">Save settings</button>
   </footer>
 
   <?!= include('ClientCore') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var data = null, currentProfile = null;
+    var data = null;
 
     function load() {
       call('Loading settings…', 'apiGetSettings').then(function (d) {
         data = d;
-        ['display', 'import'].forEach(function (g) {
-          $(g + '-fields').innerHTML = d.definitions.filter(function (x) { return x.group === g; }).map(field).join('') ||
-            emptyHtml('⚙', 'No settings in this group', '');
-        });
-        renderProfiles();
-        initTabs('tabs', tab);
-        tab(BOOT.tab || 'display');
+        $('fields').innerHTML = d.definitions.map(field).join('');
       });
     }
 
-    /** "DEFAULT_DUPLICATE_STRATEGY" → "Default duplicate strategy" */
+    /** "SHOW_CARRY_OVER" → "Show carry over" */
     function humanize(key) { var s = key.toLowerCase().replace(/_/g, ' '); return s.charAt(0).toUpperCase() + s.slice(1); }
     function field(def) {
       var v = data.values[def.key] === undefined ? def.defaultValue : data.values[def.key];
       var id = 's_' + def.key, input;
-      if (def.options) input = '<select id="' + id + '" data-key="' + def.key + '">' + options(def.options, null, null, v) + '</select>';
+      if (def.key === 'UI_THEME') {
+        input = '<select id="' + id + '" data-key="' + def.key + '">' +
+          options(def.options.map(function (k) { return { k: k, l: def.optionLabels[k] || k }; }), 'k', 'l', v) + '</select>';
+      }
+      else if (def.options) input = '<select id="' + id + '" data-key="' + def.key + '">' + options(def.options, null, null, v) + '</select>';
       else if (def.isBoolean) input = '<select id="' + id + '" data-key="' + def.key + '">' + options([{ k: 'TRUE', l: 'Yes' }, { k: 'FALSE', l: 'No' }], 'k', 'l', String(v).toUpperCase() === 'TRUE' ? 'TRUE' : 'FALSE') + '</select>';
-      else if (def.key === 'AUTO_MAP_SYNONYMS') input = '<textarea id="' + id + '" data-key="' + def.key + '" rows="4" spellcheck="false">' + esc(v) + '</textarea>';
       else input = '<input type="text" id="' + id + '" data-key="' + def.key + '" value="' + esc(v) + '">';
-      return '<div class="field setting"><label class="label" for="' + id + '">' + esc(humanize(def.key)) + '<code>' + esc(def.key) + '</code></label>' + input +
+      return '<div class="field"><label class="label" for="' + id + '">' + esc(humanize(def.key)) + '</label>' + input +
         '<p class="hint">' + esc(def.description) + '</p></div>';
-    }
-
-    function tab(name) {
-      selectTab('tabs', name);
-      show('saveSettingsBtn', name !== 'profiles'); show('footNote', name !== 'profiles');
-      showStatus('', '');
     }
 
     function saveSettings() {
       var updates = {};
       document.querySelectorAll('[data-key]').forEach(function (el) { updates[el.dataset.key] = el.value; });
       call('Saving and reapplying formatting…', 'apiSaveSettings', updates).then(function (r) {
-        showStatus('ok', r.changed.length ? 'Changed: ' + esc(r.changed.join(', ')) + (r.reformatted ? '. Formatting was reapplied to all team sheets.' : '.') : '',
+        showStatus('ok', r.changed.length ? 'Changed: ' + esc(r.changed.join(', ')) + (r.reformatted ? '. Formatting was reapplied to all team sheets.' : '.') +
+          (r.changed.indexOf('UI_THEME') >= 0 ? ' The sheets and the Dashboard now use the new theme; close and reopen dialogs and sidebars to see it there too.' : '') : '',
           r.changed.length ? 'Settings saved' : 'No changes to save');
         r.changed.forEach(function (k) { data.values[k] = updates[k]; });
-      });
-    }
-
-    function renderProfiles() {
-      $('profileList').innerHTML = data.profiles.map(function (p, i) {
-        var daily = (p.options.format || 'TABLE') === 'QUINYX_DAILY';
-        return '<button type="button" class="list-item" role="option" aria-selected="false" data-i="' + i + '" onclick="editProfile(' + i + ')"><span class="name">' + esc(p.profileName) + '</span>' +
-          '<span class="meta">' + (daily ? 'Daily Schedule layout' : Object.keys(p.fieldMap).length + ' mapped field(s)') + '</span></button>';
-      }).join('') || emptyHtml('⇄', 'No profiles', 'Profiles are created when you save a mapping in the import wizard.');
-      $('pDefaultTeam').innerHTML = options(data.teams, 'teamId', 'teamName', '', '(none)');
-    }
-
-    function editProfile(i) {
-      currentProfile = data.profiles[i];
-      var p = currentProfile;
-      document.querySelectorAll('#profileList .list-item').forEach(function (el) { el.setAttribute('aria-selected', Number(el.dataset.i) === i ? 'true' : 'false'); });
-      closeConfirm('profileConfirm');
-      $('pName').value = p.profileName; $('pDesc').value = p.description;
-      $('pFormat').innerHTML = options(kv(data.importFormats), 'k', 'l', p.options.format || 'TABLE');
-      $('pHoursUnit').value = p.options.hoursUnit || 'HOURS';
-      var L = p.options.dailyLayout || data.defaultLayout;
-      $('lTitleRow').value = L.titleRow; $('lTitleCol').value = L.titleColumn; $('lHeaderRow').value = L.headerRow; $('lFirstRow').value = L.firstDataRow;
-      $('lShiftType').value = L.shiftTypeColumn; $('lName').value = L.employeeNameColumn; $('lInfo').value = L.shiftInfoColumn;
-      $('lHours').value = L.hoursColumn; $('lEmpId').value = L.employeeIdColumn || ''; $('lFill').checked = !!L.fillDownShiftType;
-      formatChanged();
-      $('pDateOrder').value = p.options.dateOrder || 'AUTO'; $('pBreakUnit').value = p.options.breakUnit || 'MINUTES';
-      $('pHeaderRow').value = p.options.headerRow || 0; $('pDefaultTeam').value = p.options.defaultTeamId || '';
-      $('pMap').innerHTML = '<thead><tr><th scope="col">Internal field</th><th scope="col">Source column header</th></tr></thead><tbody>' + data.importFields.map(function (f, k) {
-        return '<tr><td><label for="pm' + k + '">' + esc(f.label) + (f.required ? '<span class="req" aria-hidden="true">*</span>' : '') + '</label></td>' +
-          '<td><input type="text" id="pm' + k + '" data-map="' + f.key + '" value="' + esc(p.fieldMap[f.key] || '') + '"></td></tr>';
-      }).join('') + '</tbody>';
-      $('pTeamMap').value = Object.keys(p.options.teamValueMap || {}).map(function (k) { return k + ' = ' + p.options.teamValueMap[k]; }).join('\n');
-      show('profilePlaceholder', false); show('profileEditor', true);
-    }
-
-    function saveProfile() {
-      clearFieldErrors();
-      if (!$('pName').value.trim()) { fieldError('pName', 'Enter a profile name.'); $('pName').focus(); return; }
-      var fieldMap = {};
-      document.querySelectorAll('[data-map]').forEach(function (el) { if (el.value.trim()) fieldMap[el.dataset.map] = el.value.trim(); });
-      var teamValueMap = {};
-      var bad = [];
-      $('pTeamMap').value.split('\n').forEach(function (line) {
-        if (!line.trim()) return;
-        var i = line.lastIndexOf('=');
-        if (i < 1) { bad.push(line); return; }
-        teamValueMap[line.substr(0, i).trim()] = line.substr(i + 1).trim();
-      });
-      if (bad.length) { fieldError('pTeamMap', 'Each line must look like "source value = TEAM_ID". Check: ' + bad.join(', ')); return; }
-      var input = {
-        profileId: currentProfile.profileId, profileName: $('pName').value, description: $('pDesc').value, fieldMap: fieldMap,
-        options: { format: $('pFormat').value, hoursUnit: $('pHoursUnit').value,
-          dateOrder: $('pDateOrder').value, breakUnit: $('pBreakUnit').value, headerRow: Number($('pHeaderRow').value || 0),
-          defaultTeamId: $('pDefaultTeam').value, teamValueMap: teamValueMap,
-          dailyLayout: { titleRow: Number($('lTitleRow').value), titleColumn: $('lTitleCol').value, headerRow: Number($('lHeaderRow').value),
-            firstDataRow: Number($('lFirstRow').value), shiftTypeColumn: $('lShiftType').value, employeeNameColumn: $('lName').value,
-            shiftInfoColumn: $('lInfo').value, hoursColumn: $('lHours').value, employeeIdColumn: $('lEmpId').value, fillDownShiftType: $('lFill').checked } }
-      };
-      call('Saving profile…', 'apiSaveMappingProfile', input, null).then(function (p) {
-        showStatus('ok', '', 'Saved profile ' + p.profileName + '.');
-        var i = data.profiles.map(function (x) { return x.profileId; }).indexOf(p.profileId);
-        data.profiles[i] = p; renderProfiles(); editProfile(i);
-      });
-    }
-
-    function formatChanged() {
-      var daily = $('pFormat').value === 'QUINYX_DAILY';
-      show('pDaily', daily); show('pTable', !daily);
-    }
-
-    function deleteProfile() {
-      var p = currentProfile;
-      askConfirm('profileConfirm', {
-        title: 'Delete profile "' + p.profileName + '"?',
-        html: 'Future imports can no longer select this profile. A profile that a team or team type still uses cannot be deleted; change those first.',
-        confirmLabel: 'Delete profile',
-        onConfirm: function () {
-          call('Deleting…', 'apiDeleteMappingProfile', p.profileId).then(function () {
-            data.profiles = data.profiles.filter(function (x) { return x.profileId !== p.profileId; });
-            closeConfirm('profileConfirm'); show('profileEditor', false); show('profilePlaceholder', true); renderProfiles();
-            showStatus('ok', '', 'Profile deleted.');
-          });
-        }
       });
     }
     load();

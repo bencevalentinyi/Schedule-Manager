@@ -1,19 +1,28 @@
 # Verification and Test Plan
 
-## v1.1.3 Slack Workflow message
+## Simplification (unreleased)
 
-**Results at hand-off:** unit tests 96/96, integration tests 24/24, upgrade checks 41/41 and UI static checks 1118, all passed under Node.js 20. The new unit tests were mutation-checked: three planted bugs were all caught.
+Slack, the team type dialog and the import settings dialog were removed; the team and import dialogs were simplified (see CHANGELOG). The Slack tests were removed with the code. The remaining automated tests were **not re-run** after this change: run them before release (see README → Running the tests).
 
 **Manual checklist (real spreadsheet):**
 
-1. *Slack Workflow Automation → Workflow Message* opens on the starter columns. Preview shows Key, Header_Date, Shift_Leads, Agents and Meetings for the run date, and writes nothing.
-2. Set Role = "Shift Lead" for a shift lead in the staff sheet. They appear only in Shift_Leads.
-3. Add a list column with "Works during part of a window" 08:00–14:00. Only people working in that window appear.
-4. Add a list column with "Ends after 24:30". A 23:40–08:00 shift appears; 08:00–16:00 does not. With Day = Yesterday, yesterday's late shifts appear.
-5. Add a link column: create the staff field (for example Aircall ID), enter the template with {IDS} and separator %2C. Every listed ID appears once, and people without an ID are named in a warning.
-6. **Save and write row**: row 1 holds the headers and row 2 the values, with line breaks inside the cells. Values beginning with "@" or "=" stay text.
-7. Add a time-driven trigger for generateSlackWorkflowMessage and run it once from the editor. Row 2 updates and Executions shows the log line.
-8. In Slack Workflow Builder, read the row (Key = DAILY) and post a test message. The names show as "@Name" text, or as real mentions when a Slack user ID field is configured.
+1. The menu has no *Slack Workflow Automation*, *Configure Team Types*, *Configure Import Settings* or *Preview Import*. `checkInstall` reports every file present.
+2. *Create New Team*: five steps (General, Schedule, Staff sheet, Shift types, Review). The team is created with the starter type and its daily and staff sheets.
+3. *Manage Existing Teams → Edit* a team that had settings no longer shown (e.g. aliases, a duplicate strategy, custom schedule columns). Change only the name and save: every other setting in `_TEAMS` is unchanged.
+4. *Import Quinyx Export* with a Daily Schedule file: choose the team and file, check the date, choose shift types, review, apply. With a wrong layout, "The rows or columns look wrong?" opens by itself; after Apply, "Remember this layout" saves it to the profile.
+5. Import a table CSV: map the columns, tick "Remember these columns", apply. The next import of the same format maps them automatically. A file whose only dates are like 03/04/2026 is blocked until "Dates like 03/04/2026 mean" is set.
+6. *Configure Display Settings* shows display settings only and saves them.
+7. After *Setup / Configure Spreadsheet* (and after *Repair Formatting*) every `_` sheet is hidden; the Dashboard and team sheets stay visible.
+8. Nothing about breaks remains: no Break items in the import column mapping, no break or Net Hours columns in the daily view, no Breaks switch in the team dialog. Durations equal the shift length.
+9. A new team's staff sheet has Employee ID, Employee Name, Role and Notes, with no Active column. In an older staff sheet, the Active column is hidden after *Repair Formatting* and its values are kept.
+10. Team dialog → Staff sheet → "Add your own column" (e.g. "Phone"): after saving, the column is visible in the team's staff sheet and is an editable field in *View Staff Directory*.
+11. In a copy where two teams share one staff sheet, run *Setup / Configure Spreadsheet → Repair*: the second team gets its own staff sheet (a copy, IDs with leading zeros intact), and a second run changes nothing. The staff sidebar has no membership box, and the import preview has no routing table.
+12. Import with *All teams*: put each person in one team's staff sheet with exactly the Quinyx name. Every row lands in that person's team, filtered by that team's shift types; the review step lists each team's shift types.
+13. Add someone to two staff sheets and leave someone out entirely: both appear under *Held back for review* and *Apply import* is disabled. Choose a team for one and Skip for the other, click *Re-check*: the import can be applied and contains exactly those decisions.
+14. One-team import: a person missing from that team's staff sheet is held back too; "Import to <team> anyway" imports them flagged *Unknown employee*.
+15. *Configure Display Settings → Theme* = Sky, Save: every daily sheet, staff sheet and the Dashboard switch to blue headers, Nunito font and matching tabs; reopened dialogs show the Sky look and logo. Repeat with Ember (black headers, red titles, Inter) and Default.
+
+The sections below record how earlier versions were verified. Criteria about Slack payloads and messages, team types, shared staff sheets and team membership, routing modes and import aliases refer to features that were removed.
 
 ## v1.1.2 acceptance criteria (UI overhaul)
 
@@ -86,15 +95,10 @@ The UI checker was itself tested: a scratch copy with an undefined handler, an u
    - The results page opens the team.
 9. Import History: search, filter by status, and undo via the confirmation panel.
 
-**Slack, settings and accessibility**
+**Settings and accessibility**
 
-10. Slack:
-    - Dashboard URL: placeholder chips insert at the cursor, the identifier is highlighted, and an invalid template shows "Invalid URL" and cannot be saved.
-    - Configuration: re-order the grouping and save.
-    - Generate: preview, generate, then "Open generated payloads". The results say that nothing was sent to Slack.
-11. Settings: tabs work with the arrow keys; save settings; edit and delete a profile (refused while in use).
-12. Keyboard only: Tab through the team wizard and the import wizard. Focus is always visible, and every control can be reached and operated.
-13. Browser zoom at 80 % and 150 %: dialogs remain usable, with internal scrolling and the footer always visible.
+10. Keyboard only: Tab through the team dialog and the import wizard. Focus is always visible, and every control can be reached and operated.
+11. Browser zoom at 80 % and 150 %: dialogs remain usable, with internal scrolling and the footer always visible.
 
 ## v1.1.1 acceptance criteria (the 32 test scenarios of the patch)
 
@@ -164,14 +168,6 @@ Nothing has been tested against a real Quinyx export or a real Slack Workflow.
 - [ ] Create team B sharing team A's staff sheet. The sheet title lists both teams. A's employees are still A's members; B has none.
 - [ ] In *View Staff Directory* for team B, mark one employee as a member of both teams.
 - [ ] Enable routing for A and B and import with *Route by staff directory membership*. The routing table shows that employee as **AMBIGUOUS**; Apply is blocked until a team is chosen.
-
-**Slack payloads**
-
-- [ ] *Configure Dashboard URL*: enter your real template and delimiters, choose the identifier field, and check the live preview against a known working URL.
-- [ ] *Configure Payload Generation* → *Generate Payloads* → **Preview**: check the counts, statuses and URLs, then **Generate**. `_SLACK_PAYLOADS` shows one row per shift or meeting.
-- [ ] Generate again in Replace mode: rows of other teams and dates remain. Append mode: a second Generation ID appears; identical content asks for confirmation.
-- [ ] Run *Validate Payload Data* after a new import: changed schedules are reported as stale payloads.
-- [ ] Check with the Slack Workflow owner that the columns or line text match what the workflow expects (**schema not yet verified**).
 
 ## v1.1 acceptance criteria
 
@@ -249,7 +245,7 @@ Use a real, anonymized export.
 - [ ] Shift types are listed with row counts. For a team with no selection, the preview blocks until a selection is made. Selecting two types imports only those; the others are counted as *Excluded by shift type*.
 - [ ] A shift type not seen before is marked *new* and produces a warning.
 - [ ] Shift-information cells parse correctly. Any that are rejected are listed with their row numbers. **Report the exact cell text if a valid shift is rejected.**
-- [ ] Column F hours are shown under *Scheduled Hours*. Differences show *Hours differ* (for example, unpaid breaks).
+- [ ] Column F hours are shown under *Scheduled Hours*. Differences show *Hours differ*.
 - [ ] Import the same file again: 0 new shifts.
 - [ ] Import with *Replace* after removing one row: only that shift (same team, same date, selected types) is marked REMOVED. Undo restores it.
 
@@ -278,7 +274,7 @@ Use a real, anonymized export.
 | 10 | Missing required columns | unit "missing required column", integration #10 | no |
 | 11 | Unknown employee | unit "unknown and inactive", integration #8 | no |
 | 12 | Multiple shifts per day | unit "multiple shifts", integration #8 | no |
-| 13 | Overnight shifts | unit "overnight" ×3, "break across midnight", integration #8 | no |
+| 13 | Overnight shifts | unit "overnight" ×2, integration #8 | no |
 | 14 | Duplicate records | unit "re-import unchanged", "conflicting copies", integration #9 | no |
 | 15 | Update an existing schedule | unit "SKIP, UPDATE and ASK", integration #15 | no |
 | 16 | Replace within a date range | unit "REPLACE_RANGE", integration #16 | no |
@@ -301,8 +297,7 @@ Work in a **copy** of the template. Use `samples/sample-schedule.csv` (synthetic
 
 ### Teams
 
-- [ ] Create **Customer Support** (Standard Team, alias `CS`). `Customer Support - Daily` and `Customer Support - Staff` appear. `_TEAMS` shows `TEAM_001`, status `READY`.
-- [ ] Create **Back Office** with a *new* team type and custom columns. Its view shows only those columns.
+- [ ] Create **Customer Support**. `Customer Support - Daily` and `Customer Support - Staff` appear. `_TEAMS` shows `TEAM_001`, status `READY`.
 - [ ] Creating `customer support` again fails with "already exists".
 - [ ] A team named `Ops: [EU]/Night?` gets sheets without `[ ] * ? / \ :`.
 - [ ] Rename `Customer Support - Daily` by hand. *Validate Spreadsheet Structure* reports no error, and `_TEAMS` shows the new name (self-healing via sheet ID).
@@ -319,7 +314,7 @@ Work in a **copy** of the template. Use `samples/sample-schedule.csv` (synthetic
 
 ### Import: happy path (`sample-schedule.csv`)
 
-- [ ] Mapping is suggested for Team, Employee ID, Employee Name, Date, Start, End, Break, Activity. *Cost Center* is listed as unmapped (preserved).
+- [ ] Mapping is suggested for Team, Employee ID, Employee Name, Date, Start, End, Activity. *Cost Center* is listed as unmapped (preserved).
 - [ ] *Team values found* shows `Customer Support` → Customer Support and `Back Office` → Back Office.
 - [ ] With routing *Auto* (= split by team column) and strategy *Update*, **Analyze** shows: 6 source rows, 6 valid, 6 new, 1 unknown employee (1099), 1 inactive warning (Cy Moe), 1 overnight, 2 teams.
 - [ ] **Apply import** succeeds. `_SCHEDULE_DATA` has 6 rows. `_IMPORT_LOG` has a `COMMITTED` row. `_IMPORT_CHANGES` has 6 `INSERT` rows.
@@ -330,7 +325,7 @@ Work in a **copy** of the template. Use `samples/sample-schedule.csv` (synthetic
 ### Import: duplicates, updates, replace
 
 - [ ] Re-import the same file: a warning says it was already imported. The preview shows 0 new and 6 potential duplicates (unchanged).
-- [ ] Change Ann's break to 45 and import with **Ask**: *Pending decision* is 1 and *Apply* is disabled. Switch to **Update**: 1 updated.
+- [ ] Change Ann's name to "Ann Lee-Smith" and import with **Ask**: *Pending decision* is 1 and *Apply* is disabled. Switch to **Update**: 1 updated.
 - [ ] Remove Bob's 14:00 row and import with **Replace**: 1 removed (`Record Status` = `REMOVED`, not deleted). Shifts on 2026-10-16 are untouched.
 - [ ] *Undo Last Import* restores Bob's shift. Repeating Undo reverts the previous imports one by one.
 
@@ -340,17 +335,15 @@ Work in a **copy** of the template. Use `samples/sample-schedule.csv` (synthetic
 - [ ] A file whose only dates are like `03/04/2026`: "The date format is ambiguous". Choosing DMY lets it pass.
 - [ ] A row with `25:00` or `2026-02-30` appears under *Rejected rows*, and Apply is blocked until *Import the valid rows…* is ticked.
 - [ ] With *Replace*, a rejected row of that team blocks the import with "Replace is blocked…".
-- [ ] A team value not matching any team or alias is rejected with guidance to add an alias.
 - [ ] Upload a `.pdf`: "Unsupported file type".
 - [ ] Upload a `.xlsx` with the Drive service disabled: a clear "Drive advanced service" message. With it enabled, the import works and no `[Schedule Manager temp]` file remains in Drive.
 - [ ] Start an import in two browser tabs and apply both quickly. The second gets "Another Schedule Manager operation is running" or `PLAN_CHANGED`, never duplicated data.
-- [ ] *Preview Import* never shows an Apply button and never writes to `_IMPORT_LOG`.
 
 ### Views and maintenance
 
 - [ ] Changing B3, E3, G3 or I3 re-renders the view within a few seconds. Typing in the data area shows the protection warning.
 - [ ] *Open Today's Schedule* on a team sheet jumps to today. Elsewhere it asks for the team (or goes directly if only one team exists).
-- [ ] *Configure Display Settings*: changing `HEADER_COLOR` re-colors all generated sheets. Setting `SCHEDULE_SHEET_PATTERN` to `Daily` (without `{team}`) is refused.
+- [ ] *Configure Display Settings*: changing the Theme re-colors (and re-fonts) every daily sheet, staff sheet and the Dashboard. Setting `SCHEDULE_SHEET_PATTERN` to `Daily` (without `{team}`) is refused.
 - [ ] *Repair Formatting* keeps the selected date and filters.
 - [ ] *Validate Data* reports overlaps, unknown future employees and interrupted imports, and rebuilds `_STAFF_MASTER`.
 - [ ] Simulate an interrupted import: set a `COMMITTED` row's status to `COMMITTING`. *Validate Data* shows it as fatal, and *Undo Last Import* rolls it back.

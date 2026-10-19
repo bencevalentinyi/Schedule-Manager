@@ -79,6 +79,7 @@ function initializeSystem_() {
   var ordered = migrateStaffFieldOrder_();
   if (ordered) actions.push('Set the display order of ' + ordered + ' existing staff field(s) (their current order is kept).');
   migrateTeamsV11_().forEach(function (m) { actions.push(m); });
+  splitSharedStaffSheets_().forEach(function (m) { actions.push(m); });
 
   // Record the version last, so an interrupted upgrade is simply run again.
   if (getConfig_().SYSTEM_VERSION !== APP.VERSION) {
@@ -88,10 +89,10 @@ function initializeSystem_() {
       : 'Upgraded the system from version ' + (fromVersion || '1.0.0') + ' to ' + APP.VERSION + '.');
   }
 
-  formatSystemSheets_();
   rebuildSheetIndex_();
   var dash = rebuildDashboardSafe_();
   if (dash) actions.push(dash);
+  formatSystemSheets_(); // last: hiding needs the dashboard to exist as a visible sheet
   if (!actions.length) actions.push('Everything was already in place. Nothing was changed.');
   return { actions: actions, state: getSetupState_() };
 }
@@ -116,10 +117,10 @@ function migrateTeamsV11_() {
       imp.scheduleType = 'TABLE';   // v1.0 teams were set up for generic table imports
       s.import = imp;
       parts.push('default import settings');
-    } else if (s.import.importMeetings === undefined || s.import.useStaffDirectoryRouting === undefined) {
-      // v1.1.1: explicit meeting/routing settings, both off, so imports behave exactly as before.
+    } else if (s.import.importMeetings === undefined) {
+      // v1.1.1: explicit meeting setting, off, so imports behave exactly as before.
       s.import = normalizeTeamImport_(s.import);
-      parts.push('meeting import off, staff-directory routing off');
+      parts.push('meeting import off');
     }
     if (!parts.length) return;
     var copy = {};
@@ -127,6 +128,45 @@ function migrateTeamsV11_() {
     copy.settings = s;
     saveTeamRow_(rowToTeam_(copy));
     msgs.push('Upgraded team "' + str_(r.teamName) + '": ' + parts.join(', ') + '.');
+  });
+  return msgs;
+}
+
+/**
+ * Shared staff sheets were removed: every team has its own staff sheet. A team
+ * that still shares one gets a copy (values, notes and number formats); the
+ * team with the lowest Team ID keeps the original. Nothing is deleted, and the
+ * old _TEAM_MEMBERSHIP sheet is left as it is (no longer used).
+ */
+function splitSharedStaffSheets_() {
+  var msgs = [];
+  var bySheet = {};
+  listTeams_().forEach(function (t) {
+    var id = t.settings.staffSheetId;
+    if (id) (bySheet[String(id)] = bySheet[String(id)] || []).push(t);
+  });
+  Object.keys(bySheet).forEach(function (id) {
+    var teams = bySheet[id].sort(function (a, b) { return a.teamId < b.teamId ? -1 : 1; });
+    var src = findSheetById_(id);
+    if (teams.length < 2 || !src) return; // a missing sheet is recreated per team by Rebuild Missing Sheets
+    var rows = src.getLastRow(), cols = src.getLastColumn();
+    var block = rows && cols ? src.getRange(1, 1, rows, cols) : null;
+    var values = block ? block.getValues() : null, notes = block ? block.getNotes() : null, formats = block ? block.getNumberFormats() : null;
+    teams.slice(1).forEach(function (t) {
+      var ss = getSs_();
+      var taken = ss.getSheets().map(function (s) { return s.getName().toLowerCase(); });
+      var copy = ss.insertSheet(uniqueSheetName_(applySheetPattern_(getConfig_().STAFF_SHEET_PATTERN, t.teamName), taken));
+      if (block) {
+        // Formats first, so identifier text such as 000123 keeps its leading zeros.
+        copy.getRange(1, 1, rows, cols).setNumberFormats(formats).setValues(values).setNotes(notes);
+      }
+      t.settings.staffSheetId = copy.getSheetId();
+      t.staffSheet = copy.getName();
+      saveTeamRow_(t);
+      if (t.status === TEAM_STATUS.READY) layoutStaffSheet_(copy, t);
+      msgs.push('Team "' + t.teamName + '" no longer shares "' + src.getName() + '": it now has its own staff sheet "' + copy.getName() + '" (a copy).');
+    });
+    if (teams[0].status === TEAM_STATUS.READY) layoutStaffSheet_(src, teams[0]);
   });
   return msgs;
 }
@@ -224,7 +264,7 @@ function seedDefaultsIfEmpty_() {
       profileName: 'Generic (auto-detect columns)',
       description: 'Starter profile with no fixed columns: the import maps columns automatically from header names and lets you correct them. Save a dedicated profile once your Quinyx export format is known.',
       fieldMap: {},
-      options: { dateOrder: 'AUTO', breakUnit: 'MINUTES', headerRow: 0, defaultTeamId: '', teamValueMap: {} }
+      options: { dateOrder: 'AUTO', headerRow: 0, defaultTeamId: '', teamValueMap: {} }
     }, null);
     seeded = true;
   }
@@ -246,10 +286,14 @@ function seedDefaultsIfEmpty_() {
   return seeded;
 }
 
-/** Applies consistent formatting to system sheets (non-destructive). */
+/**
+ * Applies consistent formatting to system sheets (non-destructive) and hides
+ * every internal "_" sheet. Hiding is convenience only, not security. A spreadsheet must keep one
+ * visible sheet, so nothing is hidden when only system sheets exist.
+ */
 function formatSystemSheets_() {
-  var cfg = getConfig_();
-  var hide = cfgBool_(cfg, 'HIDE_SYSTEM_SHEETS');
+  var isInternal = function (s) { return s.getName().charAt(0) === '_'; };
+  var hide = getSs_().getSheets().some(function (s) { return !isInternal(s) && !s.isSheetHidden(); });
   SYSTEM_TABLES.forEach(function (def) {
     var sh = getSheet_(def.sheet);
     if (!sh) return;
@@ -265,9 +309,9 @@ function formatSystemSheets_() {
     if (!protections.length) {
       sh.protect().setDescription(APP.NAME + ' internal sheet (warning only — not a security boundary)').setWarningOnly(true);
     }
-    if (hide && !sh.isSheetHidden()) sh.hideSheet();
-    if (!hide && sh.isSheetHidden()) sh.showSheet();
   });
+  // Every "_" sheet, including unused ones of removed features (e.g. _SLACK_PAYLOADS, _TEAM_MEMBERSHIP).
+  if (hide) getSs_().getSheets().forEach(function (s) { if (isInternal(s) && !s.isSheetHidden()) s.hideSheet(); });
 }
 
 /** Repairs formatting everywhere: system sheets, team sheets, dashboard. */

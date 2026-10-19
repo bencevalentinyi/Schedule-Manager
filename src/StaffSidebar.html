@@ -6,8 +6,6 @@
   <?!= include('Styles') ?>
   <style>
     .list { max-height: none; }
-    .member-row { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 6px 0; border-bottom: 1px solid var(--muted-bg); }
-    .member-row:last-child { border-bottom: 0; }
   </style>
 </head>
 <body class="sidebar">
@@ -23,8 +21,7 @@
     <section id="listView">
       <div class="search field mb-0"><label class="sr-only" for="q">Search staff</label>
         <input type="search" id="q" placeholder="Search name, ID, role…" onkeydown="if (event.key === 'Enter') search()" onsearch="search()"></div>
-      <div class="cluster mt-2" style="justify-content:space-between">
-        <label class="check"><input type="checkbox" id="inactive" class="switch" onchange="search()"> Include inactive</label>
+      <div class="cluster mt-2" style="justify-content:flex-end">
         <button type="button" class="btn sm" onclick="search()">Search</button>
       </div>
       <p class="small muted mt-2 mb-0" id="count" aria-live="polite"></p>
@@ -38,13 +35,6 @@
       <div id="edFields"></div>
       <div class="cluster">
         <button type="button" class="btn primary" onclick="save()">Save</button>
-        <button type="button" class="btn" id="activeBtn" onclick="toggleActive()">Mark inactive</button>
-      </div>
-      <div id="memberBox" class="panel mt-4 hidden">
-        <div class="panel-head"><h3>Team membership</h3></div>
-        <p class="hint mt-0">This directory is shared. Membership decides which teams this person belongs to; it never changes their schedules.</p>
-        <div id="memberList"></div>
-        <button type="button" class="btn sm mt-2" onclick="saveMemberships()">Save membership</button>
       </div>
     </section>
 
@@ -91,22 +81,19 @@
     function search(okTitle) {
       view('list');
       $('results').innerHTML = '<div class="inline-loading" style="padding:12px"><span class="spinner" aria-hidden="true"></span>Searching…</div>';
-      call('Searching…', 'apiStaffList', teamId(), $('q').value, $('inactive').checked).then(function (r) {
+      call('Searching…', 'apiStaffList', teamId(), $('q').value).then(function (r) {
         list = r;
         $('count').textContent = r.total + ' match(es)' + (r.total > r.rows.length ? ', showing the first ' + r.rows.length : '');
-        $('dirInfo').innerHTML = r.shared
-          ? alertHtml('info', 'Shared staff directory', 'Also used by ' + esc(r.sharedWith.join(', ')) + '. Staff records are shared; team membership and schedules stay team-specific. People belong to this team only when marked as members.')
-          : '<p class="small muted">' + badge('', 'Dedicated') + ' This team has its own staff sheet.</p>';
+        $('dirInfo').innerHTML = '';
         if (r.duplicates.length) showStatus('warn', esc(r.duplicates.join('; ')) + '. Fix them in the staff sheet.', 'Duplicate identifiers in this sheet');
         else if (okTitle) showStatus('ok', '', okTitle);
         else showStatus('', '');
         $('results').innerHTML = r.rows.map(function (s, i) {
           // values are keyed by column header (Role is a built-in label)
-          return '<button type="button" class="list-item" role="listitem" onclick="edit(' + i + ')"><span class="name">' + esc(s.employeeName || '(no name)') +
-            (s.active ? '' : ' ' + badge('warn', 'Inactive')) + (r.shared && !s.member ? ' ' + badge('', 'Not a member') : '') + '</span>' +
+          return '<button type="button" class="list-item" role="listitem" onclick="edit(' + i + ')"><span class="name">' + esc(s.employeeName || '(no name)') + '</span>' +
             '<span class="meta">' + esc(s.employeeId || 'no ID') + (s.values.Role ? ' · ' + esc(s.values.Role) : '') + '</span></button>';
         }).join('') || ($('q').value
-          ? emptyHtml('⌕', 'No staff found', 'Nobody matches "' + esc($('q').value) + '"' + ($('inactive').checked ? '' : ' among active staff') + '.')
+          ? emptyHtml('⌕', 'No staff found', 'Nobody matches "' + esc($('q').value) + '".')
           : emptyHtml('☺', 'No staff records yet', 'Add people with "+ Add staff", import them from the schedule with "Unknown…", or type them into the staff sheet.'));
       }, function () { $('results').innerHTML = ''; });
     }
@@ -117,42 +104,15 @@
       $('edFields').innerHTML = list.fields.map(function (f, k) {
         var id = 'f' + k;
         var v = editing ? (editing.values[f.label] || '') : '';
-        if (f.key === 'active') {
-          return '<div class="field"><label class="label" for="' + id + '">' + esc(f.label) + '</label><select id="' + id + '" data-f="' + esc(f.label) + '">' +
-            options(['Active', 'Inactive'], null, null, editing ? (editing.active ? 'Active' : 'Inactive') : 'Active') + '</select></div>';
-        }
         var req = f.key === 'employeeId' || f.key === 'employeeName' || f.required;
         return '<div class="field"><label class="label" for="' + id + '">' + esc(f.label) + (req ? '<span class="req" aria-hidden="true">*</span>' : '') +
           (f.identifier && f.key !== 'employeeId' ? ' ' + badge('', 'ID', 'Identifier: stored as text, unique in this team') : '') + '</label>' +
           '<input type="text" id="' + id + '" data-f="' + esc(f.label) + '" value="' + esc(v) + '"' + (req ? ' required' : '') + (f.identifier ? ' spellcheck="false"' : '') + '></div>';
       }).join('') + '<p class="hint">Identifiers are stored as text (leading zeros are kept) and must be unique in this team.' +
         (editing ? ' Changing the Employee ID does not rewrite already imported shifts.' : '') + '</p>';
-      show('activeBtn', !!editing);
-      if (editing) $('activeBtn').textContent = editing.active ? 'Mark inactive' : 'Mark active';
-      show('memberBox', false);
       showStatus('', '');
       view('editor');
       focusFirst('edFields');
-      if (editing && editing.employeeId && list.shared) {
-        $('memberList').innerHTML = '<div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading membership…</div>';
-        show('memberBox', true);
-        api('apiStaffMemberships', teamId(), editing.employeeId).then(function (m) {
-          $('memberList').innerHTML = m.teams.map(function (t, k) {
-            return '<div class="member-row"><label class="check"><input type="checkbox" class="switch" data-mteam="' + esc(t.teamId) + '"' + (t.member ? ' checked' : '') + '> ' + esc(t.teamName) + '</label>' +
-              '<label class="sr-only" for="mrole' + k + '">Team role in ' + esc(t.teamName) + '</label><input type="text" id="mrole' + k + '" data-mrole="' + esc(t.teamId) + '" value="' + esc(t.teamRole) +
-              '" placeholder="Team role (optional)"></div>';
-          }).join('');
-        }, function (e) { show('memberBox', false); showError(e); });
-      }
-    }
-
-    function saveMemberships() {
-      var listM = Array.prototype.map.call(document.querySelectorAll('[data-mteam]'), function (c) {
-        return { teamId: c.dataset.mteam, member: c.checked, teamRole: document.querySelector('[data-mrole="' + c.dataset.mteam + '"]').value };
-      });
-      call('Saving membership…', 'apiStaffSaveMemberships', teamId(), editing.employeeId, listM).then(function () {
-        showStatus('ok', '', 'Membership saved for ' + editing.employeeName + '.');
-      });
     }
 
     function save() {
@@ -168,14 +128,6 @@
         search(msg);
       });
     }
-    function toggleActive() {
-      var to = !editing.active;
-      call('Saving…', 'apiStaffSetActive', teamId(), editing.employeeId, to).then(function () {
-        var name = editing.employeeName;
-        search(name + (to ? ' is active again.' : ' is marked inactive. The record is kept.'));
-      });
-    }
-
     function loadUnknown() {
       call('Looking for unknown employees…', 'apiStaffUnknownCandidates', teamId()).then(function (r) {
         unknown = r;
@@ -186,7 +138,7 @@
               '<span class="hint">' + u.shifts + ' shift(s), last ' + esc(u.lastDate) + '. The export has no Employee ID: add this person with "+ Add staff" using exactly the same name to match future imports by name.</span></span></div>';
           }
           return '<label class="check"><input type="checkbox" data-u="' + i + '" checked> <span>' + esc(u.employeeName || '(no name)') + ' · ' + esc(u.employeeId) +
-            '<span class="hint">' + u.shifts + ' shift(s), last ' + esc(u.lastDate) + (u.membershipOnly ? '. Already in the shared directory: adds team membership only.' : '') + '</span></span></label>';
+            '<span class="hint">' + u.shifts + ' shift(s), last ' + esc(u.lastDate) + '</span></span></label>';
         }).join('') + '</div>' : emptyHtml('✓', 'Everyone is matched', 'Every employee in this team\'s stored schedule is in the staff sheet.');
         show('addUnknownBtn', r.some(function (u) { return u.canAdd; }));
         view('unknown');
