@@ -744,6 +744,15 @@ function unitTestsStaffRouting_() {
       var go = planFromCsv_(one, { reviewUnknown: true, decisions: { 'ID:E9': 'TEAM_001' } });
       assertEq_([go.summary.insert, go.canCommit], [2, true]);
       assertEq_(planFromCsv_(one).summary.insert, 2, 'without review, unknown employees are imported and flagged (API behaviour)');
+    }],
+    ['One team: a held person found in another staff sheet is suggested and can be sent to that team', function () {
+      var csv2 = 'Employee ID,Employee Name,Date,Start,End\nE1,Ann Lee,2026-10-15,08:00,16:00\nE7,Dee Fox,2026-10-15,09:00,17:00';
+      var held = planFromCsv_(csv2, { reviewUnknown: true });
+      var dee = held.summary.heldPeople[0];
+      assertEq_([dee.employeeName, dee.foundIn, dee.candidates.map(function (c) { return c.teamId; })], ['Dee Fox', ['TEAM_002'], ['TEAM_001', 'TEAM_002']]);
+      var moved = planFromCsv_(csv2, { reviewUnknown: true, decisions: { 'ID:E7': 'TEAM_002' } });
+      assertEq_([teamsOf(moved), moved.canCommit], [['Ann Lee>TEAM_001', 'Dee Fox>TEAM_002'], true]);
+      assertEq_(moved.summary.unknownEmployeeCount, 0, 'Dee is in TEAM_002\'s staff sheet, so not flagged there');
     }]
   ];
 }

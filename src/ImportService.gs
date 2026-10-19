@@ -299,9 +299,9 @@ function buildImportPlan_(input) {
       return m.status === STAFF_MATCH.ID || m.status === STAFF_MATCH.NAME;
     });
   };
-  var hold = function (who, reason, candidateIds) {
+  var hold = function (who, reason, candidateIds, foundIn) {
     var h = held[who.key] = held[who.key] || { key: who.key, employeeId: who.employeeId, employeeName: who.employeeName, reason: reason, rows: 0,
-      candidates: candidateIds.map(function (t) { return { teamId: t, teamName: teamsById[t] ? teamsById[t].teamName : t }; }) };
+      foundIn: (foundIn || []).slice(), candidates: candidateIds.map(function (t) { return { teamId: t, teamName: teamsById[t] ? teamsById[t].teamName : t, inStaffSheet: (foundIn || []).indexOf(t) >= 0 }; }) };
     h.rows++;
   };
   var teamName = function (t) { return teamsById[t] ? teamsById[t].teamName : t; };
@@ -321,11 +321,12 @@ function buildImportPlan_(input) {
       if (decision && teamsById[decision]) teamId = decision;
       else {
         var listing = teamsListing(who);
-        if (listing.length !== 1) { hold(who, listing.length ? 'IN_SEVERAL' : 'NOT_IN_STAFF', listing.length ? listing : staffTeams); return; }
+        if (listing.length !== 1) { hold(who, listing.length ? 'IN_SEVERAL' : 'NOT_IN_STAFF', listing.length ? listing : staffTeams, listing); return; }
         teamId = listing[0];
       }
     } else if (mode === 'EXPLICIT') {
-      teamId = target.teamId;
+      // A decision for a held-back person may send their rows to another team.
+      teamId = decision && teamsById[decision] ? decision : target.teamId;
       if (teamValue) {
         var rt = resolver(teamValue);
         if (rt.teamId && rt.teamId !== teamId) otherTeamValues[teamValue] = (otherTeamValues[teamValue] || 0) + 1;
@@ -396,7 +397,8 @@ function buildImportPlan_(input) {
       if (mh.status === STAFF_MATCH.UNKNOWN || mh.status === STAFF_MATCH.AMBIGUOUS) {
         if (meeting) S.meetingsSelected--;
         if (ts) ts.included--;
-        hold(who, 'NOT_IN_TEAM', [teamId]);
+        // Any active team can be chosen; teams whose staff sheet lists the person are suggested.
+        hold(who, 'NOT_IN_TEAM', [teamId].concat(staffTeams.filter(function (t) { return t !== teamId; })), teamsListing(who));
         return;
       }
     }

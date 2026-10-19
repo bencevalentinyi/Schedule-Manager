@@ -318,14 +318,10 @@ function headcountByHour_(rows, dateIso, fromMin, toMin) {
 /** Cell value + number format for one display field. */
 function displayCell_(field, row, ctx) {
   var r = row.rec;
-  var dayEnd = (dayNumber_(ctx.dateIso) + 1) * 1440;
-  var dayStart = dayNumber_(ctx.dateIso) * 1440;
+  // Times are shown as they are (e.g. 22:00 – 06:00); the Flags column says "Overnight" / "From previous day".
   var timeCell = function (mins) {
     if (mins === null || mins === undefined) return ['', '@'];
-    var fmt = ctx.timeFormat;
-    if (mins >= dayEnd) fmt = ctx.timeFormat + ' "(+1)"';
-    else if (mins < dayStart) fmt = ctx.timeFormat + ' "(-1)"';
-    return [serialFromMinutes_(mins), fmt];
+    return [serialFromMinutes_(mins), ctx.timeFormat];
   };
   var dur = function (m) { return [Math.round(m) / 1440, '[h]:mm']; };
   switch (field) {

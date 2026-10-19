@@ -463,8 +463,16 @@
     function decisionChanged(sel) {
       if (sel.value) decisions[sel.dataset.held] = sel.value; else delete decisions[sel.dataset.held];
     }
+    /** Skips everyone who has no decision yet. */
     function skipAllHeld() {
-      document.querySelectorAll('[data-held]').forEach(function (s) { s.value = 'SKIP'; decisions[s.dataset.held] = 'SKIP'; });
+      document.querySelectorAll('[data-held]').forEach(function (s) { if (!s.value) { s.value = 'SKIP'; decisions[s.dataset.held] = 'SKIP'; } });
+      analyze();
+    }
+    /** Sends each held person who is in exactly one staff sheet to that team's schedule (unless already decided). */
+    function useStaffSheetTeams() {
+      (plan && plan.summary.heldPeople || []).forEach(function (h) {
+        if ((h.foundIn || []).length === 1 && !decisions[h.key]) decisions[h.key] = h.foundIn[0];
+      });
       analyze();
     }
 

@@ -318,7 +318,7 @@ Work in a **copy** of the template. Use `samples/sample-schedule.csv` (synthetic
 - [ ] *Team values found* shows `Customer Support` → Customer Support and `Back Office` → Back Office.
 - [ ] With routing *Auto* (= split by team column) and strategy *Update*, **Analyze** shows: 6 source rows, 6 valid, 6 new, 1 unknown employee (1099), 1 inactive warning (Cy Moe), 1 overnight, 2 teams.
 - [ ] **Apply import** succeeds. `_SCHEDULE_DATA` has 6 rows. `_IMPORT_LOG` has a `COMMITTED` row. `_IMPORT_CHANGES` has 6 `INSERT` rows.
-- [ ] *Customer Support - Daily* on 2026-10-15 shows Ann, Bob ×2, Cy (22:00 to `06:00 (+1)`, flag *Overnight*). Net hours and headcount are filled in.
+- [ ] *Customer Support - Daily* on 2026-10-15 shows Ann, Bob ×2, Cy (22:00 to `06:00`, flag *Overnight*). Net hours and headcount are filled in.
 - [ ] On 2026-10-16, the view shows Cy as *From previous day* and 1099 as *Unknown employee*.
 - [ ] *View Staff Directory → Add unknown employees…* offers 1099. After adding it, the flag disappears on refresh.
 

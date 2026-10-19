@@ -26,19 +26,25 @@
   function heldHtml(people) {
     if (!people.length) return '';
     var chosen = typeof decisions !== 'undefined' ? decisions : {};
+    var suggestable = people.filter(function (h) { return (h.foundIn || []).length === 1; }).length;
     var rows = people.map(function (h, k) {
       var cur = chosen[h.key] || '';
-      var opts = '<option value="">— decide —</option>' + h.candidates.map(function (c) {
-        var label = h.reason === 'NOT_IN_TEAM' ? 'Import to ' + c.teamName + ' anyway' : c.teamName;
+      var opts = '<option value="">— decide —</option>' + h.candidates.map(function (c, i) {
+        // For a one-team import the first candidate is that team; the others send the rows to another team's schedule.
+        var label = h.reason === 'NOT_IN_TEAM' && i === 0 ? 'Import to ' + c.teamName + ' anyway' : (h.reason === 'NOT_IN_TEAM' ? 'Add to ' + c.teamName : c.teamName);
+        if (c.inStaffSheet) label += ' (in its staff sheet)';
         return '<option value="' + esc(c.teamId) + '"' + (cur === c.teamId ? ' selected' : '') + '>' + esc(label) + '</option>';
       }).join('') + '<option value="SKIP"' + (cur === 'SKIP' ? ' selected' : '') + '>Skip</option>';
-      return '<tr class="attention"><td>' + esc(h.employeeName || '(no name)') + '</td><td>' + esc(h.employeeId || '—') + '</td><td class="num">' + h.rows + '</td><td>' + esc(HELD_REASONS[h.reason] || h.reason) + '</td>' +
+      var found = (h.foundIn || []).map(function (t) { return (h.candidates.filter(function (c) { return c.teamId === t; })[0] || {}).teamName || t; });
+      var why = esc(HELD_REASONS[h.reason] || h.reason) + (h.reason === 'NOT_IN_TEAM' && found.length ? '<div class="small muted">In the staff sheet of ' + esc(found.join(', ')) + '</div>' : '');
+      return '<tr class="attention"><td>' + esc(h.employeeName || '(no name)') + '</td><td>' + esc(h.employeeId || '—') + '</td><td class="num">' + h.rows + '</td><td>' + why + '</td>' +
         '<td><label class="sr-only" for="held' + k + '">Decision for ' + esc(h.employeeName) + '</label><select id="held' + k + '" data-held="' + esc(h.key) + '" onchange="decisionChanged(this)">' + opts + '</select></td></tr>';
     });
     return '<div class="panel mt-3"><div class="panel-head"><h3>Held back for review ' + badge('bad', String(people.length)) + '</h3></div>' +
-      '<p class="hint mt-0">These people were not imported yet. Choose a team or Skip for each, then click <b>Re-check</b>. To match them automatically next time, add them to the right staff sheet (View Staff Directory) with exactly the name used in Quinyx.</p>' +
+      '<p class="hint mt-0">These people were not imported yet. Choose a team for each (their rows go to that team\'s schedule) or Skip, then click <b>Re-check</b>. To match them automatically next time, add them to the right staff sheet (View Staff Directory) with exactly the name used in Quinyx.</p>' +
       tableHtml(['Employee', 'Employee ID', 'Rows', 'Why', 'Decision'], rows, [2]) +
-      '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="skipAllHeld()">Skip all listed</button><span class="spacer"></span>' +
+      '<div class="cluster mt-2">' + (suggestable ? '<button type="button" class="btn sm" onclick="useStaffSheetTeams()">Use the staff-sheet team for ' + suggestable + ' person(s)</button>' : '') +
+      '<button type="button" class="btn sm" onclick="skipAllHeld()">Skip the rest</button><span class="spacer"></span>' +
       '<button type="button" class="btn sm primary" onclick="analyze()">Re-check</button></div></div>';
   }
 
