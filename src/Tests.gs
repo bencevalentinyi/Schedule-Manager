@@ -948,6 +948,16 @@ function unitTestsLinks_() {
       assertEq_(t.header, ['Name', 'Kind', 'Date', 'Updated', 'Count', 'Missing', 'Text', 'URL', 'URL 2']);
       assertEq_(t.rows[0], ['Live', 'Link', '2026-10-15', '2026-10-15 08:00', '3 of 4', 'Zed', '3 agent(s)', 'https://x/1', 'https://x/2']);
       assertEq_(t.rows[1].slice(0, 2).concat(t.rows[1].slice(6)), ['Plan', 'Plan', '08:00 - 16:00 Ann', '', '']);
+      var s = normalizeLinkSheetSettings_({});
+      assertEq_([s.layout, s.keyHeader, s.keyValue, s.dateHeader, s.dateFormat], ['ROW', 'Key', 'DAILY', 'Header_Date', 'yyyy-MM-dd'], 'one row is the default');
+      var one = linksSheetRow_([
+        { template: a, urls: ['https://x/1', 'https://x/2'], text: '' },
+        { template: b, urls: [], text: '08:00 - 16:00 Ann' },
+        { template: { name: 'Nobody', kind: 'LINK' }, urls: [], text: '' }
+      ], s, '2026-10-15');
+      assertEq_(one.header, ['Key', 'Header_Date', 'Live', 'Live 2', 'Plan', 'Nobody']);
+      assertEq_(one.values, ['DAILY', '2026-10-15', 'https://x/1', 'https://x/2', '08:00 - 16:00 Ann', '']);
+      assertEq_(one.urlCols, [2, 3, 5], 'link columns (clickable)');
       var list = [a, b, { id: 'C' }];
       assertEq_(moveLinkTemplate_(list, 'C', -1).map(function (x) { return x.id; }), ['A', 'C', 'B']);
       assertEq_(moveLinkTemplate_(list, 'A', -1).map(function (x) { return x.id; }), ['A', 'B', 'C'], 'the first item cannot move up');

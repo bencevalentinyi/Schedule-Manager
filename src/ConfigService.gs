@@ -19,6 +19,7 @@ var CONFIG_DEFAULTS = [
   ['TEST_MODE', 'FALSE', 'Set TRUE only in a scratch copy to allow runIntegrationTests().', 'system'],
   ['KNOWN_SHIFT_TYPES', '[]', 'JSON list of shift types discovered in imported exports (maintained automatically).', 'system'],
   ['LINK_TEMPLATES', '[]', 'JSON: monitoring link templates (edit via Schedule Management → Monitoring Links).', 'system'],
+  ['LINK_SHEET_SETTINGS', '{}', 'JSON: layout of the Monitoring Links sheet (edit via Schedule Management → Monitoring Links → Sheet layout).', 'system'],
 
   ['UI_THEME', 'DEFAULT', 'Look of the dialogs, sidebars and every generated sheet (daily schedules, staff sheets, Dashboard): colors and font. Dialogs fall back to the default look if the theme file (e.g. ThemeSky) is missing.', 'display'],
   ['TIMEZONE', '', 'Time zone used for "today" and timestamps. Blank = spreadsheet time zone.', 'display'],
@@ -48,7 +49,7 @@ var CONFIG_ENUMS = {
 };
 var CONFIG_BOOLEANS = ['INITIALIZED', 'TEST_MODE', 'SHOW_CARRY_OVER', 'STRIP_LEADING_ZEROS'];
 var CONFIG_NUMBERS = { MAX_SHIFT_HOURS: [1, 48], MIN_SHIFT_MINUTES: [0, 600], MAX_FILE_MB: [1, 45], STAGING_RETENTION_HOURS: [1, 720], HOURS_TOLERANCE_MINUTES: [0, 240] };
-var CONFIG_READONLY = ['SYSTEM_VERSION', 'INITIALIZED', 'INITIALIZED_AT', 'TEAM_ID_SEQ', 'KNOWN_SHIFT_TYPES', 'LINK_TEMPLATES'];
+var CONFIG_READONLY = ['SYSTEM_VERSION', 'INITIALIZED', 'INITIALIZED_AT', 'TEAM_ID_SEQ', 'KNOWN_SHIFT_TYPES', 'LINK_TEMPLATES', 'LINK_SHEET_SETTINGS'];
 
 /* Per-execution memo; invalidated on every write. Apps Script executions are short-lived. */
 var configMemo_ = null;

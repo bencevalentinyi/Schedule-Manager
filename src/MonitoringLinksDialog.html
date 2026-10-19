@@ -12,7 +12,7 @@
 <body>
   <header class="app-header">
     <h1>Monitoring Links</h1>
-    <p class="subtitle">Monitoring links and daily list plans, written to the "Monitoring Links" sheet (column names in row 1, one row per item, looked up by Name). Settings are stored in this spreadsheet only.</p>
+    <p class="subtitle">Monitoring links and daily list plans, written to the "Monitoring Links" sheet for a Slack Workflow (see Sheet layout). Settings are stored in this spreadsheet only.</p>
   </header>
   <main class="app-body" id="main">
     <div id="status" aria-live="polite"></div>
@@ -22,9 +22,28 @@
         <div class="cluster mt-2">
           <button type="button" class="btn sm" onclick="edit(null, 'LINK')">+ Link</button>
           <button type="button" class="btn sm" onclick="edit(null, 'PLAN')">+ Daily plan</button>
+          <button type="button" class="btn sm ghost" onclick="openLayout()">Sheet layout…</button>
         </div>
       </div>
       <div>
+        <div id="layoutPanel" class="hidden">
+          <div class="panel-head"><h2>Sheet layout</h2></div>
+          <div class="field"><label class="label" for="lyLayout">Layout of the "Monitoring Links" sheet</label><select id="lyLayout" onchange="layoutChanged()"></select></div>
+          <div id="lyRowBox">
+            <p class="hint mt-0">Row 1 holds the column names, row 2 the values: <b>A</b> the key, <b>B</b> the date, then one column per item in the order of the list (its name in row 1, its link or plan text in row 2). A Slack Workflow selects the row where the key column equals the key value.</p>
+            <div class="row">
+              <div class="field"><label class="label" for="lyKeyHeader">A1: key column name</label><input type="text" id="lyKeyHeader" placeholder="Key"></div>
+              <div class="field"><label class="label" for="lyKeyValue">A2: key value</label><input type="text" id="lyKeyValue" placeholder="DAILY"></div>
+            </div>
+            <div class="row">
+              <div class="field"><label class="label" for="lyDateHeader">B1: date column name</label><input type="text" id="lyDateHeader" placeholder="Header_Date"></div>
+              <div class="field"><label class="label" for="lyDateFormat">B2: date format</label><input type="text" id="lyDateFormat" placeholder="yyyy-MM-dd" spellcheck="false">
+                <p class="hint">e.g. <code>yyyy-MM-dd</code>, <code>yyyy. MM. dd</code>, <code>dd/MM/yyyy</code>, <code>EEEE d MMMM</code>.</p></div>
+            </div>
+          </div>
+          <p class="hint" id="lyRowsHint">One row per item: row 1 holds the column names (Name, Kind, Date, Updated, Count, Missing, Text, URL, …); a Slack Workflow selects the row by Name.</p>
+          <div class="cluster mt-3"><button type="button" class="btn primary" onclick="saveLayout()">Save layout</button></div>
+        </div>
         <div id="placeholder"><div class="empty"><div class="empty-icon" aria-hidden="true">🔗</div><p class="empty-title">Select an item</p>
           <p>Choose one on the left, or add a monitoring link or a daily list plan.</p></div></div>
         <div id="editor" class="hidden">
@@ -187,7 +206,7 @@
       show('deleteBtn', !!current); show('upBtn', !!current); show('downBtn', !!current);
       if (current) { var k = indexOf(current.id); $('upBtn').disabled = k === 0; $('downBtn').disabled = k === data.templates.length - 1; }
       $('previewBox').innerHTML = '';
-      show('placeholder', false); show('editor', true);
+      show('placeholder', false); show('layoutPanel', false); show('editor', true);
       showStatus('', '');
       if (!current) $('name').focus();
     }
@@ -316,12 +335,31 @@
       });
     }
     function openSheet() { call('Opening…', 'apiLinksOpenSheet').then(closeDialog); }
+
+    /* ---------- sheet layout ---------- */
+    function openLayout() {
+      var s = data.sheetSettings;
+      current = null; renderList();
+      $('lyLayout').innerHTML = options(kv(data.layouts), 'k', 'l', s.layout);
+      $('lyKeyHeader').value = s.keyHeader; $('lyKeyValue').value = s.keyValue; $('lyDateHeader').value = s.dateHeader; $('lyDateFormat').value = s.dateFormat;
+      layoutChanged();
+      show('placeholder', false); show('editor', false); show('layoutPanel', true); showStatus('', '');
+    }
+    function layoutChanged() { var row = $('lyLayout').value === 'ROW'; show('lyRowBox', row); show('lyRowsHint', !row); }
+    function saveLayout() {
+      var s = { layout: $('lyLayout').value, keyHeader: $('lyKeyHeader').value, keyValue: $('lyKeyValue').value,
+        dateHeader: $('lyDateHeader').value, dateFormat: $('lyDateFormat').value };
+      call('Saving…', 'apiLinksSaveSheetSettings', s).then(function (r) {
+        data.sheetSettings = r; openLayout();
+        showStatus('ok', 'Click <b>Generate all</b> to rewrite the sheet in this layout.', 'Sheet layout saved');
+      });
+    }
     function generateAll() {
       call('Building all links and plans…', 'apiLinksGenerateAll', $('runDate').value).then(function (r) {
         showStatus('ok', r.results.map(function (x) {
           return esc(x.name) + ': ' + (x.kind === 'PLAN' ? x.count + ' line(s)' : x.count + ' agent(s)' + (x.urls > 1 ? ', ' + x.urls + ' links' : '')) +
             (x.missing ? ', ' + x.missing + ' without ID' : '');
-        }).join('<br>') + '<br>Written to the "' + esc(r.sheet) + '" sheet (row 1 = column names, one row per item).', r.results.length + ' item(s) generated');
+        }).join('<br>') + '<br>Written to the "' + esc(r.sheet) + '" sheet' + (data.sheetSettings.layout === 'ROW' ? ' (row 1 = names, row 2 = values; ' + esc(data.sheetSettings.keyHeader) + ' = ' + esc(data.sheetSettings.keyValue) + ').' : ' (one row per item).'), r.results.length + ' item(s) generated');
       });
     }
     load();

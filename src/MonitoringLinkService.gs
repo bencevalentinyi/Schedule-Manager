@@ -15,7 +15,9 @@
  * Items are configuration stored in the spreadsheet (_CONFIG key LINK_TEMPLATES), never in
  * code, in the order shown in the dialog; that order is also the row order of the sheet.
  *
- * Sheet layout (Slack-readable): column names in row 1, then one row per item:
+ * Sheet layout (Slack-readable, LINK_SHEET_SETTINGS): by default ONE ROW: A1 "Key" / A2 "DAILY",
+ * B1 "Header_Date" / B2 the date, then one column per item (name in row 1, link or plan text in
+ * row 2), so a Slack Workflow selects the row where Key = DAILY. Alternatively one row per item:
  *   Name | Kind | Date | Updated | Count | Missing | Text | URL | URL 2 | ...
  * generateMonitoringLinks() rebuilds it and is meant for a time-driven trigger that the
  * administrator adds (Apps Script → Triggers); the code never creates triggers.
@@ -417,6 +419,58 @@ function generateLink_(t, ctx, teamsById, staffCache) {
   return res;
 }
 
+/* ------------------------------------------------------------------------ */
+/* Sheet layout settings                                                     */
+/* ------------------------------------------------------------------------ */
+
+var LINK_SHEET_LAYOUTS = { ROW: 'One row (Key + date + one column per item)', ROWS: 'One row per item' };
+
+/**
+ * Sheet layout settings (stored in _CONFIG LINK_SHEET_SETTINGS). Pure.
+ * ROW: A1 keyHeader / A2 keyValue, B1 dateHeader / B2 the date, then one column per item
+ * (item name in row 1, its link or plan text in row 2). ROWS: one row per item.
+ */
+function normalizeLinkSheetSettings_(s) {
+  s = s || {};
+  var text = function (v, dflt) { return str_(v) || dflt; };
+  return {
+    layout: LINK_SHEET_LAYOUTS[s.layout] ? s.layout : 'ROW',
+    keyHeader: text(s.keyHeader, 'Key'),
+    keyValue: text(s.keyValue, 'DAILY'),
+    dateHeader: text(s.dateHeader, 'Header_Date'),
+    dateFormat: text(s.dateFormat, 'yyyy-MM-dd')
+  };
+}
+
+function loadLinkSheetSettings_() {
+  return normalizeLinkSheetSettings_(parseJson_(getConfig_().LINK_SHEET_SETTINGS, {}));
+}
+
+/** The date of a run in the configured format, e.g. "2026-10-19" or "2026. 10. 19". */
+function formatLinkDate_(dateIso, fmt) {
+  var tz = getConfig_().TIMEZONE;
+  return Utilities.formatDate(Utilities.parseDate(dateIso + ' 12:00', tz, 'yyyy-MM-dd HH:mm'), tz, fmt);
+}
+
+/**
+ * One-row layout: column names in row 1, values in row 2, in item order. A link split into
+ * several URLs gets extra columns "Name 2", "Name 3". Pure.
+ * @return {{header: string[], values: string[], urlCols: number[]}} urlCols = 0-based columns holding a URL
+ */
+function linksSheetRow_(results, settings, dateText) {
+  var header = [settings.keyHeader, settings.dateHeader], values = [settings.keyValue, dateText], urlCols = [];
+  results.forEach(function (r) {
+    if (r.template.kind === 'PLAN') { header.push(r.template.name); values.push(r.text); return; }
+    var urls = r.urls.length ? r.urls : [''];
+    urls.forEach(function (u, i) {
+      header.push(r.template.name + (i ? ' ' + (i + 1) : ''));
+      values.push(u);
+      urlCols.push(header.length - 1);
+    });
+  });
+  return { header: header, values: values, urlCols: urlCols };
+}
+
 /** Sheet rows (row 1 = column names) for generated items, in item order. Pure. */
 function linksSheetRows_(results, updated) {
   var urlCols = Math.max(1, results.reduce(function (n, r) { return Math.max(n, r.urls.length); }, 0));
@@ -431,14 +485,39 @@ function linksSheetRows_(results, updated) {
   return { header: header, rows: rows, urlCols: urlCols };
 }
 
+/** A rich-text value that shows the URL itself (what Slack reads) and is clickable (no HYPERLINK length limit). */
+function linkRichText_(u) {
+  return u ? SpreadsheetApp.newRichTextValue().setText(u).setLinkUrl(u).build() : SpreadsheetApp.newRichTextValue().setText('').build();
+}
+
+/** One-row layout: Key / date / one column per item (see linksSheetRow_). */
+function writeLinksSheetRow_(sh, results, settings, dateIso, th) {
+  var t = linksSheetRow_(results, settings, formatLinkDate_(dateIso, settings.dateFormat));
+  var width = t.header.length;
+  ensureColumns_(sh, width);
+  sh.getRange(1, 1, 1, width).setValues([t.header.map(safeCell_)]).setFontWeight('bold').setBackground(th.header).setFontColor(th.headerText);
+  sh.getRange(2, 1, 1, width).setNumberFormat('@').setValues([t.values.map(safeCell_)]).setVerticalAlignment('top').setWrap(true);
+  t.urlCols.forEach(function (c) { sh.getRange(2, c + 1).setRichTextValue(linkRichText_(t.values[c])).setWrap(false); });
+  for (var c = 1; c <= width; c++) sh.setColumnWidth(c, c <= 2 ? 120 : 280);
+}
+
 /**
- * Rewrites the "Monitoring Links" sheet: column names in row 1, one row per item in the saved
- * order, so a Slack Workflow can look a row up by Name. URL cells are plain text and clickable.
+ * Rewrites the "Monitoring Links" sheet in the chosen layout: one row (Key + date + one column
+ * per item, for a Slack Workflow that selects the row where Key = DAILY), or one row per item.
  */
-function writeLinksSheet_(results, updated) {
+function writeLinksSheet_(results, updated, settings, dateIso) {
   var ss = getSs_();
   var sh = ss.getSheetByName(LINKS_SHEET_) || ss.insertSheet(LINKS_SHEET_);
   var th = sheetTheme_();
+  settings = settings || loadLinkSheetSettings_();
+  if (settings.layout === 'ROW') {
+    sh.clear();
+    writeLinksSheetRow_(sh, results, settings, dateIso, th);
+    sh.setFrozenRows(1);
+    sh.setTabColor(th.accent);
+    applySheetFont_(sh, th);
+    return sh;
+  }
   var t = linksSheetRows_(results, updated);
   var width = t.header.length;
   sh.clear();
@@ -449,13 +528,8 @@ function writeLinksSheet_(results, updated) {
     var body = sh.getRange(2, 1, t.rows.length, width);
     body.setNumberFormat('@').setValues(t.rows.map(function (r) { return r.map(function (v, i) { return i === 0 || i === 6 ? safeCell_(v) : v; }); }))
       .setVerticalAlignment('top');
-    // URL cells: the text is the URL itself (what Slack reads) and it is clickable (no HYPERLINK length limit).
     var urlRange = sh.getRange(2, 8, t.rows.length, t.urlCols);
-    urlRange.setRichTextValues(t.rows.map(function (r) {
-      return r.slice(7).map(function (u) {
-        return u ? SpreadsheetApp.newRichTextValue().setText(u).setLinkUrl(u).build() : SpreadsheetApp.newRichTextValue().setText('').build();
-      });
-    })).setWrap(false);
+    urlRange.setRichTextValues(t.rows.map(function (r) { return r.slice(7).map(linkRichText_); })).setWrap(false);
     sh.getRange(2, 7, t.rows.length, 1).setWrap(true);
     sh.getRange(2, 6, t.rows.length, 1).setWrap(true);
   }
@@ -472,7 +546,7 @@ function generateAllLinks_(dateIso) {
   var ctx = linkRunContext_(dateIso);
   var teams = teamsByIdForLinks_(), cache = {};
   var results = loadLinkTemplates_().map(function (t) { return generateLink_(t, ctx, teams, cache); });
-  var sh = writeLinksSheet_(results, ctx.updated);
+  var sh = writeLinksSheet_(results, ctx.updated, loadLinkSheetSettings_(), ctx.date);
   return { sheet: sh.getName(), results: results };
 }
 
@@ -507,8 +581,27 @@ function apiLinksBootstrap() {
       idFields: linkIdFieldOptions_(),
       teams: Object.keys(teams).map(function (k) { return { teamId: k, teamName: teams[k].teamName, active: teams[k].active }; }),
       who: LINK_WHO, kinds: LINK_KINDS, include: PLAN_INCLUDE, tagModes: PLAN_TAG_MODES, tagWindowModes: PLAN_TAG_WINDOW_MODES_, defaultLine: PLAN_DEFAULT_LINE_,
+      sheetSettings: loadLinkSheetSettings_(), layouts: LINK_SHEET_LAYOUTS,
       today: ctx.today
     };
+  });
+}
+
+/** Saves the sheet layout (one row with Key + date, or one row per item). */
+function apiLinksSaveSheetSettings(input) {
+  return apiCall_('apiLinksSaveSheetSettings', function () {
+    requireInitialized_();
+    return withLock_(function () {
+      var s = normalizeLinkSheetSettings_(input);
+      var errs = [];
+      try { formatLinkDate_(linkRunContext_('').today, s.dateFormat); } catch (e) { errs.push('The date format "' + s.dateFormat + '" is not valid (e.g. yyyy-MM-dd or yyyy. MM. dd).'); }
+      if (normName_(s.keyHeader) === normName_(s.dateHeader)) errs.push('The key and date column names must differ.');
+      var clash = loadLinkTemplates_().filter(function (t) { return [s.keyHeader, s.dateHeader].map(normName_).indexOf(normName_(t.name)) >= 0; })[0];
+      if (s.layout === 'ROW' && clash) errs.push('An item is already called "' + clash.name + '"; column names must be unique.');
+      if (errs.length) fail_('VALIDATION', errs.join(' '));
+      setConfigValues_({ LINK_SHEET_SETTINGS: JSON.stringify(s) });
+      return s;
+    });
   });
 }
 
@@ -518,7 +611,9 @@ function apiLinksSave(input) {
     return withLock_(function () {
       var t = normalizeLinkTemplate_(input);
       var list = loadLinkTemplates_();
-      var others = list.filter(function (x) { return x.id !== t.id; }).map(function (x) { return x.name; });
+      var ss = loadLinkSheetSettings_();
+      // Names must be unique: they are row names (one row per item) or column names (one row), next to Key and date.
+      var others = list.filter(function (x) { return x.id !== t.id; }).map(function (x) { return x.name; }).concat([ss.keyHeader, ss.dateHeader]);
       var errs = validateLinkTemplate_(t, linkIdFieldOptions_().map(function (f) { return f.key; }), others);
       if (errs.length) fail_('VALIDATION', errs.join(' '));
       if (!t.id) t.id = newId_('LNK');
