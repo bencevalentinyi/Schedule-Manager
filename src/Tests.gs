@@ -873,8 +873,8 @@ function unitTestsLinks_() {
       assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 14 * 60, excludeMeetings: true })), ['Bob Ray'], 'Ann is in a meeting at 14:00');
     }],
     ['Links: templates need a name and an http(s) base URL; the ID column must be a staff column', function () {
-      var t = normalizeLinkTemplate_({ name: 'X', baseUrl: 'https://a.example/{IDS}', idField: 'field:aircall', who: 'WINDOW', from: '10:00', to: '09:00' });
-      var errs = validateLinkTemplate_(t, ['employeeId', 'field:aircall']);
+      var t = normalizeLinkTemplate_({ name: 'X', baseUrl: 'https://a.example/{IDS}', idField: 'field:phone', who: 'WINDOW', from: '10:00', to: '09:00' });
+      var errs = validateLinkTemplate_(t, ['employeeId', 'field:phone']);
       assertEq_(errs.length, 1, 'only the reversed window: ' + errs.join(' | '));
       assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ name: '', baseUrl: 'ftp://x', idField: 'nope' }), ['employeeId']).length, 3);
       assertEq_(normalizeLinkTemplate_({}).separator, ',', 'default separator');
@@ -923,15 +923,20 @@ function unitTestsLinks_() {
     }],
     ['Daily plans: extra text by time is added after the name, or at {TAGS}', function () {
       var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS' });
-      var tags = [{ text: ':aircall:', mode: 'OVERLAPS', from: '08:00', to: '14:00' }, { text: '🌙', mode: 'ENDS_AFTER', from: '21:00' },
+      var tags = [{ text: '📞', mode: 'OVERLAPS', from: '08:00', to: '14:00' }, { text: '🌙', mode: 'ENDS_AFTER', from: '21:00' },
         { text: '(early)', mode: 'STARTS_BEFORE', from: '07:00' }];
       var after = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{START} - {END} {NAME}', tags: tags });
       assertEq_(buildPlanText_(after, shifts, {}, function () { return ''; }, null, '2026-10-15').split('\n'),
-        ['22:00 - 06:00 Cy Moe (early)', '06:00 - 10:00 Dee Fox :aircall: (early)', '08:00 - 16:00 Ann Lee :aircall:', '14:00 - 22:00 Bob Ray 🌙']);
+        ['22:00 - 06:00 Cy Moe (early)', '06:00 - 10:00 Dee Fox 📞 (early)', '08:00 - 16:00 Ann Lee 📞', '14:00 - 22:00 Bob Ray 🌙']);
       var slot = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{TAGS} {NAME} {START}', tags: [{ text: '*', mode: 'COVERS', from: '09:00', to: '15:00' }] });
       assertEq_(buildPlanText_(slot, shifts, {}, function () { return ''; }, null, '2026-10-15').split('\n'),
         ['Cy Moe 22:00', 'Dee Fox 06:00', '* Ann Lee 08:00', 'Bob Ray 14:00'], 'COVERS = the whole window; empty {TAGS} leaves no extra space');
       assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ kind: 'PLAN', name: 'P', tags: [{ text: 'x', mode: 'OVERLAPS', from: '14:00', to: '08:00' }] }), ['employeeId']).length, 1);
+      var quiet = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{NAME}', tags: tags,
+        sections: [{ heading: 'Leads', roles: 'Lead', noTags: true }], restHeading: 'Agents' });
+      var roleOf = function (r) { return r.employeeId === 'E4' ? 'Lead' : ''; };
+      assertEq_(buildPlanText_(quiet, shifts, {}, function () { return ''; }, roleOf, '2026-10-15'),
+        'Leads\nDee Fox\n\nAgents\nCy Moe (early)\nAnn Lee 📞\nBob Ray 🌙', 'a section with "No extra text" gets no time rules; the others still do');
     }],
     ['Links sheet: column names in row 1, one row per item in the saved order, extra URL columns when split; items can be moved', function () {
       var a = { id: 'A', name: 'Live', kind: 'LINK' }, b = { id: 'B', name: 'Plan', kind: 'PLAN' };

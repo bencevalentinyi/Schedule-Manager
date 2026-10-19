@@ -93,7 +93,7 @@
             </div>
             <div class="panel subtle">
               <div class="panel-head"><h3>Extra text by time</h3></div>
-              <p class="hint mt-0">Adds text after the name (or where <code>{TAGS}</code> is in the line format) when the shift matches, e.g. <code>:aircall:</code> for everyone working during 08:00–14:00.</p>
+              <p class="hint mt-0">Adds text after the name (or where <code>{TAGS}</code> is in the line format) when the shift matches the rule.</p>
               <div id="tags"></div>
               <button type="button" class="btn sm" onclick="addTag()">+ Add rule</button>
             </div>
@@ -197,7 +197,7 @@
       show('meetBox', w === 'NOW' || w === 'AT');
     }
     function samplePlan() {
-      var v = { START: '08:00', END: '16:00', NAME: 'Ann Lee', TYPE: 'Customer Support', TEAM: 'Support', ID: 'U123', EMPLOYEE_ID: '1001', ROLE: 'Support Shift Lead', TAGS: ':aircall:' };
+      var v = { START: '08:00', END: '16:00', NAME: 'Ann Lee', TYPE: 'Customer Support', TEAM: 'Support', ID: 'U123', EMPLOYEE_ID: '1001', ROLE: 'Support Shift Lead', TAGS: '📞' };
       $('lineSample').textContent = ($('lineTemplate').value || data.defaultLine).replace(/\{(START|END|NAME|TYPE|TEAM|ID|EMPLOYEE_ID|ROLE|TAGS)\}/g, function (m, k) { return v[k]; });
     }
 
@@ -205,7 +205,7 @@
     function restChanged() { show('restBox', $('showRest').checked); }
     function readSections() {
       return Array.prototype.map.call(document.querySelectorAll('[data-sec]'), function (row) {
-        return { heading: row.querySelector('[data-f="heading"]').value, roles: row.querySelector('[data-f="roles"]').value };
+        return { heading: row.querySelector('[data-f="heading"]').value, roles: row.querySelector('[data-f="roles"]').value, noTags: row.querySelector('[data-f="noTags"]').checked };
       });
     }
     function renderSections() {
@@ -214,11 +214,12 @@
         return '<div class="row tight" data-sec="' + i + '">' +
           '<div class="field"><input type="text" data-f="heading" aria-label="Heading of section ' + (i + 1) + '" placeholder="Heading, e.g. 🎧 Shift leads" value="' + esc(s.heading) + '"></div>' +
           '<div class="field"><input type="text" data-f="roles" aria-label="Roles of section ' + (i + 1) + '" placeholder="Roles, e.g. Support Shift Lead" value="' + esc(roles) + '"></div>' +
+          '<div class="field" style="flex:0 0 auto"><label class="check" style="padding-top:6px"><input type="checkbox" data-f="noTags"' + (s.noTags ? ' checked' : '') + '> No extra text</label></div>' +
           '<div class="field" style="flex:0 0 auto"><button type="button" class="btn sm" onclick="moveSection(' + i + ', -1)" aria-label="Move section up"' + (i ? '' : ' disabled') + '>▲</button> ' +
           '<button type="button" class="btn sm danger" onclick="removeSection(' + i + ')" aria-label="Remove section">✕</button></div></div>';
       }).join('') : '<p class="hint mt-0">No sections: everyone is listed by start time.</p>';
     }
-    function addSection() { sectionsState = readSections(); sectionsState.push({ heading: '', roles: '' }); renderSections(); }
+    function addSection() { sectionsState = readSections(); sectionsState.push({ heading: '', roles: '', noTags: false }); renderSections(); }
     function removeSection(i) { sectionsState = readSections(); sectionsState.splice(i, 1); renderSections(); }
     function moveSection(i, d) { sectionsState = readSections(); var x = sectionsState[i]; sectionsState[i] = sectionsState[i + d]; sectionsState[i + d] = x; renderSections(); }
 
@@ -232,7 +233,7 @@
       $('tags').innerHTML = tagsState.length ? tagsState.map(function (g, i) {
         var win = data.tagWindowModes.indexOf(g.mode) >= 0;
         return '<div class="row tight" data-tag="' + i + '">' +
-          '<div class="field"><input type="text" data-f="text" aria-label="Extra text of rule ' + (i + 1) + '" placeholder="Text, e.g. :aircall:" value="' + esc(g.text) + '"></div>' +
+          '<div class="field"><input type="text" data-f="text" aria-label="Extra text of rule ' + (i + 1) + '" placeholder="Text, e.g. 📞 or (early)" value="' + esc(g.text) + '"></div>' +
           '<div class="field"><select data-f="mode" aria-label="When rule ' + (i + 1) + ' applies" onchange="tagsState = readTags(); renderTags()">' + options(kv(data.tagModes), 'k', 'l', g.mode) + '</select></div>' +
           '<div class="field"><input type="time" data-f="from" aria-label="' + (win ? 'From' : 'Time') + ' of rule ' + (i + 1) + '" value="' + esc(g.from) + '"></div>' +
           '<div class="field"' + (win ? '' : ' style="visibility:hidden"') + '><input type="time" data-f="to" aria-label="Until of rule ' + (i + 1) + '" value="' + esc(g.to) + '"></div>' +

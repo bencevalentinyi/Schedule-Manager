@@ -9,7 +9,7 @@
  *  - PLAN: a text list built from the schedule ("08:00 - 16:00 Ann Lee"), one line per shift
  *    and/or meeting, with a configurable line format ({START} {END} {NAME} {TYPE} {TEAM} {ID} {ROLE} {TAGS}),
  *    in sections by the staff sheet's Role column (own headings, e.g. shift leads first), with extra
- *    text by time (e.g. ":aircall:" for everyone working during 08:00–14:00).
+ *    text by time (e.g. a marker for everyone working during 08:00–14:00).
  *
  * Both have teams and "who" (working now / at a time / during a window / the whole day).
  * Items are configuration stored in the spreadsheet (_CONFIG key LINK_TEMPLATES), never in
@@ -54,7 +54,7 @@ function planRoleList_(v) {
 function planSections_(t) {
   if (Array.isArray(t.sections)) {
     return {
-      sections: t.sections.map(function (s) { s = s || {}; return { heading: str_(s.heading), roles: planRoleList_(s.roles) }; })
+      sections: t.sections.map(function (s) { s = s || {}; return { heading: str_(s.heading), roles: planRoleList_(s.roles), noTags: !!s.noTags }; })
         .filter(function (s) { return s.roles.length || s.heading; }),
       showRest: t.showRest === undefined ? true : !!t.showRest,
       restHeading: str_(t.restHeading),
@@ -64,7 +64,7 @@ function planSections_(t) {
   var roles = planRoleList_(t.roles), mode = t.roleMode || 'FIRST', heads = !!t.roleHeadings;
   if (mode === 'EXCEPT') return { sections: [], showRest: true, restHeading: '', excludeRoles: roles };
   return {
-    sections: roles.map(function (r) { return { heading: heads ? r : '', roles: [r] }; }),
+    sections: roles.map(function (r) { return { heading: heads ? r : '', roles: [r], noTags: false }; }),
     showRest: mode !== 'ONLY',
     restHeading: heads ? str_(t.restHeading === undefined ? 'Others' : t.restHeading) : '',
     excludeRoles: []
@@ -287,10 +287,12 @@ function buildPlanText_(t, items, teamNames, idOf, roleOf, dateIso) {
   roleOf = roleOf || function () { return ''; };
   var hm = function (abs) { return minutesToHm_(((abs % 1440) + 1440) % 1440); };
   var hasTagsSlot = t.lineTemplate.indexOf('{TAGS}') >= 0;
-  var line = function (x) {
+  var line = function (x, rank) {
     var r = x.rec;
     var base = dateIso ? dayNumber_(dateIso) * 1440 : Math.floor(x.s / 1440) * 1440;
-    var tags = planTagsFor_(t, x, base).join(' ');
+    // A section can be set to "No extra text" (e.g. shift leads): the time rules skip its people.
+    var quiet = rank < t.sections.length && t.sections[rank].noTags;
+    var tags = quiet ? '' : planTagsFor_(t, x, base).join(' ');
     var name = str_(r.employeeName) || str_(r.employeeId);
     var values = { START: hm(x.s), END: hm(x.e), NAME: hasTagsSlot || !tags ? name : name + ' ' + tags,
       TYPE: str_(r.shiftType) || str_(r.activity), TEAM: teamNames[r.teamId] || r.teamId, ID: idOf(r),
@@ -304,7 +306,7 @@ function buildPlanText_(t, items, teamNames, idOf, roleOf, dateIso) {
     var parts = [], cur = null;
     ranked.forEach(function (p) {
       if (!cur || cur.rank !== p.rank) { cur = { rank: p.rank, lines: [] }; parts.push(cur); }
-      cur.lines.push(line(p.x));
+      cur.lines.push(line(p.x, p.rank));
     });
     var headed = parts.some(function (s) { return titleOf(s.rank); });
     return parts.map(function (s) { return (titleOf(s.rank) ? titleOf(s.rank) + '\n' : '') + s.lines.join('\n'); }).join(headed ? '\n\n' : '\n');
