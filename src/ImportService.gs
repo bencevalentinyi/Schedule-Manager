@@ -1274,7 +1274,7 @@ function apiImportBootstrap() {
       driveAvailable: typeof Drive !== 'undefined',
       sourceSheets: getSs_().getSheets().filter(function (s) {
         var n = s.getName();
-        return n.charAt(0) !== '_' && !teamSheetIds[s.getSheetId()] && n !== cfg.DASHBOARD_SHEET;
+        return n.charAt(0) !== '_' && !teamSheetIds[s.getSheetId()] && n !== cfg.DASHBOARD_SHEET && n !== LINKS_SHEET_;
       }).map(function (s) { return s.getName(); })
     };
   });

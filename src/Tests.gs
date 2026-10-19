@@ -843,6 +843,45 @@ function unitTestsSplitShifts_() {
   ];
 }
 
+function unitTestsLinks_() {
+  var rec = function (id, name, start, end, cat) {
+    return { recordStatus: 'ACTIVE', teamId: 'T1', employeeId: id, employeeName: name, shiftStart: start, shiftEnd: end, activityCategory: cat || 'SHIFT' };
+  };
+  var recs = [
+    rec('E1', 'Ann Lee', '2026-10-15 08:00', '2026-10-15 16:00'),
+    rec('E1', 'Ann Lee', '2026-10-15 13:30', '2026-10-15 14:30', 'MEETING'),
+    rec('E2', 'Bob Ray', '2026-10-15 14:00', '2026-10-15 22:00'),
+    rec('E3', 'Cy Moe', '2026-10-14 22:00', '2026-10-15 06:00'),
+    rec('E4', 'Dee Fox', '2026-10-15 06:00', '2026-10-15 10:00')
+  ];
+  var names = function (list) { return list.map(function (p) { return p.employeeName; }); };
+  return [
+    ['Links: the IDs replace {IDS} exactly as configured (separator, text around each ID, encoding, chunks)', function () {
+      var t = normalizeLinkTemplate_({ baseUrl: 'https://dash.example/live?users={IDS}', separator: '%2C' });
+      assertEq_(buildMonitoringUrls_(t, ['A1', 'D 4', 'A1']), ['https://dash.example/live?users=A1%2CD%204'], 'unique, encoded, separator as typed');
+      var each = normalizeLinkTemplate_({ baseUrl: 'https://chat.example/team?page=1', separator: '', prefix: '&userIds=' });
+      assertEq_(buildMonitoringUrls_(each, ['1', '2']), ['https://chat.example/team?page=1&userIds=1&userIds=2'], 'no {IDS}: appended at the end');
+      var raw = normalizeLinkTemplate_({ baseUrl: 'https://x.example/{IDS}', separator: '|', encode: false, maxPerLink: 2 });
+      assertEq_(buildMonitoringUrls_(raw, ['a b', 'c', 'd']), ['https://x.example/a b|c', 'https://x.example/d'], 'no encoding; split into links of 2');
+      assertEq_(buildMonitoringUrls_(t, []), [], 'no IDs, no link');
+    }],
+    ['Links: who is working now / at a time / in a window / that day (overnight shifts count)', function () {
+      assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 14 * 60 })), ['Ann Lee', 'Bob Ray'], 'at 14:00 (shift ending at 14:00 or starting at 14:00: start counts)');
+      assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 5 * 60 })), ['Cy Moe'], 'night shift from the day before');
+      assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'WINDOW', fromMin: 9 * 60, toMin: 10 * 60 })), ['Dee Fox', 'Ann Lee']);
+      assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'DAY' })).length, 4, 'meetings are never people');
+      assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 14 * 60, excludeMeetings: true })), ['Bob Ray'], 'Ann is in a meeting at 14:00');
+    }],
+    ['Links: templates need a name and an http(s) base URL; the ID column must be a staff column', function () {
+      var t = normalizeLinkTemplate_({ name: 'X', baseUrl: 'https://a.example/{IDS}', idField: 'field:aircall', who: 'WINDOW', from: '10:00', to: '09:00' });
+      var errs = validateLinkTemplate_(t, ['employeeId', 'field:aircall']);
+      assertEq_(errs.length, 1, 'only the reversed window: ' + errs.join(' | '));
+      assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ name: '', baseUrl: 'ftp://x', idField: 'nope' }), ['employeeId']).length, 3);
+      assertEq_(normalizeLinkTemplate_({}).separator, ',', 'default separator');
+    }]
+  ];
+}
+
 function unitTestsIdImport_() {
   var report = [['Custom report', ''], ['Badge no.', 'Name as First name, Last name'],
     ['0123', 'Ann, Lee'], ['555', 'Bob Ray'], ['777', 'Fox, Dee'], ['900', 'Zed New'], ['', 'No Badge'], ['555', 'Cy Moe']];
@@ -881,7 +920,7 @@ function unitTestsIdImport_() {
 
 function runUnitTests() {
   return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_())
-    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()).concat(unitTestsSplitShifts_()));
+    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()).concat(unitTestsSplitShifts_()).concat(unitTestsLinks_()));
 }
 
 /** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */

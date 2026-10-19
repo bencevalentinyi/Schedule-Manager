@@ -27,7 +27,8 @@ function onOpen() {
       .addItem('Refresh Schedule Data', 'menuRefresh')
       .addSeparator()
       .addItem('View Staff Directory', 'menuViewStaff')
-      .addItem('Import Employee IDs', 'menuImportEmployeeIds'))
+      .addItem('Import Employee IDs', 'menuImportEmployeeIds')
+      .addItem('Monitoring Links', 'menuMonitoringLinks'))
     .addSubMenu(ui.createMenu('Maintenance')
       .addItem('Rebuild Missing Sheets', 'menuRebuildMissing')
       .addItem('Repair Formatting', 'menuRepairFormatting')
@@ -71,10 +72,10 @@ function checkInstall() {
     Schema: 'APP', Utils: 'logError_', SheetStore: 'readTable_', ConfigService: 'getConfig_', Setup: 'initializeSystem_',
     TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
     ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
-    ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
+    MonitoringLinkService: 'buildMonitoringUrls_', ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
     AuditService: 'readImportLog_', Main: 'onOpen', Tests: 'runUnitTests'
   };
-  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
     if (typeof g[scripts[file]] === 'undefined') problems.push('Script file "' + file + '" is missing, empty, incomplete or contains another file\'s code (expected to define ' + scripts[file] + ').');
@@ -274,6 +275,10 @@ function menuViewStaff() {
 
 function menuImportEmployeeIds() {
   menuRun_('menuImportEmployeeIds', function () { showHtml_('EmployeeIdDialog', 'Import Employee IDs', {}, DIALOG_SIZE.LARGE); });
+}
+
+function menuMonitoringLinks() {
+  menuRun_('menuMonitoringLinks', function () { showHtml_('MonitoringLinksDialog', 'Monitoring Links', {}, DIALOG_SIZE.LARGE); });
 }
 
 /* ------------------------------------------------------------------------ */
