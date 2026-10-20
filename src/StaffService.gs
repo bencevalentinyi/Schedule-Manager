@@ -474,42 +474,60 @@ function apiStaffBootstrap() {
 }
 
 function apiStaffList(teamId, query) {
-  return apiCall_('apiStaffList', function () {
-    var team = requireTeam_(teamId);
-    var st = readStaff_(team);
-    var selected = team.settings.staffFields;
-    var visible = [];
-    st.keys.forEach(function (k, i) {
-      var h = st.header[i];
-      if (!h || k === 'lastUpdated') return;
-      if (isManagedStaffKey_(k)) {
-        if (selected.indexOf(k) < 0 && MANDATORY_STAFF_FIELDS.indexOf(k) < 0) return;
-        if (k.indexOf(STAFF_REGISTRY_PREFIX) === 0) {
-          var reg = st.registry[k.substr(STAFF_REGISTRY_PREFIX.length)];
-          if (!reg || !reg.visible) return;
-        }
+  return apiCall_('apiStaffList', function () { return staffListFor_(requireTeam_(teamId), query, 200); });
+}
+
+/**
+ * A team's staff for the client: the visible columns, the rows matching the search (sorted by name,
+ * at most `limit`), the total and duplicate identifiers.
+ */
+function staffListFor_(team, query, limit) {
+  var st = readStaff_(team);
+  var selected = team.settings.staffFields;
+  var visible = [];
+  st.keys.forEach(function (k, i) {
+    var h = st.header[i];
+    if (!h || k === 'lastUpdated') return;
+    if (isManagedStaffKey_(k)) {
+      if (selected.indexOf(k) < 0 && MANDATORY_STAFF_FIELDS.indexOf(k) < 0) return;
+      if (k.indexOf(STAFF_REGISTRY_PREFIX) === 0) {
+        var reg = st.registry[k.substr(STAFF_REGISTRY_PREFIX.length)];
+        if (!reg || !reg.visible) return;
       }
-      visible.push({ label: h, key: k, identifier: isIdentifierStaffKey_(k, st.registry) });
-    });
-    var q = normText_(query);
-    var rows = st.rows.filter(function (r) {
-      if (!q) return true;
-      return Object.keys(r.values).some(function (h) { return normText_(r.values[h]).indexOf(q) >= 0; });
-    });
-    var total = rows.length;
-    rows.sort(function (a, b) { return a.employeeName.localeCompare(b.employeeName); });
-    var dupMap = findDuplicateIdentifiers_(st.rows, st.keys, st.header, st.registry);
-    return {
-      fields: visible,
-      rows: rows.slice(0, 200).map(function (r) {
-        var v = {};
-        Object.keys(r.values).forEach(function (h) { v[h] = isDate_(r.values[h]) ? formatTimestamp_(r.values[h]) : r.values[h]; });
-        return { employeeId: r.employeeId, employeeName: r.employeeName, row: r._row, values: v };
-      }),
-      total: total,
-      duplicates: Object.keys(dupMap).map(function (l) { return l + ': ' + dupMap[l].join(', '); })
-    };
+    }
+    visible.push({ label: h, key: k, identifier: isIdentifierStaffKey_(k, st.registry) });
   });
+  var q = normText_(query);
+  var rows = st.rows.filter(function (r) {
+    if (!q) return true;
+    return Object.keys(r.values).some(function (h) { return normText_(r.values[h]).indexOf(q) >= 0; });
+  });
+  var total = rows.length;
+  rows.sort(function (a, b) { return a.employeeName.localeCompare(b.employeeName); });
+  var dupMap = findDuplicateIdentifiers_(st.rows, st.keys, st.header, st.registry);
+  return {
+    fields: visible,
+    rows: rows.slice(0, limit || 200).map(function (r) {
+      var v = {};
+      Object.keys(r.values).forEach(function (h) { v[h] = isDate_(r.values[h]) ? formatTimestamp_(r.values[h]) : r.values[h]; });
+      return { employeeId: r.employeeId, employeeName: r.employeeName, row: r._row, values: v };
+    }),
+    total: total,
+    duplicates: Object.keys(dupMap).map(function (l) { return l + ': ' + dupMap[l].join(', '); })
+  };
+}
+
+/**
+ * Removes a staff member's row from the team's staff sheet (the web app's Delete; in Sheets you delete
+ * the row yourself). Schedule records are kept; that person is then shown as "Unknown employee".
+ */
+function deleteStaff_(team, employeeId) {
+  var st = readStaff_(team);
+  var key = idKey_(normalizeEmployeeId_(employeeId, cfgBool_(getConfig_(), 'STRIP_LEADING_ZEROS')));
+  var hits = st.rows.filter(function (r) { return key && idKey_(r.employeeId) === key; });
+  if (!hits.length) fail_('NOT_FOUND', 'Employee ' + employeeId + ' is not in the staff sheet of "' + team.teamName + '" (any more). Reload the list.');
+  deleteSheetRows_(st.sheet, hits.map(function (r) { return r._row; }));
+  return { employeeId: employeeId, employeeName: hits[0].employeeName, removed: hits.length };
 }
 
 function apiStaffSave(teamId, values, originalId) {

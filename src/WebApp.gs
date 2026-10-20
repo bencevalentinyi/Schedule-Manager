@@ -17,23 +17,58 @@
 
 /**
  * Pages: key → file, title, nav label (shown in the bar when set), where Close/Cancel go back to,
- * narrow (sidebar pages), init (needs an initialized spreadsheet) and the page's BOOT data.
+ * narrow (sidebar pages), init (needs an initialized spreadsheet), the page's BOOT data and
+ * prefetch: the API calls the page makes when it opens, [[name, arg1, …], …]. doGet answers them
+ * while building the page (WEB_APP.prefetch), so the page shows its data without a second round trip.
  */
 var WEB_PAGES = {
-  home: { file: 'WebHome', title: 'Home', nav: 'Home', init: false },
-  'import': { file: 'ImportDialog', title: 'Import Quinyx Export', nav: 'Import' },
-  schedule: { file: 'Navigator', title: 'Schedule Viewer', nav: 'Schedule', narrow: true, boot: function (p) { return { focus: p.focus || '' }; } },
-  teams: { file: 'TeamManager', title: 'Manage Existing Teams', nav: 'Teams' },
-  team: { file: 'TeamDialog', title: 'Team', back: 'teams', boot: function (p) { return { teamId: p.teamId || '', title: p.teamId ? 'Edit Team' : 'Create New Team' }; } },
-  staff: { file: 'StaffSidebar', title: 'Staff Directory', nav: 'Staff', narrow: true },
-  links: { file: 'MonitoringLinksDialog', title: 'Monitoring Links', nav: 'Monitoring Links' },
-  settings: { file: 'SettingsDialog', title: 'Configure Display Settings', nav: 'Settings' },
-  history: { file: 'HistoryDialog', title: 'Import History' },
-  fields: { file: 'StaffFieldsDialog', title: 'Configure Staff Fields' },
-  ids: { file: 'EmployeeIdDialog', title: 'Import Employee IDs', back: 'staff' },
+  home: { file: 'WebHome', title: 'Home', nav: 'Home', init: false, prefetch: function () { return [['apiWebHome']]; } },
+  schedule: { file: 'WebSchedule', title: 'Schedule', nav: 'Schedule',
+    boot: function (p) { return { date: webDateParam_(p.date), teamIds: webListParam_(p.teams), flag: str_(p.flag), q: str_(p.q) }; },
+    prefetch: function (p, b) { return [['apiWebDay', b.date, b.teamIds]]; } },
+  dashboard: { file: 'WebDashboard', title: 'Dashboard', nav: 'Dashboard',
+    boot: function (p) { return { date: webDateParam_(p.date) }; }, prefetch: function (p, b) { return [['apiWebDashboard', b.date]]; } },
+  'import': { file: 'ImportDialog', title: 'Import Quinyx Export', nav: 'Import', prefetch: function () { return [['apiImportBootstrap']]; } },
+  teams: { file: 'TeamManager', title: 'Manage Existing Teams', nav: 'Teams', prefetch: function () { return [['apiListTeams']]; } },
+  team: { file: 'TeamDialog', title: 'Team', back: 'teams',
+    boot: function (p) { return { teamId: str_(p.teamId), title: p.teamId ? 'Edit Team' : 'Create New Team' }; },
+    prefetch: function (p, b) { return [['apiTeamDialogBootstrap', b.teamId]]; } },
+  staff: { file: 'WebStaff', title: 'Staff', nav: 'Staff',
+    boot: function (p) { return { teamId: str_(p.teamId), q: str_(p.q) }; }, prefetch: function (p, b) { return [['apiWebStaff', b.teamId]]; } },
+  person: { file: 'WebPerson', title: 'Person', back: 'schedule',
+    boot: function (p) { return { key: str_(p.key), week: webDateParam_(p.week) }; }, prefetch: function (p, b) { return [['apiWebPerson', b.key, b.week]]; } },
+  links: { file: 'MonitoringLinksDialog', title: 'Monitoring Links', nav: 'Links', prefetch: function () { return [['apiLinksBootstrap']]; } },
+  output: { file: 'WebLinksOutput', title: 'Monitoring Links output', back: 'links', prefetch: function () { return [['apiWebLinksOutput']]; } },
+  settings: { file: 'SettingsDialog', title: 'Configure Display Settings', nav: 'Settings', prefetch: function () { return [['apiGetSettings']]; } },
+  viewer: { file: 'Navigator', title: 'Schedule Viewer (sheet)', back: 'schedule', narrow: true,
+    boot: function (p) { return { focus: str_(p.focus) }; }, prefetch: function () { return [['apiNavigatorBootstrap']]; } },
+  directory: { file: 'StaffSidebar', title: 'Staff Directory (sidebar)', back: 'staff', narrow: true, prefetch: function () { return [['apiStaffBootstrap']]; } },
+  history: { file: 'HistoryDialog', title: 'Import History', prefetch: function () { return [['apiImportHistory', 100]]; } },
+  fields: { file: 'StaffFieldsDialog', title: 'Configure Staff Fields', back: 'staff', prefetch: function () { return [['apiStaffFieldsBootstrap']]; } },
+  ids: { file: 'EmployeeIdDialog', title: 'Import Employee IDs', back: 'staff', prefetch: function () { return [['apiImportBootstrap']]; } },
   setup: { file: 'SetupDialog', title: 'Setup / Configure Spreadsheet', init: false, boot: function () { return { state: getSetupState_() }; } },
   help: { file: 'ReportDialog', title: 'About / Help', init: false, boot: function () { return { title: APP.NAME + ' ' + APP.VERSION, help: true }; } }
 };
+
+/** A yyyy-MM-dd URL parameter, or '' (the page then uses today). Pure. */
+function webDateParam_(v) { v = str_(v); return isIsoDate_(v) ? v : ''; }
+/** A comma-separated URL parameter as a list. Pure. */
+function webListParam_(v) { return str_(v).split(',').map(str_).filter(Boolean); }
+
+/**
+ * Answers a page's prefetch calls: {"<name><JSON args>": {ok, data|error}}, the key ClientCore's api()
+ * looks up. A failing call is passed on as its error, so the page shows it as usual.
+ */
+function webPrefetch_(calls) {
+  var g = (function () { return this; })() || globalThis;
+  var out = {};
+  (calls || []).forEach(function (c) {
+    var name = c[0], args = c.slice(1);
+    if (!/^api\w+$/.test(name) || typeof g[name] !== 'function') return;
+    out[name + JSON.stringify(args)] = g[name].apply(null, args);
+  });
+  return out;
+}
 var WEB_MAX_WIDTH_ = { wide: 1180, narrow: 760 };
 
 /** Web app entry point (GET). */
@@ -59,7 +94,8 @@ function renderWebPage_(key, params) {
   if (data.title === undefined) data.title = page.title;
   t.bootJson = jsonForHtml_(data);
   var url = webAppUrl_();
-  var client = { url: url, page: key, back: page.back || 'home', spreadsheetUrl: getSs_().getUrl() };
+  var client = { url: url, page: key, back: page.back || 'home', spreadsheetUrl: getSs_().getUrl(),
+    prefetch: page.prefetch ? webPrefetch_(page.prefetch(params, data)) : {} };
   var shell = HtmlService.createTemplateFromFile('WebShell');
   shell.nav = webNav_(key, url);
   shell.spreadsheetUrl = client.spreadsheetUrl;
@@ -67,7 +103,10 @@ function renderWebPage_(key, params) {
   shell.homeUrl = url + '?page=home';
   var head = '<script>window.WEB_APP = ' + jsonForHtml_(client) + ';</script>' +
     '<style>:root { --web-max: ' + (page.narrow ? WEB_MAX_WIDTH_.narrow : WEB_MAX_WIDTH_.wide) + 'px; }</style>';
-  var html = injectWebShell_(t.evaluate().getContent(), head, shell.evaluate().getContent());
+  var content = t.evaluate().getContent();
+  // Sidebar pages (Schedule, Staff) have no page header; give them one so the theme's mark and top bar show.
+  var top = shell.evaluate().getContent() + webPageHeader_(content, data.title || page.title);
+  var html = injectWebShell_(content, head, top);
   return HtmlService.createHtmlOutput(html)
     .setTitle(APP.NAME + ' · ' + (data.title || page.title))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -86,6 +125,11 @@ function injectWebShell_(html, head, nav) {
     return '<body' + withClass + '>' + nav;
   });
   return tagged ? out : nav + out;
+}
+
+/** A page header with the title for pages that have none (sidebar pages), else ''. Pure. */
+function webPageHeader_(html, title) {
+  return /class\s*=\s*"[^"]*\bapp-header\b/i.test(html) ? '' : '<header class="app-header"><h1>' + escapeHtml_(title) + '</h1></header>';
 }
 
 /** Navigation items in order, with the current one marked. Pure apart from the URL passed in. */
@@ -127,7 +171,10 @@ function escapeHtml_(s) {
 function apiWebHome() {
   return apiCall_('apiWebHome', function () {
     var ss = getSs_();
-    var state = getSetupState_();
+    // Quick check from the (cached) configuration; the full sheet inspection only before setup.
+    var state = isInitialized_()
+      ? { initialized: true, healthy: true, needsUpgrade: versionNeedsUpgrade_(getConfig_().SYSTEM_VERSION), version: getConfig_().SYSTEM_VERSION, codeVersion: APP.VERSION }
+      : getSetupState_();
     var out = { state: state, appName: APP.NAME, version: APP.VERSION, user: currentUserEmail_(), spreadsheetUrl: ss.getUrl(),
       spreadsheetName: ss.getName(), teams: [], lastImport: null, linksSheet: null, linkItems: 0 };
     if (!state.initialized || state.needsUpgrade) return out;

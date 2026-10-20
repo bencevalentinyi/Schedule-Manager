@@ -20,8 +20,28 @@
     padding-right: max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
   }
   body.web-page { background: var(--surface); }
-  @media (max-width: 620px) { .web-nav .web-sheet { margin-left: 0; } }
+  /* Phones: the links scroll sideways in one row; tables scroll inside their box. */
+  @media (max-width: 620px) {
+    .web-nav { flex-wrap: nowrap; overflow-x: auto; padding: 6px 10px; -webkit-overflow-scrolling: touch; }
+    .web-nav .web-brand { display: none; }
+    .web-nav .web-links { flex-wrap: nowrap; }
+    .web-nav .web-sheet { margin-left: 0; }
+    body.web-page > .app-header, body.web-page > .app-body, body.web-page > .app-footer { padding-left: 12px; padding-right: 12px; }
+    body.web-page .app-header .subtitle { display: none; }
+    body.web-page .table-wrap { overflow-x: auto; }
+  }
+  .web-loading { position: fixed; top: 0; left: 0; height: 3px; width: 100%; z-index: 1000; background: var(--primary);
+    transform-origin: left; animation: web-load 1.6s ease-out forwards; }
+  @keyframes web-load { from { transform: scaleX(.05); } to { transform: scaleX(.85); } }
 </style>
+<script>
+  // Opening another page reloads the whole page; show progress at once so the click feels instant.
+  document.addEventListener('click', function (ev) {
+    var a = ev.target.closest && ev.target.closest('a[target="_top"]');
+    if (!a || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button) return;
+    if (!document.querySelector('.web-loading')) { var bar = document.createElement('div'); bar.className = 'web-loading'; document.body.appendChild(bar); }
+  });
+</script>
 <nav class="web-nav" aria-label="<?= appName ?>">
   <a class="web-brand" href="<?= homeUrl ?>" target="_top"><?= appName ?></a>
   <div class="web-links">

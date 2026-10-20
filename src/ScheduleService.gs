@@ -269,6 +269,41 @@ function buildDayRows_(records, dateIso, staffIdx, opts) {
   return rows;
 }
 
+/**
+ * One team's day as data, without touching any sheet: the rows (buildDayRows_ with the team's operating
+ * window and settings), the summary and the headcount by hour. The daily sheet, the Dashboard and the
+ * web app all use it, so their numbers are the same. Pure apart from the injected inputs.
+ * @param {Object[]} records the team's records of D-1, D and D+1
+ * @param {Object|null} staffIdx the team's staff index (null = staff sheet unavailable)
+ * @param {Object} cfg getConfig_()
+ * @return {{rows, own, win, headcount, summary: {shifts, meetings, staff, workMinutes, workingHours, overlaps, unknown, carried, peak}}}
+ */
+function dayView_(team, dateIso, records, staffIdx, cfg) {
+  var win = operatingWindow_(team.settings.display);
+  var rows = buildDayRows_(records, dateIso, staffIdx, {
+    maxShiftMinutes: cfgNum_(cfg, 'MAX_SHIFT_HOURS', 16) * 60,
+    nameStrategy: team.settings.import.nameMatch || cfg.NAME_MATCH_STRATEGY,
+    showCarryOver: cfgBool_(cfg, 'SHOW_CARRY_OVER'),
+    window: win,
+    hoursToleranceMinutes: cfgNum_(cfg, 'HOURS_TOLERANCE_MINUTES', 15)
+  });
+  var own = rows.filter(function (r) { return !r.carry; });
+  var people = uniq_(own.map(function (r) { return employeeIdentity_(r.rec); }));
+  var work = workMinutesByEmployee_(own);
+  var net = Object.keys(work).reduce(function (s, k) { return s + work[k]; }, 0);
+  var meetings = own.filter(function (r) { return activityCategoryOf_(r) === ACTIVITY_CATEGORY.MEETING; }).length;
+  var countFlag = function (f) { return rows.filter(function (r) { return r.flags.indexOf(f) >= 0; }).length; };
+  var hc = headcountByHour_(rows, dateIso, win.startMin, win.endMin);
+  return {
+    rows: rows, own: own, win: win, headcount: hc,
+    summary: {
+      shifts: own.length - meetings, meetings: meetings, staff: people.length, workMinutes: net, workingHours: formatMinutesAsDuration_(net),
+      overlaps: countFlag('Overlap'), unknown: countFlag('Unknown employee'), carried: rows.length - own.length,
+      peak: hc.reduce(function (m, h) { return Math.max(m, h.count); }, 0)
+    }
+  };
+}
+
 function displayName_(row) {
   return row.rec.employeeName || row.staffName || row.rec.employeeId || '';
 }
@@ -514,17 +549,10 @@ function renderDailyView_(team, opts) {
     status: str_(head[VIEW.STATUS_COL - 1])
   };
 
-  var win = operatingWindow_(display);
-  var showCarry = cfgBool_(cfg, 'SHOW_CARRY_OVER');
   var records = queryScheduleRecords_({ teamIds: [team.teamId], dates: [addDays_(dateIso, -1), dateIso, addDays_(dateIso, 1)] });
   var staffIdx = tryStaffIndex_(team);
-  var rows = buildDayRows_(records, dateIso, staffIdx, {
-    maxShiftMinutes: cfgNum_(cfg, 'MAX_SHIFT_HOURS', 16) * 60,
-    nameStrategy: team.settings.import.nameMatch || cfg.NAME_MATCH_STRATEGY,
-    showCarryOver: showCarry,
-    window: win,
-    hoursToleranceMinutes: cfgNum_(cfg, 'HOURS_TOLERANCE_MINUTES', 15)
-  });
+  var dv = dayView_(team, dateIso, records, staffIdx, cfg);
+  var win = dv.win, rows = dv.rows;
 
   var employeeOptions = uniq_(rows.map(employeeOptionLabel_)).sort();
   var activityOptions = uniq_(rows.map(typeOptionLabel_)).sort();
@@ -561,17 +589,12 @@ function renderDailyView_(team, opts) {
   sh.getRange(VIEW.FILTER_ROW, VIEW.STATUS_COL).setValue(filters.status || ALL_OPTION);
 
   // --- summary ---
-  var own = rows.filter(function (r) { return !r.carry; });
-  var people = uniq_(own.map(function (r) { return employeeIdentity_(r.rec); }));
-  var work = workMinutesByEmployee_(own);
-  var netTotal = Object.keys(work).reduce(function (s, k) { return s + work[k]; }, 0);
-  var meetingCount = own.filter(function (r) { return activityCategoryOf_(r) === ACTIVITY_CATEGORY.MEETING; }).length;
-  var countFlag = function (f) { return rows.filter(function (r) { return r.flags.indexOf(f) >= 0; }).length; };
-  var summary = 'Shifts: ' + (own.length - meetingCount) + (meetingCount ? '   |   Meetings: ' + meetingCount : '') +
-    '   |   Staff: ' + people.length +
-    '   |   Working hours: ' + formatMinutesAsDuration_(netTotal) +
-    '   |   Overlaps: ' + countFlag('Overlap') +
-    '   |   Unknown employees: ' + countFlag('Unknown employee') +
+  var S = dv.summary;
+  var summary = 'Shifts: ' + S.shifts + (S.meetings ? '   |   Meetings: ' + S.meetings : '') +
+    '   |   Staff: ' + S.staff +
+    '   |   Working hours: ' + S.workingHours +
+    '   |   Overlaps: ' + S.overlaps +
+    '   |   Unknown employees: ' + S.unknown +
     (visible.length !== rows.length ? '   |   Showing ' + visible.length + ' of ' + rows.length + ' (filtered)' : '');
   sh.getRange(VIEW.SUMMARY_ROW, 1).setValue(summary);
   // Row 5 shows a problem when there is one, otherwise a short legend (text, so meaning never depends on color alone).
@@ -609,7 +632,7 @@ function renderDailyView_(team, opts) {
 
   // --- headcount ---
   if (display.showHeadcount) {
-    var hc = headcountByHour_(rows, dateIso, win.startMin, win.endMin);
+    var hc = dv.headcount;
     sh.getRange(VIEW.HEADER_ROW, hcCol, 1, 2).setValues([['Hour', 'Headcount']])
       .setFontWeight('bold').setBackground(cfgHdr).setFontColor(cfgHdrFont);
     if (hc.length) {
@@ -621,10 +644,7 @@ function renderDailyView_(team, opts) {
   return {
     teamId: team.teamId, teamName: team.teamName, date: dateIso, weekday: weekday, shifts: rows.length, shown: visible.length,
     // Summary for the Schedule Viewer sidebar (same numbers as row 4)
-    summary: {
-      shifts: own.length - meetingCount, meetings: meetingCount, staff: people.length, workingHours: formatMinutesAsDuration_(netTotal),
-      overlaps: countFlag('Overlap'), unknown: countFlag('Unknown employee'), carried: rows.length - own.length
-    },
+    summary: { shifts: S.shifts, meetings: S.meetings, staff: S.staff, workingHours: S.workingHours, overlaps: S.overlaps, unknown: S.unknown, carried: S.carried },
     hoursMode: display.operatingHoursMode || 'STANDARD', hoursLabel: win.label,
     lastImport: lastImport ? formatTimestamp_(lastImport.timestamp, tz) : '', importStatus: lastImport ? lastImport.status : '',
     filters: { employee: filters.employee || ALL_OPTION, activity: filters.activity || ALL_OPTION, status: filters.status || ALL_OPTION },

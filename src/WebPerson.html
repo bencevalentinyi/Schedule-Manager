@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .toolbar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+    .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--s2); }
+    .day { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--s2); min-height: 96px; background: var(--surface); }
+    .day.today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+    .day h3 { margin: 0 0 var(--s1); font-size: var(--fs-small); display: flex; justify-content: space-between; gap: 4px; }
+    .day h3 a { color: inherit; text-decoration: none; }
+    .day h3 a:hover { color: var(--primary); }
+    .item { border-left: 3px solid var(--primary); padding: 2px 6px; margin-top: 4px; border-radius: 2px; background: var(--primary-soft); font-size: var(--fs-small); }
+    .item.meeting { border-left-color: var(--meeting); background: var(--meeting-bg); }
+    .item b { font-variant-numeric: tabular-nums; }
+    .off { color: var(--text-3); font-size: var(--fs-small); }
+    @media (max-width: 760px) { .week { grid-template-columns: 1fr; } .day { min-height: 0; } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="head-row">
+      <div>
+        <h1 id="title">Person</h1>
+        <p class="subtitle" id="subtitle">Shifts and meetings for the week in every team, and the staff-sheet details.</p>
+      </div>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div class="toolbar">
+      <button type="button" class="btn" onclick="load(p.prevWeek)">‹ Previous week</button>
+      <button type="button" class="btn" onclick="load(p.today)">This week</button>
+      <button type="button" class="btn" onclick="load(p.nextWeek)">Next week ›</button>
+    </div>
+    <div id="status" aria-live="polite"></div>
+    <div id="out" class="mt-3"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading…</div></div>
+  </main>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var p = null;
+
+    function load(week) {
+      return call('Loading…', 'apiWebPerson', BOOT.key, week === undefined ? BOOT.week : week).then(function (d) {
+        p = d;
+        try { google.script.history.replace(null, { page: 'person', key: d.key, week: d.weekStart }); } catch (e) { /* not in the web app */ }
+        render();
+      });
+    }
+    function render() {
+      $('title').textContent = p.name || 'Person';
+      $('subtitle').textContent = 'Week ' + p.weekStart + ' – ' + p.weekEnd + (p.employeeId ? ' · Employee ID ' + p.employeeId : '');
+      var stats = '<div class="stats">' + stat('Shifts this week', p.shifts) + stat('Working hours', p.totalHours) + stat('Staff sheets', p.listings.length, p.listings.length ? '' : 'warn') + '</div>';
+      var week = '<div class="week mt-3">' + p.week.map(function (d) {
+        var items = d.items.length ? d.items.map(function (x) {
+          return '<div class="item' + (x.meeting ? ' meeting' : '') + '"><b>' + esc(x.start) + ' – ' + esc(x.end) + '</b>' + (x.overnight ? ' <span class="muted">(next day)</span>' : '') +
+            '<div>' + esc(x.type || (x.meeting ? 'Meeting' : 'Shift')) + '</div><div class="muted">' + esc(x.team) + '</div></div>';
+        }).join('') : '<div class="off">Not scheduled</div>';
+        return '<div class="day' + (d.date === p.today ? ' today' : '') + '"><h3><a href="' + esc(webHref('schedule', { date: d.date })) + '" target="_top">' + esc(d.weekday.substr(0, 3)) + ' ' + esc(d.date.substr(5)) + '</a>' +
+          (d.minutes ? '<span class="muted">' + esc(d.hours) + '</span>' : '') + '</h3>' + items + '</div>';
+      }).join('') + '</div>';
+      var staff = p.listings.length ? p.listings.map(function (l) {
+        return '<section class="panel mt-3"><div class="panel-head"><h2>' + esc(l.teamName) + '</h2><span class="spacer"></span>' +
+          '<a class="btn sm" href="' + esc(webHref('staff', { teamId: l.teamId, q: l.employeeId || p.name })) + '" target="_top">Edit in Staff</a></div>' +
+          kvTable(l.fields.map(function (f) { return [f.label, esc(f.value)]; })) + '</section>';
+      }).join('') : alertHtml('warning', 'Not in any staff sheet', 'This person is scheduled but not listed in a staff sheet, so they are flagged "Unknown employee". Add them on the Staff page.');
+      $('out').innerHTML = stats + week + '<h2 class="mt-4">Staff details</h2>' + staff;
+    }
+    load();
+  </script>
+</body>
+</html>

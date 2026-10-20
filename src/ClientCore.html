@@ -11,6 +11,16 @@
   /** Promise wrapper around google.script.run. */
   function api(name) {
     var args = Array.prototype.slice.call(arguments, 1);
+    // Web app: the page's first calls were already answered by the server (WEB_APP.prefetch), saving a round trip.
+    var pre = window.WEB_APP && window.WEB_APP.prefetch, key = name + JSON.stringify(args);
+    if (pre && Object.prototype.hasOwnProperty.call(pre, key)) {
+      var res = pre[key];
+      delete pre[key]; // used once; later calls (e.g. Reload) ask the server again
+      return Promise.resolve().then(function () {
+        if (res && res.ok) return res.data;
+        throw (res && res.error) || { message: 'Unknown error.' };
+      });
+    }
     return new Promise(function (resolve, reject) {
       var runner = google.script.run
         .withSuccessHandler(function (res) {
@@ -62,7 +72,10 @@
     Object.keys(params || {}).forEach(function (k) { if (params[k] !== '' && params[k] !== null && params[k] !== undefined) q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
     return WEB.url + q;
   }
-  function goPage(page, params) { window.open(webHref(page, params), '_top'); }
+  function goPage(page, params) {
+    if (!document.querySelector('.web-loading')) { var bar = document.createElement('div'); bar.className = 'web-loading'; document.body.appendChild(bar); }
+    window.open(webHref(page, params), '_top');
+  }
   /** Closes the dialog; in the web app goes back to the page it came from (or Home). */
   function closeDialog() { if (WEB) goPage(WEB.back || 'home'); else google.script.host.close(); }
   /**

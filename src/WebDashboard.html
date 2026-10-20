@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .toolbar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+    .toolbar input[type=date] { width: auto; }
+    .hc { display: flex; align-items: flex-end; gap: 2px; height: 72px; margin: var(--s3) 0 2px; }
+    .hc .bar { flex: 1 1 0; min-width: 0; background: var(--primary-soft); border-top: 2px solid var(--primary); position: relative; border-radius: 2px 2px 0 0; }
+    .hc .bar span { position: absolute; top: -16px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--text-2); }
+    .hc-axis { display: flex; gap: 2px; font-size: 10px; color: var(--text-3); }
+    .hc-axis span { flex: 1 1 0; text-align: center; min-width: 0; overflow: hidden; }
+    .spark { display: flex; align-items: flex-end; gap: 1px; height: 22px; width: 96px; }
+    .spark i { flex: 1 1 0; background: var(--primary); opacity: .55; border-radius: 1px 1px 0 0; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.num a { font-weight: 600; text-decoration: none; }
+    tr.inactive td { color: var(--text-3); }
+    a.btn { text-decoration: none; }
+    @media (max-width: 620px) { .col-spark, .col-import { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="head-row">
+      <div>
+        <h1 id="title">Dashboard</h1>
+        <p class="subtitle">Every team's day in numbers: the same figures as the daily sheets and the Dashboard sheet. Click a number to see those people.</p>
+      </div>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div class="toolbar">
+      <button type="button" class="btn icon" onclick="step(-1)" aria-label="Previous day">‹</button>
+      <label class="sr-only" for="date">Date</label><input type="date" id="date" onchange="load($('date').value)">
+      <button type="button" class="btn icon" onclick="step(1)" aria-label="Next day">›</button>
+      <button type="button" class="btn" onclick="load(data.today)">Today</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" onclick="load(data.date)">Reload</button>
+    </div>
+    <div id="status" aria-live="polite"></div>
+    <div id="out"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading…</div></div>
+  </main>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null;
+
+    function load(date) {
+      return call('Loading the dashboard…', 'apiWebDashboard', date === undefined ? BOOT.date : date).then(function (d) {
+        data = d;
+        try { google.script.history.replace(null, { page: 'dashboard', date: d.date }); } catch (e) { /* not in the web app */ }
+        render();
+      });
+    }
+    function step(k) { var d = new Date(data.date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + k); load(d.toISOString().substr(0, 10)); }
+    function sched(teamId, flag) { return webHref('schedule', { date: data.date, teams: teamId, flag: flag || '' }); }
+    function num(v, href, cls) {
+      return v ? '<a href="' + esc(href) + '" target="_top"' + (cls ? ' style="color:var(--' + cls + ')"' : '') + '>' + esc(v) + '</a>' : '<span class="muted">0</span>';
+    }
+    function spark(hc) {
+      var max = hc.reduce(function (m, h) { return Math.max(m, h.count); }, 0);
+      if (!max) return '';
+      return '<div class="spark" aria-hidden="true">' + hc.map(function (h) { return '<i style="height:' + Math.max(2, h.count / max * 100) + '%"></i>'; }).join('') + '</div>';
+    }
+
+    function render() {
+      var d = data, T = d.totals;
+      $('date').value = d.date;
+      $('title').textContent = 'Dashboard · ' + d.weekday + ', ' + d.date + (d.date === d.today ? ' (today)' : '');
+      var all = d.teams.filter(function (t) { return t.active && t.status === 'READY'; }).map(function (t) { return t.teamId; }).join(',');
+      var totals = '<div class="stats">' + stat('Shifts', T.shifts) + stat('Staff', T.staff) + stat('Working hrs', T.workingHours) +
+        stat('Meetings', T.meetings, T.meetings ? 'meeting' : '') + stat('Overlaps', T.overlaps, T.overlaps ? 'bad' : '') + stat('Unknown', T.unknown, T.unknown ? 'warn' : '') + '</div>';
+      var rows = d.teams.map(function (t) {
+        var S = t.summary, ready = t.status === 'READY';
+        return '<tr class="' + (t.active ? '' : 'inactive') + '"><td><b>' + (ready ? '<a href="' + esc(sched(t.teamId)) + '" target="_top">' + esc(t.teamName) + '</a>' : esc(t.teamName)) + '</b>' +
+          '<div class="small">' + (ready ? '' : badge('bad', t.status) + ' ') + (t.active ? '' : badge('warn', 'Inactive')) + '</div></td>' +
+          '<td class="num">' + (ready ? num(S.shifts, sched(t.teamId)) : '—') + '</td><td class="num">' + S.staff + '</td><td class="num">' + esc(S.workingHours) + '</td>' +
+          '<td class="num">' + S.peak + '</td><td class="col-spark">' + spark(t.headcount) + '</td>' +
+          '<td class="num">' + num(S.overlaps, sched(t.teamId, 'Overlap'), 'error') + '</td><td class="num">' + num(S.unknown, sched(t.teamId, 'Unknown employee'), 'warning') + '</td>' +
+          '<td class="col-import small">' + (t.lastImport ? esc(t.lastImport.timestamp) + '<div>' + badge(t.lastImport.status === 'COMMITTED' ? 'ok' : 'warn', t.lastImport.status) + '</div>' : '<span class="muted">never</span>') + '</td>' +
+          '<td>' + (t.sheet ? '<a class="btn sm" href="' + esc(t.sheet.url) + '" target="_blank" rel="noopener">Sheet ↗</a>' : '') + '</td></tr>';
+      }).join('');
+      var table = d.teams.length ? '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Shifts</th><th scope="col">Staff</th>' +
+        '<th scope="col">Hours</th><th scope="col">Peak</th><th scope="col" class="col-spark">By hour</th><th scope="col">Overlaps</th><th scope="col">Unknown</th>' +
+        '<th scope="col" class="col-import">Last import</th><th scope="col"><span class="sr-only">Sheet</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : emptyHtml('▦', 'No teams yet', 'Create a team first.', '<a class="btn primary" href="' + esc(webHref('team')) + '" target="_top">Create a team</a>');
+      var max = d.headcount.reduce(function (m, h) { return Math.max(m, h.count); }, 0);
+      var hc = max ? '<section class="panel mt-3"><div class="panel-head"><h2>Headcount by hour, all active teams</h2><span class="spacer"></span><span class="small muted">peak ' + max + '</span></div>' +
+        '<div class="hc" aria-hidden="true">' + d.headcount.map(function (h) { return '<div class="bar" style="height:' + Math.max(4, h.count / max * 100) + '%" title="' + esc(h.label + ': ' + h.count) + '"><span>' + (h.count || '') + '</span></div>'; }).join('') + '</div>' +
+        '<div class="hc-axis" aria-hidden="true">' + d.headcount.map(function (h, i) { return '<span>' + (i % 3 === 0 ? esc(h.label.substr(0, 2)) : '') + '</span>'; }).join('') + '</div>' +
+        '<p class="sr-only">' + esc(d.headcount.map(function (h) { return h.label + ' ' + h.count; }).join(', ')) + '</p>' +
+        (all ? '<div class="cluster mt-2"><a class="btn sm" href="' + esc(webHref('schedule', { date: d.date, teams: all })) + '" target="_top">Everyone working</a></div>' : '') + '</section>' : '';
+      var imports = d.imports.length ? '<section class="panel mt-3"><div class="panel-head"><h2>Recent imports</h2><span class="spacer"></span><a class="btn sm" href="' + esc(webHref('history')) + '" target="_top">Import history</a></div>' +
+        '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Time</th><th scope="col">File</th><th scope="col">Teams</th><th scope="col">Changes</th><th scope="col">Status</th></tr></thead><tbody>' +
+        d.imports.map(function (e) {
+          return '<tr><td class="small nowrap">' + esc(e.timestamp) + '</td><td class="small">' + esc(e.sourceFile) + '</td><td class="small">' + esc(e.teams) + '</td>' +
+            '<td class="small">+' + e.inserted + ' · ~' + e.updated + ' · −' + e.removed + '</td><td>' + badge(e.status === 'COMMITTED' ? 'ok' : (e.status === 'UNDONE' ? '' : 'warn'), e.status) + '</td></tr>';
+        }).join('') + '</tbody></table></div></section>' : '';
+      $('out').innerHTML = '<div class="mt-3">' + totals + '</div><section class="mt-3">' + table + '</section>' + hc + imports;
+    }
+    load();
+  </script>
+</body>
+</html>

@@ -504,7 +504,9 @@
         focusFirst('s-result');
       }, function () { $('commitBtn').disabled = !plan.canCommit; });
     }
-    function openTeam(teamId, date) { call('Opening the schedule…', 'apiOpenSchedule', teamId, date).then(function (r) { if (!sheetOpened(r)) closeDialog(); }); }
+    function openTeam(teamId, date) {
+      if (WEB) { goPage('schedule', { teams: teamId, date: date || '' }); return; }
+      call('Opening the schedule…', 'apiOpenSchedule', teamId, date).then(function (r) { if (!sheetOpened(r)) closeDialog(); }); }
 
     function cancel() {
       if (insp) google.script.run.withSuccessHandler(closeDialog).withFailureHandler(closeDialog).apiImportCancel(insp.importId);

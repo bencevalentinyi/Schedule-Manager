@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .out-item .value { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s2) var(--s3); max-height: 260px; overflow: auto; margin: 0; }
+    a.btn { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="head-row">
+      <div>
+        <h1>Monitoring Links output</h1>
+        <p class="subtitle" id="subtitle">What the "Monitoring Links" sheet holds now: exactly what a Slack Workflow reads.</p>
+      </div>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div id="out"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading…</div></div>
+  </main>
+  <footer class="app-footer">
+    <a class="btn" id="editBtn" target="_top">Edit links and plans</a>
+    <a class="btn hidden" id="sheetBtn" target="_blank" rel="noopener">Open sheet ↗</a>
+    <span class="spacer"></span>
+    <button type="button" class="btn" onclick="load()">Reload</button>
+    <button type="button" class="btn primary" onclick="generate()">Generate now</button>
+  </footer>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null;
+
+    function load() {
+      return call('Reading the sheet…', 'apiWebLinksOutput').then(function (d) { data = d; render(); });
+    }
+    function render() {
+      $('editBtn').href = webHref('links');
+      if (data.sheet) { $('sheetBtn').href = data.sheet.url; show('sheetBtn', true); }
+      $('subtitle').textContent = (data.updated ? 'Last generated ' + data.updated : 'Not generated yet') + ' · ' + data.itemCount + ' saved item(s). This is what a Slack Workflow reads.';
+      if (!data.items.length) {
+        $('out').innerHTML = emptyHtml('🔗', data.sheet ? 'The sheet is empty' : 'Nothing generated yet', 'Click Generate now, or let your time-driven trigger (generateMonitoringLinks) run.');
+        return;
+      }
+      $('out').innerHTML = data.items.map(function (x, i) {
+        return '<section class="panel out-item"><div class="panel-head"><h2>' + esc(x.name) + '</h2><span class="spacer"></span>' +
+          (x.url && x.value ? '<a class="btn sm primary" href="' + esc(x.value) + '" target="_blank" rel="noopener">Open ↗</a>' : '') +
+          '<button type="button" class="btn sm" onclick="copy(' + i + ')">Copy</button></div>' +
+          (x.value ? '<pre class="value" id="v' + i + '">' + esc(x.value) + '</pre>' : '<p class="muted mb-0">(empty)</p>') + '</section>';
+      }).join('');
+    }
+    function copy(i) {
+      var text = data.items[i].value;
+      var done = function () { showStatus('ok', '', 'Copied "' + data.items[i].name + '".'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+      else fallback();
+      function fallback() {
+        var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { showStatus('info', 'Select the text and press Ctrl+C.', ''); }
+        ta.remove();
+      }
+    }
+    function generate() {
+      call('Building all links and plans…', 'apiLinksGenerateAll', '').then(function () { return load(); }).then(function () { showStatus('ok', '', 'Generated.'); });
+    }
+    load();
+  </script>
+</body>
+</html>

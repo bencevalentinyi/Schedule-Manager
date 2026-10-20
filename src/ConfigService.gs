@@ -54,11 +54,40 @@ var CONFIG_READONLY = ['SYSTEM_VERSION', 'INITIALIZED', 'INITIALIZED_AT', 'TEAM_
 /* Per-execution memo; invalidated on every write. Apps Script executions are short-lived. */
 var configMemo_ = null;
 
-function resetConfigMemo_() { configMemo_ = null; }
+/**
+ * The configuration is also cached between executions (script cache, CONFIG_CACHE_SECONDS), so a page or
+ * an API call does not read _CONFIG every time. Every write (setConfigValues_, ensureConfigDefaults_) and
+ * an edit of the _CONFIG sheet by hand (onEdit) clears it.
+ */
+var CONFIG_CACHE_KEY_ = 'SM_CONFIG';
+var CONFIG_CACHE_SECONDS = 300;
+
+function resetConfigMemo_() {
+  configMemo_ = null;
+  try { CacheService.getScriptCache().remove(CONFIG_CACHE_KEY_); } catch (e) { /* no cache here */ }
+}
 
 /** Returns the full configuration map (defaults overlaid with _CONFIG values). */
 function getConfig_() {
   if (configMemo_) return configMemo_;
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+  if (cache) {
+    var hit = parseJson_(cache.get(CONFIG_CACHE_KEY_), null);
+    if (hit && typeof hit === 'object') { configMemo_ = hit; return hit; }
+  }
+  var read = readConfigSheet_();
+  var cfg = read.cfg;
+  // Only a real _CONFIG is cached (before setup there is nothing to cache).
+  if (cache && read.fromSheet) {
+    try { var json = JSON.stringify(cfg); if (json.length < 90000) cache.put(CONFIG_CACHE_KEY_, json, CONFIG_CACHE_SECONDS); } catch (e) { /* too big or unavailable */ }
+  }
+  configMemo_ = cfg;
+  return cfg;
+}
+
+/** Defaults overlaid with the _CONFIG sheet's values; fromSheet = the sheet exists. */
+function readConfigSheet_() {
   var cfg = {};
   CONFIG_DEFAULTS.forEach(function (d) { cfg[d[0]] = d[1]; });
   var sh = getSheet_(T_CONFIG.sheet);
@@ -69,8 +98,7 @@ function getConfig_() {
     });
   }
   if (!cfg.TIMEZONE) cfg.TIMEZONE = getTz_();
-  configMemo_ = cfg;
-  return cfg;
+  return { cfg: cfg, fromSheet: !!sh };
 }
 
 function cfgBool_(cfg, key) { return toBool_(cfg[key]); }

@@ -48,7 +48,10 @@ function onEdit(e) {
   if (!e || !e.range) return;
   try {
     var sh = e.range.getSheet();
-    if (sh.getName().charAt(0) === '_') return;
+    if (sh.getName().charAt(0) === '_') {
+      if (sh.getName() === T_CONFIG.sheet) resetConfigMemo_(); // edited by hand: drop the cached configuration
+      return;
+    }
     var entry = getSheetIndex_()[String(sh.getSheetId())];
     if (!entry) return;
     if (entry.kind === 'schedule' && (e.range.getRow() > VIEW.FILTER_ROW || e.range.getLastRow() < VIEW.FILTER_ROW)) return;
@@ -74,9 +77,10 @@ function checkInstall() {
     TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
     ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
     MonitoringLinkService: 'buildMonitoringUrls_', ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
-    AuditService: 'readImportLog_', WebApp: 'doGet', Main: 'onOpen', Tests: 'runUnitTests'
+    AuditService: 'readImportLog_', WebApp: 'doGet', WebDataService: 'apiWebDay', Main: 'onOpen', Tests: 'runUnitTests'
   };
-  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog', 'WebShell', 'WebHome'];
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog',
+    'WebShell', 'WebHome', 'WebSchedule', 'WebDashboard', 'WebPerson', 'WebStaff', 'WebLinksOutput'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
     if (typeof g[scripts[file]] === 'undefined') problems.push('Script file "' + file + '" is missing, empty, incomplete or contains another file\'s code (expected to define ' + scripts[file] + ').');

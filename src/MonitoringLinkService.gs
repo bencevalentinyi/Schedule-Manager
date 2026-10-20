@@ -633,7 +633,15 @@ function generateAllLinks_(dateIso) {
   var teams = teamsByIdForLinks_(), cache = {};
   var results = loadLinkTemplates_().map(function (t) { return generateLink_(t, ctx, teams, cache); });
   var sh = writeLinksSheet_(results, ctx.updated, loadLinkSheetSettings_(), ctx.date);
+  try { PropertiesService.getScriptProperties().setProperty(LINKS_LAST_RUN_PROP_, ctx.updated); } catch (e) { /* shown as unknown */ }
   return { sheet: sh.getName(), results: results };
+}
+
+var LINKS_LAST_RUN_PROP_ = 'SM_LINKS_LAST_RUN';
+
+/** When the Monitoring Links sheet was last generated ("yyyy-MM-dd HH:mm"), or ''. */
+function linksLastRun_() {
+  try { return PropertiesService.getScriptProperties().getProperty(LINKS_LAST_RUN_PROP_) || ''; } catch (e) { return ''; }
 }
 
 /**

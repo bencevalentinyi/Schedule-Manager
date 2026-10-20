@@ -69,7 +69,8 @@
 
       var teams = d.teams.length ? '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Sheets</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' +
         d.teams.map(function (t) {
-          return '<tr><td><b>' + esc(t.teamName) + '</b><div class="small muted">' + esc(t.teamId) + '</div></td>' +
+          var name = t.status === 'READY' ? '<a href="' + esc(webHref('schedule', { teams: t.teamId })) + '" target="_top">' + esc(t.teamName) + '</a>' : esc(t.teamName);
+          return '<tr><td><b>' + name + '</b><div class="small muted">' + esc(t.teamId) + '</div></td>' +
             '<td>' + (t.status === 'READY' ? badge('ok', 'Ready') : badge('bad', t.status)) + ' ' + (t.active ? badge('', 'Active') : badge('warn', 'Inactive')) + '</td>' +
             '<td><div class="cluster">' + sheetLink(t.schedule, 'Schedule') + sheetLink(t.staff, 'Staff') + '</div></td>' +
             '<td class="actions">' + pageLink('team', 'Edit', 'sm', { teamId: t.teamId }) + '</td></tr>';
@@ -78,15 +79,15 @@
 
       $('home').innerHTML = '<div class="home-grid">' +
         '<section class="panel"><div class="panel-head"><h2>Quick actions</h2></div><div class="cluster">' +
-          pageLink('import', 'Import Quinyx export', 'primary') + pageLink('schedule', 'Schedule viewer') +
+          pageLink('schedule', 'Today\'s schedule', 'primary') + pageLink('dashboard', 'Dashboard') + pageLink('import', 'Import Quinyx export') +
           '<button type="button" class="btn" onclick="generateLinks()"' + (d.linkItems ? '' : ' disabled title="No monitoring links or plans saved yet"') + '>Generate monitoring links</button>' +
           pageLink('history', 'Import history / Undo') + '</div></section>' +
         '<section class="panel"><div class="panel-head"><h2>Last import</h2></div>' + lastHtml + '</section>' +
         '<section class="panel wide"><div class="panel-head"><h2>Teams</h2><span class="spacer"></span>' + pageLink('teams', 'Manage teams', 'sm') + pageLink('team', '+ New team', 'sm') + '</div>' + teams + '</section>' +
         '<section class="panel"><div class="panel-head"><h2>Monitoring Links</h2></div><p class="small">' + d.linkItems + ' saved item(s).</p><div class="cluster">' +
-          pageLink('links', 'Edit links and plans', 'sm') + (d.linksSheet ? sheetLink(d.linksSheet, 'Monitoring Links sheet') : '<span class="small muted">The sheet appears after the first Generate.</span>') + '</div></section>' +
+          pageLink('links', 'Edit links and plans', 'sm') + pageLink('output', 'See output', 'sm') + (d.linksSheet ? sheetLink(d.linksSheet, 'Monitoring Links sheet') : '<span class="small muted">The sheet appears after the first Generate.</span>') + '</div></section>' +
         '<section class="panel"><div class="panel-head"><h2>More tools</h2></div><div class="cluster">' +
-          pageLink('staff', 'Staff directory', 'sm') + pageLink('ids', 'Import Employee IDs', 'sm') + pageLink('fields', 'Configure staff fields', 'sm') +
+          pageLink('staff', 'Staff', 'sm') + pageLink('viewer', 'Sheet schedule viewer', 'sm') + pageLink('ids', 'Import Employee IDs', 'sm') + pageLink('fields', 'Configure staff fields', 'sm') +
           pageLink('settings', 'Display settings', 'sm') + pageLink('setup', 'Setup', 'sm') + pageLink('help', 'About / Help', 'sm') + '</div></section>' +
         '<section class="panel wide"><div class="panel-head"><h2>Maintenance</h2></div><div class="cluster">' +
           '<button type="button" class="btn sm" onclick="maintain(\'structure\')">Validate structure</button>' +

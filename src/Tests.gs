@@ -1027,14 +1027,48 @@ function unitTestsWebApp_() {
       assert_(out.indexOf('<body class="web-page sidebar"><nav>N</nav>') > 0, 'class kept and nav first: ' + out);
       assert_(injectWebShell_('<html><head></head><body><p>', 'H', 'N').indexOf('<body class="web-page">N<p>') > 0, 'body without class');
       assertEq_(injectWebShell_('<p>bare</p>', 'H', 'N'), 'NH<p>bare</p>', 'no head or body tag');
+      assertEq_(webPageHeader_('<body class="sidebar"><main class="app-body">', 'Staff <Directory>'), '<header class="app-header"><h1>Staff &lt;Directory&gt;</h1></header>', 'sidebar pages get a header');
+      assertEq_(webPageHeader_('<header class="app-header">', 'X'), '', 'pages with a header keep theirs');
     }],
     ['Web app: every page has a file and a title; the nav marks the current page (or the page it belongs to)', function () {
       Object.keys(WEB_PAGES).forEach(function (k) { assert_(WEB_PAGES[k].file && WEB_PAGES[k].title, k); });
       var nav = webNav_('team', 'https://x/exec');
-      assertEq_(nav.map(function (n) { return n.key; }), ['home', 'import', 'schedule', 'teams', 'staff', 'links', 'settings']);
+      assertEq_(nav.map(function (n) { return n.key; }), ['home', 'schedule', 'dashboard', 'import', 'teams', 'staff', 'links', 'settings']);
       assertEq_(nav.filter(function (n) { return n.current; }).map(function (n) { return n.key; }), ['teams'], 'Team editor belongs to Teams');
-      assertEq_(nav[1].href, 'https://x/exec?page=import');
+      assertEq_(nav[3].href, 'https://x/exec?page=import');
       assertEq_(WEB_PAGES.setup.init, false, 'Setup opens before initialization');
+      assertEq_([webDateParam_('2026-10-15'), webDateParam_('15/10/2026'), webListParam_('A, B,,C'), webListParam_('')], ['2026-10-15', '', ['A', 'B', 'C'], []]);
+    }],
+    ['Web app: prefetched answers are keyed exactly like the page\'s first api() call', function () {
+      var pre = webPrefetch_([['apiPing'], ['notAnApi'], ['apiNoSuchFunction', 1]]);
+      assertEq_(Object.keys(pre), ['apiPing[]'], 'only existing api* functions');
+      assert_(pre['apiPing[]'].ok, 'the {ok, data} answer as the client expects it');
+      var b = WEB_PAGES.schedule.boot({ date: '2026-10-15', teams: 'T1,T2' });
+      assertEq_(WEB_PAGES.schedule.prefetch({}, b), [['apiWebDay', '2026-10-15', ['T1', 'T2']]], 'same arguments as WebSchedule load()');
+      assertEq_(WEB_PAGES.team.prefetch({}, WEB_PAGES.team.boot({})), [['apiTeamDialogBootstrap', '']], 'same as TeamDialog: BOOT.teamId || ""');
+    }],
+    ['Web pages: one day as data has the same numbers as the daily sheet; person keys and weeks', function () {
+      var team = { teamId: 'T1', settings: { display: { operatingHoursMode: '24_7' }, import: {} } };
+      var rec = function (id, name, s, e, cat) { return { recordStatus: 'ACTIVE', teamId: 'T1', employeeId: id, employeeName: name, shiftDate: s.substr(0, 10), shiftStart: s, shiftEnd: e, activityCategory: cat || 'SHIFT', scheduledMinutes: '' }; };
+      var recs = [rec('E1', 'Ann Lee', '2026-10-15 08:00', '2026-10-15 16:00'), rec('E1', 'Ann Lee', '2026-10-15 10:00', '2026-10-15 11:00', 'MEETING'),
+        rec('E2', 'Bob Ray', '2026-10-14 22:00', '2026-10-15 06:00'), rec('E3', 'Cy Moe', '2026-10-15 12:00', '2026-10-15 20:00')];
+      var dv = dayView_(team, '2026-10-15', recs, null, TEST_CFG_);
+      var S = dv.summary;
+      assertEq_([S.shifts, S.meetings, S.staff, S.workingHours, S.carried, S.peak], [2, 1, 2, '16:00', 1, 2],
+        'Bob is carried over from the day before; the meeting inside Ann\'s shift adds no hours; peak 12–16 = Ann and Cy');
+      assertEq_(dv.headcount.length, 24);
+      var row = webDayRow_(dv.rows[0], dayNumber_('2026-10-15') * 1440, null, '');
+      assertEq_([row.name, row.start, row.end, row.from, row.carry, row.key], ['Bob Ray', '22:00', '06:00', -120, true, 'ID:E2']);
+      assertEq_([webPersonKey_('', ' Ann  Lee '), webRecordIsPerson_({ employeeId: 'e1' }, 'ID:E1'), webRecordIsPerson_({ employeeId: '', employeeName: 'ann lee' }, 'NM:Ann Lee'),
+        webRecordIsPerson_({ employeeId: 'E9', employeeName: 'Ann Lee' }, 'NM:Ann Lee')], ['NM:Ann Lee', true, true, false]);
+      assertEq_([weekStartOf_('2026-10-15'), weekStartOf_('2026-10-19'), weekStartOf_('2026-10-25')], ['2026-10-12', '2026-10-19', '2026-10-19'], 'weeks start on Monday');
+    }],
+    ['Web pages: the Monitoring Links output is read item by item in both layouts', function () {
+      var row = linksOutputItems_([['Key', 'Header_Date', 'Live', 'Plan'], ['DAILY', '2026-10-15', 'https://x/1', '08:00 Ann']], { layout: 'ROW' });
+      assertEq_(row.map(function (x) { return x.name + '=' + x.value + (x.url ? ' (url)' : ''); }), ['Live=https://x/1 (url)', 'Plan=08:00 Ann']);
+      var rows = linksOutputItems_([['Name', 'Kind', 'Date', 'Updated', 'Count', 'Missing', 'Text', 'URL', 'URL 2'],
+        ['Live', 'Link', '', '', '', '', '3 agent(s)', 'https://x/1', 'https://x/2'], ['Plan', 'Plan', '', '', '', '', '08:00 Ann', '', '']], { layout: 'ROWS' });
+      assertEq_(rows.map(function (x) { return x.name + '=' + x.value; }), ['Live=https://x/1', 'Live 2=https://x/2', 'Plan=08:00 Ann']);
     }],
     ['Sheet index: the newest stored copy wins; copies stored before the web app are read too', function () {
       var old = JSON.stringify({ 11: { teamId: 'T1', kind: 'schedule' } });

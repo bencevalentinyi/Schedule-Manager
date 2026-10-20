@@ -1,6 +1,28 @@
 # Web app
 
-The web app shows the Schedule Manager tools in a normal browser tab, so you don't have to open the spreadsheet for them: import, the schedule viewer, teams, staff, Monitoring Links, settings, import history and maintenance. The data stays in the spreadsheet. Daily schedules, staff sheets and the Dashboard are still sheets, and the pages link to them ("Open … in Google Sheets ↗").
+The web app shows Schedule Manager in a normal browser tab, so day-to-day work doesn't need the spreadsheet. The data stays in the spreadsheet, and every number is calculated the same way as in the sheets.
+
+| Page | What it does |
+|---|---|
+| **Home** | Teams, last import, quick actions, maintenance |
+| **Schedule** | Everyone working on a day: one or several teams, list or timeline, search, meetings and flags, headcount by hour. Click a name to open the person. |
+| **Dashboard** | Every team's day in numbers (shifts, staff, hours, peak, overlaps, unknown employees), headcount for all teams, recent imports. Click a number to see those people. |
+| **Person** | One person's week (Monday–Sunday) in every team, with daily hours and their staff-sheet details |
+| **Staff** | A team's staff sheet as a table: instant search, add, edit, remove, and "Find unknown employees" (people in the schedule but not in the staff sheet) |
+| **Import**, **Teams**, **Links**, **Settings** | The same tools as the Sheets menu |
+| **Links → See output** | What the Monitoring Links sheet holds now (what Slack reads), with copy buttons and the last generated time |
+
+The daily sheets, staff sheets and the Dashboard sheet still exist and stay up to date. Every page links to its sheet ("Open in Sheets ↗").
+
+## Speed
+
+- **One round trip per page.** The data a page needs when it opens is fetched while the page is built and sent with it, so the page doesn't have to ask the server again (`prefetch` in `WEB_PAGES`).
+- **Settings are cached** for 5 minutes between calls (script cache), instead of reading `_CONFIG` every time. Saving settings, setup, or editing `_CONFIG` by hand clears the cache.
+- **One read of the schedule per page:** all chosen teams and days at once, and only the matching rows.
+- **Search on the page:** Schedule and Staff filter in the browser as you type, with no server call.
+- **Instant feedback:** a progress bar appears as soon as you click a link.
+
+What still takes time is Google itself: each page opening runs the script once (usually 1–3 seconds), and the first run after a while is slower.
 
 ## Deploy (once)
 
@@ -35,7 +57,8 @@ The URL stays the same. **Deploy → Test deployments** gives a `/dev` URL that 
 |---|---|
 | Close / Cancel | Goes back to the page it came from (or Home) |
 | "Open sheet", schedule and staff links | Opens the sheet in a new tab |
-| Schedule Viewer shows the rows in the sheet | Shows the summary; *Open schedule in Sheets ↗* shows the rows |
+| Schedule Viewer renders the team's sheet | **Schedule** shows the day on the page; the sheet viewer is still under Home → More tools |
+| Delete a staff row in the sheet | **Staff → Edit → Remove from staff sheet** |
 | Maintenance menu | Home → Maintenance |
 | Undo Last Import | Import history → Undo |
 
@@ -43,6 +66,16 @@ Operations from the web app and from Sheets wait for each other (one lock for bo
 
 ## Pages
 
-`…/exec?page=` plus one of: `home`, `import`, `schedule`, `teams`, `team` (`&teamId=…` to edit one), `staff`, `links`, `settings`, `history`, `fields`, `ids`, `setup`, `help`. Before setup, every page opens Setup.
+`…/exec?page=` plus one of:
 
-To add a page: add an entry to `WEB_PAGES` in `WebApp.gs`, giving its file and title (and `nav` to show it in the bar).
+- `home`
+- `schedule`, with `&date=yyyy-MM-dd`, `&teams=TEAM_001,TEAM_002`, `&flag=Overlap` and `&q=search text` as options
+- `dashboard`, with `&date=` as an option
+- `person`, with `&key=ID:1234` (or `NM:Name`) and `&week=` as an option
+- `staff`, with `&teamId=` and `&q=` as options
+- `import`, `teams`, `team` (`&teamId=…` to edit one), `links`, `output`, `settings`, `history`, `fields`, `ids`
+- `viewer` (the sheet Schedule Viewer), `directory` (the staff sidebar), `setup`, `help`
+
+Schedule, Dashboard, Person and Staff keep their date/team in the address, so you can bookmark a view. Before setup, every page opens Setup.
+
+To add a page: add an entry to `WEB_PAGES` in `WebApp.gs` with its file and title, `nav` to show it in the bar, and `prefetch` for the API calls it makes when it opens.

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .toolbar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+    .toolbar input[type=date] { width: auto; }
+    .toolbar input[type=search] { width: 220px; max-width: 100%; }
+    .team-picker { position: relative; }
+    .team-picker .menu { position: absolute; z-index: 20; top: 100%; left: 0; min-width: 240px; margin-top: 4px; padding: var(--s2) var(--s3);
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 6px 20px rgba(16,24,40,.12); }
+    .hc { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin: var(--s2) 0 2px; }
+    .hc .bar { flex: 1 1 0; min-width: 0; background: var(--primary-soft); border-top: 2px solid var(--primary); position: relative; border-radius: 2px 2px 0 0; }
+    .hc .bar span { position: absolute; top: -16px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--text-2); }
+    .hc-axis { display: flex; gap: 2px; font-size: 10px; color: var(--text-3); }
+    .hc-axis span { flex: 1 1 0; text-align: center; min-width: 0; overflow: hidden; }
+    .team-block { margin-top: var(--s4); }
+    .team-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
+    .team-head h2 { margin: 0; }
+    .mini-stats { display: flex; flex-wrap: wrap; gap: var(--s3); font-size: var(--fs-small); color: var(--text-2); }
+    .mini-stats b { color: var(--text); }
+    tr.meeting td { background: var(--meeting-bg); }
+    tr.carry td { color: var(--text-3); font-style: italic; }
+    td.time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .tl { position: relative; height: 18px; background: var(--muted-bg); border-radius: 3px; min-width: 160px; }
+    .tl .seg { position: absolute; top: 2px; bottom: 2px; background: var(--primary); border-radius: 3px; }
+    .tl .seg.meeting { background: var(--meeting); }
+    .tl .seg.carry { opacity: .45; }
+    .tl-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); min-width: 160px; }
+    .flag-chip { display: inline-flex; gap: 6px; align-items: center; }
+    a.person { color: var(--text); font-weight: 600; text-decoration: none; }
+    a.person:hover { color: var(--primary); text-decoration: underline; }
+    @media (max-width: 620px) { .col-role, .col-type { display: none; } .toolbar input[type=search] { width: 100%; } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="head-row">
+      <div>
+        <h1 id="title">Schedule</h1>
+        <p class="subtitle">Everyone working on a day, per team, with meetings and flags, read straight from the stored schedule.</p>
+      </div>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div class="toolbar">
+      <button type="button" class="btn icon" onclick="step(-1)" aria-label="Previous day">‹</button>
+      <label class="sr-only" for="date">Date</label><input type="date" id="date" onchange="load($('date').value)">
+      <button type="button" class="btn icon" onclick="step(1)" aria-label="Next day">›</button>
+      <button type="button" class="btn" onclick="load(today)">Today</button>
+      <div class="team-picker">
+        <button type="button" class="btn" id="teamBtn" onclick="toggleTeams()" aria-expanded="false" aria-controls="teamMenu">Teams</button>
+        <div class="menu hidden" id="teamMenu"><div id="teamList"></div>
+          <div class="cluster mt-2"><button type="button" class="btn sm primary" onclick="applyTeams()">Show</button><button type="button" class="btn sm ghost" onclick="allTeams()">All</button></div></div>
+      </div>
+      <label class="sr-only" for="q">Search</label><input type="search" id="q" placeholder="Search name, role, type…" oninput="paint()">
+      <select id="mode" onchange="paint()" aria-label="View"><option value="list">List</option><option value="timeline">Timeline</option></select>
+      <label class="check"><input type="checkbox" id="showMeetings" checked onchange="paint()"> Meetings</label>
+      <label class="check"><input type="checkbox" id="showCarry" checked onchange="paint()"> Previous / next day</label>
+    </div>
+    <div id="status" aria-live="polite"></div>
+    <div id="flagBox" class="mt-2"></div>
+    <section class="panel mt-3" id="hcPanel">
+      <div class="panel-head"><h2>Headcount by hour</h2><span class="spacer"></span><span class="small muted" id="hcNote"></span></div>
+      <div class="hc" id="hc" aria-hidden="true"></div><div class="hc-axis" id="hcAxis" aria-hidden="true"></div>
+      <p class="sr-only" id="hcText"></p>
+    </section>
+    <div id="out"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading…</div></div>
+  </main>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var day = null, today = '', flag = BOOT.flag || '';
+
+    function load(date, teamIds) {
+      var ids = teamIds || (day ? day.selected : BOOT.teamIds);
+      return call('Loading the schedule…', 'apiWebDay', date === undefined ? BOOT.date : date, ids).then(function (d) {
+        day = d; today = d.today;
+        remember();
+        render();
+      });
+    }
+    function remember() {
+      // Keep the date and teams in the address, so the page can be bookmarked and reloaded.
+      try { google.script.history.replace(null, { page: 'schedule', date: day.date, teams: day.selected.join(',') }); } catch (e) { /* not in the web app */ }
+    }
+    function step(k) {
+      var d = new Date(day.date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + k);
+      load(d.toISOString().substr(0, 10));
+    }
+    function toggleTeams(force) {
+      var open = force === undefined ? $('teamMenu').classList.contains('hidden') : force;
+      show('teamMenu', open); $('teamBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) focusFirst('teamMenu');
+    }
+    function applyTeams() { toggleTeams(false); load(day.date, checkedData('team')); }
+    function allTeams() { toggleTeams(false); load(day.date, day.teams.map(function (t) { return t.teamId; })); }
+    function clearFlag() { flag = ''; paint(); }
+
+    function render() {
+      $('date').value = day.date;
+      $('title').textContent = day.weekday + ', ' + day.date + (day.date === today ? ' (today)' : '');
+      $('teamList').innerHTML = day.teams.map(function (t) {
+        return '<label class="check"><input type="checkbox" data-team="' + esc(t.teamId) + '"' + (day.selected.indexOf(t.teamId) >= 0 ? ' checked' : '') + '> ' +
+          esc(t.teamName) + (t.active ? '' : ' ' + badge('warn', 'inactive')) + '</label>';
+      }).join('') || '<p class="hint mt-0">No teams yet.</p>';
+      $('teamBtn').textContent = 'Teams (' + day.selected.length + ' of ' + day.teams.length + ') ▾';
+      paint();
+    }
+
+    function matches(r) {
+      if (!$('showMeetings').checked && r.meeting) return false;
+      if (!$('showCarry').checked && r.carry) return false;
+      if (flag && r.flags.indexOf(flag) < 0) return false;
+      var q = $('q').value.trim().toLowerCase();
+      if (q && (r.name + ' ' + r.employeeId + ' ' + r.role + ' ' + r.type + ' ' + r.flags.join(' ')).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    }
+    function flagBadges(flags) {
+      return flags.map(function (f) {
+        var kind = /^Meeting/.test(f) ? 'meeting' : /Overlap|Unknown/.test(f) ? 'bad' : /previous|next day|Outside/.test(f) ? '' : 'warn';
+        return badge(kind, f);
+      }).join(' ') || '<span class="muted small">OK</span>';
+    }
+    function personLink(r) { return '<a class="person" href="' + esc(webHref('person', { key: r.key, week: day.date })) + '" target="_top">' + esc(r.name) + '</a>'; }
+
+    function paint() {
+      if (!day) return;
+      $('flagBox').innerHTML = flag ? '<span class="flag-chip">' + badge('bad', 'Only: ' + flag) + ' <button type="button" class="btn sm ghost" onclick="clearFlag()">Show everyone</button></span>' : '';
+      paintHeadcount(day.headcount);
+      if (!day.views.length) { $('out').innerHTML = emptyHtml('▦', 'No team selected', 'Choose teams with the Teams button.'); return; }
+      var timeline = $('mode').value === 'timeline';
+      var range = day.views.reduce(function (r, v) { return [Math.min(r[0], v.window.from), Math.max(r[1], v.window.to)]; }, [0, 1440]);
+      $('out').innerHTML = day.views.map(function (v) {
+        var rows = v.rows.filter(matches);
+        var S = v.summary;
+        var head = '<div class="team-head"><h2>' + esc(v.teamName) + '</h2><span class="small muted">' + esc(v.hoursLabel) + '</span><span class="spacer"></span>' +
+          (v.sheet ? '<a class="btn sm" href="' + esc(v.sheet.url) + '" target="_blank" rel="noopener">Open in Sheets ↗</a>' : '') + '</div>' +
+          '<div class="mini-stats"><span><b>' + S.shifts + '</b> shifts</span><span><b>' + S.staff + '</b> staff</span><span><b>' + esc(S.workingHours) + '</b> working hrs</span>' +
+          (S.meetings ? '<span><b>' + S.meetings + '</b> meetings</span>' : '') + '<span><b>' + S.peak + '</b> peak</span>' +
+          (S.overlaps ? '<span style="color:var(--error)"><b>' + S.overlaps + '</b> overlaps</span>' : '') +
+          (S.unknown ? '<span style="color:var(--warning)"><b>' + S.unknown + '</b> unknown</span>' : '') + '</div>' +
+          (v.staffSheetOk ? '' : alertHtml('warning', 'The staff sheet could not be read', 'Roles and "Unknown employee" are not shown for this team.'));
+        if (!rows.length) return '<section class="team-block">' + head + '<p class="muted mt-2">' + (v.rows.length ? 'No one matches the filters.' : 'No shifts on this date.') + '</p></section>';
+        var body = rows.map(function (r) {
+          var cls = (r.meeting ? 'meeting ' : '') + (r.carry ? 'carry' : '');
+          var when = timeline ? '<td>' + bar(r, range) + '</td>' : '';
+          return '<tr class="' + cls + '"><td class="time">' + esc(r.start) + ' – ' + esc(r.end) + '</td><td>' + personLink(r) +
+            (r.employeeId ? '<div class="small muted">' + esc(r.employeeId) + '</div>' : '') + '</td>' +
+            '<td class="col-role small">' + esc(r.role) + '</td><td class="col-type small">' + esc(r.type) + '</td>' + when +
+            '<td class="small">' + flagBadges(r.flags) + '</td></tr>';
+        }).join('');
+        var scale = timeline ? '<th scope="col"><div class="tl-scale"><span>' + hmOf(range[0]) + '</span><span>' + hmOf((range[0] + range[1]) / 2) + '</span><span>' + hmOf(range[1]) + '</span></div></th>' : '';
+        return '<section class="team-block">' + head + '<div class="table-wrap mt-2"><table class="table"><thead><tr><th scope="col">Time</th><th scope="col">Name</th>' +
+          '<th scope="col" class="col-role">Role</th><th scope="col" class="col-type">Type</th>' + scale + '<th scope="col">Flags</th></tr></thead><tbody>' + body +
+          '</tbody></table></div>' + (rows.length !== v.rows.length ? '<p class="small muted mt-2">Showing ' + rows.length + ' of ' + v.rows.length + '.</p>' : '') + '</section>';
+      }).join('');
+    }
+    function hmOf(m) { m = ((Math.round(m) % 1440) + 1440) % 1440; return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + m % 60).slice(-2); }
+    function bar(r, range) {
+      var span = range[1] - range[0];
+      var a = Math.max(r.from, range[0]), b = Math.min(r.to, range[1]);
+      if (b <= a) return '<div class="tl"></div>';
+      return '<div class="tl" title="' + esc(r.start + ' – ' + r.end) + '"><div class="seg' + (r.meeting ? ' meeting' : '') + (r.carry ? ' carry' : '') +
+        '" style="left:' + ((a - range[0]) / span * 100) + '%;width:' + ((b - a) / span * 100) + '%"></div></div>';
+    }
+    function paintHeadcount(hc) {
+      var max = hc.reduce(function (m, h) { return Math.max(m, h.count); }, 0);
+      show('hcPanel', max > 0);
+      if (!max) return;
+      $('hc').innerHTML = hc.map(function (h) {
+        return '<div class="bar" style="height:' + Math.max(4, h.count / max * 100) + '%" title="' + esc(h.label + ': ' + h.count) + '"><span>' + (h.count || '') + '</span></div>';
+      }).join('');
+      $('hcAxis').innerHTML = hc.map(function (h, i) { return '<span>' + (i % 3 === 0 ? esc(h.label.substr(0, 2)) : '') + '</span>'; }).join('');
+      $('hcNote').textContent = 'Shifts of the shown teams · peak ' + max;
+      $('hcText').textContent = hc.map(function (h) { return h.label + ' ' + h.count; }).join(', ');
+    }
+    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') toggleTeams(false); });
+    if (BOOT.q) $('q').value = BOOT.q;
+    load();
+  </script>
+</body>
+</html>

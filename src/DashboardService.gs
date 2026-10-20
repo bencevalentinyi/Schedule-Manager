@@ -21,32 +21,20 @@ function rebuildDashboard_() {
   var today = todayIso_(cfg.TIMEZONE);
   var teams = listTeams_();
   var typeNames = typeNameMap_();
-  var showCarry = cfgBool_(cfg, 'SHOW_CARRY_OVER');
   var recs = queryScheduleRecords_({ dates: [addDays_(today, -1), today, addDays_(today, 1)] });
   var log = readImportLog_();
   var link = function (s, label) { return s ? '=HYPERLINK("#gid=' + s.getSheetId() + '","' + label + '")' : 'missing'; };
 
   var teamRows = teams.map(function (team) {
     var ready = team.status === TEAM_STATUS.READY;
-    var win = operatingWindow_(team.settings.display);
-    var dayRows = buildDayRows_(recs.filter(function (r) { return r.teamId === team.teamId; }), today,
-      ready ? tryStaffIndex_(team) : null,
-      { maxShiftMinutes: cfgNum_(cfg, 'MAX_SHIFT_HOURS', 16) * 60, nameStrategy: team.settings.import.nameMatch || cfg.NAME_MATCH_STRATEGY,
-        showCarryOver: showCarry, window: win, hoursToleranceMinutes: cfgNum_(cfg, 'HOURS_TOLERANCE_MINUTES', 15) });
-    var own = dayRows.filter(function (r) { return !r.carry; });
-    var people = uniq_(own.map(function (r) { return employeeIdentity_(r.rec); })).length;
-    var work = workMinutesByEmployee_(own);
-    var net = Object.keys(work).reduce(function (s, k) { return s + work[k]; }, 0);
-    own = own.filter(function (r) { return activityCategoryOf_(r) === ACTIVITY_CATEGORY.SHIFT; }); // "Shifts Today" counts shifts only
-    var hc = headcountByHour_(dayRows, today, win.startMin, win.endMin);
-    var peak = hc.reduce(function (m, h) { return Math.max(m, h.count); }, 0);
-    var flagCount = function (f) { return dayRows.filter(function (r) { return r.flags.indexOf(f) >= 0; }).length; };
+    // The same numbers as the team's daily sheet and the web app (dayView_).
+    var S = dayView_(team, today, recs.filter(function (r) { return r.teamId === team.teamId; }), ready ? tryStaffIndex_(team) : null, cfg).summary;
     var li = null;
     for (var i = 0; i < log.length; i++) if (log[i].teams.indexOf('[' + team.teamId + ']') >= 0) { li = log[i]; break; }
     return [
       safeCell_(team.teamName), safeCell_(typeNames[team.teamTypeId] || team.teamTypeId),
       team.active ? 'Active' : 'Inactive', team.status,
-      own.length, people, net / 1440, peak, flagCount('Unknown employee'), flagCount('Overlap'),
+      S.shifts, S.staff, S.workMinutes / 1440, S.peak, S.unknown, S.overlaps,
       li ? formatTimestamp_(li.timestamp, tz) + ' · ' + li.status : 'never',
       link(resolveTeamSheet_(team, 'schedule'), 'Schedule'), link(resolveTeamSheet_(team, 'staff'), 'Staff')
     ];
