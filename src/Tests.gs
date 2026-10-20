@@ -888,6 +888,14 @@ function unitTestsLinks_() {
       assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'DAY' })).length, 4, 'meetings are never people');
       assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 14 * 60, excludeMeetings: true })), ['Bob Ray'], 'Ann is in a meeting at 14:00');
     }],
+    ['Links: a window past midnight (23:00 – 08:00) runs into the next morning', function () {
+      var night = recs.concat([rec('E5', 'Eve Ng', '2026-10-16 00:30', '2026-10-16 08:00'), rec('E6', 'Fay Lu', '2026-10-16 08:00', '2026-10-16 16:00')]);
+      assertEq_(names(selectWorking_(night, { date: '2026-10-15', who: 'WINDOW', fromMin: 23 * 60, toMin: 8 * 60, excludePrevDay: true })), ['Eve Ng'],
+        'Bob ends 22:00, Fay starts 08:00: neither is in the window');
+      night.push(rec('E7', 'Gil Ok', '2026-10-15 22:00', '2026-10-16 06:00'));
+      assertEq_(names(selectWorking_(night, { date: '2026-10-15', who: 'WINDOW', fromMin: 23 * 60, toMin: 8 * 60, excludePrevDay: true })), ['Gil Ok', 'Eve Ng']);
+      assertEq_([linkWindowCrossesMidnight_(1380, 480), linkWindowCrossesMidnight_(480, 960)], [true, false]);
+    }],
     ['Links: shifts "from previous day" are left out unless included', function () {
       assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 5 * 60, excludePrevDay: true })), []);
       assertEq_(selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS', excludePrevDay: true }).length, 3);
@@ -902,6 +910,7 @@ function unitTestsLinks_() {
       selectWorking_(recs, { date: '2026-10-14', who: 'DAY', excludePrevDay: true }).forEach(function (p) { yesterday[p.identity] = true; });
       var nameOf = function (r) { return r.employeeName; };
       assertEq_(buildAgentList_(t, today, nameOf, null).text, 'Dee Fox, Ann Lee, Bob Ray');
+      assertEq_(buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', separator: '\\n' }), today, nameOf, null).text, 'Dee Fox\nAnn Lee\nBob Ray', '\\n = one per line');
       var add = buildAgentList_(t, today, nameOf, { 'ID:E4': true });
       assertEq_([add.text, add.left], ['Ann Lee, Bob Ray', 1]);
       var removed = buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', prefix: '<@', suffix: '>', separator: ' ' }),
@@ -913,9 +922,11 @@ function unitTestsLinks_() {
       assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ kind: 'LIST', name: 'X', idField: 'NAME' }), ['employeeId']), [], 'Name needs no staff column');
     }],
     ['Links: templates need a name and an http(s) base URL; the ID column must be a staff column', function () {
-      var t = normalizeLinkTemplate_({ name: 'X', baseUrl: 'https://a.example/{IDS}', idField: 'field:phone', who: 'WINDOW', from: '10:00', to: '09:00' });
+      var t = normalizeLinkTemplate_({ name: 'X', baseUrl: 'https://a.example/{IDS}', idField: 'field:phone', who: 'WINDOW', from: '10:00', to: '10:00' });
       var errs = validateLinkTemplate_(t, ['employeeId', 'field:phone']);
-      assertEq_(errs.length, 1, 'only the reversed window: ' + errs.join(' | '));
+      assertEq_(errs.length, 1, 'only the empty window: ' + errs.join(' | '));
+      t.to = '08:00';
+      assertEq_(validateLinkTemplate_(t, ['employeeId', 'field:phone']), [], 'a window past midnight is valid');
       assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ name: '', baseUrl: 'ftp://x', idField: 'nope' }), ['employeeId']).length, 3);
       assertEq_(normalizeLinkTemplate_({}).separator, ',', 'default separator');
       assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ name: 'Live', baseUrl: 'https://a.example' }), ['employeeId'], ['live']).length, 1, 'names are unique (case-insensitive)');

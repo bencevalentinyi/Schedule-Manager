@@ -129,7 +129,8 @@
             </div>
             <div class="row">
               <div class="field"><label class="label" for="listIdField">Value</label><select id="listIdField"></select></div>
-              <div class="field"><label class="label" for="listSeparator">Separator</label><input type="text" id="listSeparator" spellcheck="false" placeholder=", "></div>
+              <div class="field"><label class="label" for="listSeparator">Separator</label><input type="text" id="listSeparator" spellcheck="false" placeholder=", ">
+                <p class="hint">Type <code>\n</code> for one value per line.</p></div>
             </div>
             <div class="row">
               <div class="field"><label class="label" for="listPrefix">Before each value<span class="optional">optional</span></label><input type="text" id="listPrefix" spellcheck="false" placeholder="e.g. &lt;@"></div>
@@ -143,7 +144,8 @@
             <div class="field"><label class="label" for="who">People</label><select id="who" onchange="whoChanged()"></select></div>
             <div class="field" id="atBox"><label class="label" for="at">Time</label><input type="time" id="at"></div>
             <div class="field" id="fromBox"><label class="label" for="from">From</label><input type="time" id="from"></div>
-            <div class="field" id="toBox"><label class="label" for="to">Until</label><input type="time" id="to"></div>
+            <div class="field" id="toBox"><label class="label" for="to">Until</label><input type="time" id="to">
+              <p class="hint">Earlier than From = the next morning (e.g. 23:00 – 08:00).</p></div>
           </div>
           <label class="check" id="meetBox"><input type="checkbox" id="excludeMeetings"> <span>Leave out people who are in a meeting or training at that time</span></label>
           <label class="check"><input type="checkbox" id="includePrevDay"> <span>Include shifts that started the day before

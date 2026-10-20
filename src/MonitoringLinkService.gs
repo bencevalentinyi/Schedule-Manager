@@ -152,7 +152,7 @@ function validateLinkTemplate_(t, idFieldKeys, otherNames) {
   if (t.who === 'WINDOW') {
     var f = hmToMinutes_(t.from), to = hmToMinutes_(t.to);
     if (f === null || to === null) errs.push('Enter the window as HH:mm – HH:mm.');
-    else if (to <= f) errs.push('The window must end after it starts.');
+    else if (to === f) errs.push('The window must not start and end at the same time.');
   }
   return errs;
 }
@@ -180,11 +180,20 @@ function moveLinkTemplate_(list, id, delta) {
 /* Who is working (pure)                                                     */
 /* ------------------------------------------------------------------------ */
 
+/** True when a window's end is before its start, i.e. it runs past midnight into the next day. Pure. */
+function linkWindowCrossesMidnight_(fromMin, toMin) {
+  return fromMin !== null && toMin !== null && toMin < fromMin;
+}
+
 /** The time test of "who" for a date: function({s, e}) in absolute minutes. Pure. */
 function linkTimeTest_(opts) {
   var base = dayNumber_(opts.date) * 1440;
   if (opts.who === 'DAY') return function (x) { return x.s < base + 1440 && x.e > base; };
-  if (opts.who === 'WINDOW') return function (x) { return x.s < base + opts.toMin && x.e > base + opts.fromMin; };
+  if (opts.who === 'WINDOW') {
+    // Until earlier than From: the window ends the next day (e.g. 23:00 – 08:00).
+    var to = linkWindowCrossesMidnight_(opts.fromMin, opts.toMin) ? opts.toMin + 1440 : opts.toMin;
+    return function (x) { return x.s < base + to && x.e > base + opts.fromMin; };
+  }
   var at = base + opts.atMin;
   return function (x) { return x.s <= at && x.e > at; };
 }
@@ -363,7 +372,9 @@ function buildAgentList_(t, people, valueOf, except) {
     if (!v) { missing.push(p.employeeName || p.employeeId); return; }
     if (values.indexOf(v) < 0) values.push(v);
   });
-  var text = values.length ? values.map(function (v) { return t.prefix + v + t.suffix; }).join(t.separator) : t.emptyText;
+  // "\n" typed in the separator box means a line break (one value per line).
+  var sep = t.separator.replace(/\\n/g, '\n');
+  var text = values.length ? values.map(function (v) { return t.prefix + v + t.suffix; }).join(sep) : t.emptyText;
   return { text: text, values: values, missing: missing, left: left };
 }
 
@@ -423,11 +434,14 @@ function generateLink_(t, ctx, teamsById, staffCache) {
   [date, exceptDate].filter(Boolean).forEach(function (d) {
     [isoFromDayNumber_(dayNumber_(d) - 1), d].forEach(function (x) { if (dates.indexOf(x) < 0) dates.push(x); });
   });
+  // A window past midnight also needs the shifts starting the next morning.
+  var overnight = t.who === 'WINDOW' && linkWindowCrossesMidnight_(hmToMinutes_(t.from), hmToMinutes_(t.to));
+  if (overnight) dates.push(isoFromDayNumber_(dayNumber_(date) + 1));
   var records = teamIds.length ? queryScheduleRecords_({ teamIds: teamIds, dates: dates }) : [];
   var opts = { date: date, who: t.who, atMin: t.who === 'NOW' ? ctx.nowMin : hmToMinutes_(t.at),
     fromMin: hmToMinutes_(t.from), toMin: hmToMinutes_(t.to), excludeMeetings: t.excludeMeetings, excludePrevDay: !t.includePrevDay };
   var whenLabel = (t.who === 'NOW' ? 'now (' + minutesToHm_(ctx.nowMin) + ')' : t.who === 'AT' ? 'at ' + t.at
-    : t.who === 'WINDOW' ? t.from + '–' + t.to : 'whole day') +
+    : t.who === 'WINDOW' ? t.from + '–' + t.to + (overnight ? ' (next day)' : '') : 'whole day') +
     (t.excludeMeetings && (t.who === 'NOW' || t.who === 'AT') ? ', not in a meeting' : '');
   var idOf = linkIdReader_(t.idField, teamsById, staffCache);
   if (t.kind === 'LIST') whenLabel = LIST_DAYS[t.listDay].toLowerCase() + ' (' + date + '), ' + whenLabel;
