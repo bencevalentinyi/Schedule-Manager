@@ -77,7 +77,7 @@ function planSections_(t) {
     sections: roles.map(function (r) { return { heading: heads ? r : '', roles: [r], noTags: false }; }),
     showRest: mode !== 'ONLY',
     restHeading: heads ? str_(t.restHeading === undefined ? 'Others' : t.restHeading) : '',
-    excludeRoles: []
+    excludeRoles: planRoleList_(t.excludeRoles)
   };
 }
 var PLAN_DEFAULT_LINE_ = '{START} - {END} {NAME}';
@@ -362,12 +362,18 @@ function listDayDate_(dateIso, day) {
  * @param {Array} people from selectWorking_
  * @param {function(Object): string} valueOf the value of a record's employee ('' if none)
  * @param {Object=} except identity -> true
- * @return {{text: string, values: string[], missing: string[], left: number}} left = people left out by the comparison
+ * @param {function(Object): string=} roleOf the employee's Role from the staff sheet; people with a role in
+ *   t.excludeRoles (e.g. Shift Lead) are left out (matched ignoring case and spaces)
+ * @return {{text: string, values: string[], missing: string[], left: number, byRole: number}}
+ *   left = people left out by the comparison, byRole = people left out by their role
  */
-function buildAgentList_(t, people, valueOf, except) {
-  var values = [], missing = [], left = 0;
+function buildAgentList_(t, people, valueOf, except, roleOf) {
+  var values = [], missing = [], left = 0, byRole = 0;
+  var excluded = (t.excludeRoles || []).map(normText_);
   people.forEach(function (p) {
     if (except && except[p.identity]) { left++; return; }
+    var role = roleOf && excluded.length ? normText_(roleOf(p.rec)) : '';
+    if (role && excluded.indexOf(role) >= 0) { byRole++; return; }
     var v = valueOf(p.rec);
     if (!v) { missing.push(p.employeeName || p.employeeId); return; }
     if (values.indexOf(v) < 0) values.push(v);
@@ -375,7 +381,7 @@ function buildAgentList_(t, people, valueOf, except) {
   // "\n" typed in the separator box means a line break (one value per line).
   var sep = t.separator.replace(/\\n/g, '\n');
   var text = values.length ? values.map(function (v) { return t.prefix + v + t.suffix; }).join(sep) : t.emptyText;
-  return { text: text, values: values, missing: missing, left: left };
+  return { text: text, values: values, missing: missing, left: left, byRole: byRole };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -478,10 +484,10 @@ function generateLink_(t, ctx, teamsById, staffCache) {
       selectWorking_(records, { date: exceptDate, who: 'DAY', excludePrevDay: true }).forEach(function (p) { except[p.identity] = true; });
     }
     var valueOf = t.idField === LIST_NAME_FIELD_ ? function (r) { return str_(r.employeeName) || str_(r.employeeId); } : idOf;
-    var list = buildAgentList_(t, working, valueOf, except);
+    var list = buildAgentList_(t, working, valueOf, except, linkIdReader_('role', teamsById, staffCache));
     res.text = list.text;
     res.count = list.values.length;
-    res.people = working.length - list.left;
+    res.people = working.length - list.left - list.byRole;
     res.missing = list.missing;
     return res;
   }

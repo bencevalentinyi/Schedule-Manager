@@ -137,6 +137,9 @@
               <div class="field"><label class="label" for="listSuffix">After each value<span class="optional">optional</span></label><input type="text" id="listSuffix" spellcheck="false" placeholder="e.g. &gt;"></div>
               <div class="field"><label class="label" for="listEmpty">When no one is listed<span class="optional">optional</span></label><input type="text" id="listEmpty"></div>
             </div>
+            <div class="field"><label class="label" for="listExcludeRoles">Leave out these roles<span class="optional">optional</span></label>
+              <input type="text" id="listExcludeRoles" placeholder="Comma-separated, e.g. Shift Lead">
+              <p class="hint">From the <b>Role</b> column of the staff sheets (case and extra spaces don't matter).</p></div>
           </div>
 
           <h3>Who</h3>
@@ -224,6 +227,7 @@
       $('listDay').value = t.listDay; $('exceptDay').value = t.exceptDay;
       $('listSeparator').value = t.separator; $('listPrefix').value = t.prefix; $('listSuffix').value = t.suffix; $('listEmpty').value = t.emptyText;
       $('includePrevDay').checked = t.includePrevDay;
+      $('listExcludeRoles').value = t.excludeRoles.join(', ');
       $('separator').value = t.separator; $('prefix').value = t.prefix; $('suffix').value = t.suffix;
       $('encode').checked = t.encode; $('maxPerLink').value = t.maxPerLink || '';
       $('include').value = t.include; $('lineTemplate').value = t.lineTemplate; $('groupByTeam').checked = t.groupByTeam; $('emptyText').value = t.emptyText;
@@ -304,7 +308,7 @@
         suffix: isList ? $('listSuffix').value : $('suffix').value, encode: $('encode').checked,
         maxPerLink: Number($('maxPerLink').value || 0),
         include: $('include').value, lineTemplate: $('lineTemplate').value, groupByTeam: $('groupByTeam').checked, emptyText: isList ? $('listEmpty').value : $('emptyText').value,
-        sections: readSections(), showRest: $('showRest').checked, restHeading: $('restHeading').value, excludeRoles: $('excludeRoles').value, tags: readTags(),
+        sections: readSections(), showRest: $('showRest').checked, restHeading: $('restHeading').value, excludeRoles: isList ? $('listExcludeRoles').value : $('excludeRoles').value, tags: readTags(),
         teamIds: checkedData('team'), who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked,
         includePrevDay: $('includePrevDay').checked, listDay: $('listDay').value, exceptDay: $('exceptDay').value
       };

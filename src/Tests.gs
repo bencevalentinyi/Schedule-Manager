@@ -913,6 +913,9 @@ function unitTestsLinks_() {
       assertEq_(buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', separator: '\\n' }), today, nameOf, null).text, 'Dee Fox\nAnn Lee\nBob Ray', '\\n = one per line');
       var add = buildAgentList_(t, today, nameOf, { 'ID:E4': true });
       assertEq_([add.text, add.left], ['Ann Lee, Bob Ray', 1]);
+      var noLeads = buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', separator: ', ', excludeRoles: 'Shift Lead' }), today, nameOf, null,
+        function (r) { return r.employeeId === 'E2' ? 'shift  lead' : 'Agent'; });
+      assertEq_([noLeads.text, noLeads.byRole], ['Dee Fox, Ann Lee', 1], 'roles are left out ignoring case and spaces');
       var removed = buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', prefix: '<@', suffix: '>', separator: ' ' }),
         selectWorking_(recs, { date: '2026-10-14', who: 'DAY', excludePrevDay: true }), function (r) { return r.employeeId === 'E3' ? 'U3' : ''; }, null);
       assertEq_([removed.text, removed.missing], ['<@U3>', []], 'Cy worked yesterday (22:00 start)');
