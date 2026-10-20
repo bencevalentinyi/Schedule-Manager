@@ -144,7 +144,7 @@ function effectiveScheduleFields_(team) {
 }
 
 /* ------------------------------------------------------------------------ */
-/* onEdit index (sheetId -> team) kept in DocumentProperties                */
+/* onEdit index (sheetId -> team) kept in document + script properties      */
 /* ------------------------------------------------------------------------ */
 
 var SHEET_INDEX_PROP_ = 'SM_SHEET_INDEX';
@@ -159,18 +159,43 @@ function rebuildSheetIndex_() {
       if (f) idx[String(f.getSheetId())] = { teamId: t.teamId, kind: 'staff' };
     });
   }
-  PropertiesService.getDocumentProperties().setProperty(SHEET_INDEX_PROP_, JSON.stringify(idx));
+  var raw = JSON.stringify({ at: Date.now(), idx: idx });
+  sheetIndexStores_().forEach(function (p) { p.setProperty(SHEET_INDEX_PROP_, raw); });
   return idx;
 }
 
+/**
+ * Where the index is kept: document properties (inside Sheets) and script properties (also in the
+ * web app, which has no document properties). The newest copy wins.
+ */
+function sheetIndexStores_() {
+  var out = [];
+  [function () { return PropertiesService.getDocumentProperties(); }, function () { return PropertiesService.getScriptProperties(); }].forEach(function (get) {
+    try { var p = get(); if (p) out.push(p); } catch (e) { /* not available here */ }
+  });
+  return out;
+}
+
+/** The stored index {sheetId: {teamId, kind}} from the newest copy, or null. Older copies are the bare index. Pure. */
+function newestSheetIndex_(raws) {
+  var best = null;
+  raws.forEach(function (raw) {
+    var v = parseJson_(raw, null);
+    if (!v || typeof v !== 'object') return;
+    var entry = v.idx && typeof v.idx === 'object' ? v : { at: 0, idx: v };
+    if (!best || entry.at > best.at) best = entry;
+  });
+  return best ? best.idx : null;
+}
+
 function getSheetIndex_() {
-  var raw = PropertiesService.getDocumentProperties().getProperty(SHEET_INDEX_PROP_);
-  var idx = parseJson_(raw, null);
+  var idx = newestSheetIndex_(sheetIndexStores_().map(function (p) { return p.getProperty(SHEET_INDEX_PROP_); }).filter(Boolean));
   return idx || rebuildSheetIndex_();
 }
 
 /** Returns {team, kind} for a sheet, or null if it is not a team sheet. */
 function teamForSheet_(sheet) {
+  if (!sheet) return null; // web app: no active sheet
   var entry = getSheetIndex_()[String(sheet.getSheetId())];
   if (!entry) return null;
   var team = getTeam_(entry.teamId);
@@ -638,8 +663,8 @@ function apiCreateTeam(form) {
     return withLock_(function () {
       var r = createTeam_(form);
       var sh = resolveTeamSheet_(r.team, 'schedule');
-      if (sh) sh.activate();
-      return { teamId: r.team.teamId, teamName: r.team.teamName, scheduleSheet: r.team.scheduleSheet, staffSheet: r.team.staffSheet, warnings: r.warnings };
+      var link = sh ? activateSheet_(sh) : null;
+      return { teamId: r.team.teamId, teamName: r.team.teamName, scheduleSheet: r.team.scheduleSheet, staffSheet: r.team.staffSheet, warnings: r.warnings, link: link };
     }, 60000);
   });
 }
@@ -704,8 +729,7 @@ function apiOpenTeamSheet(teamId, kind) {
     var t = requireTeam_(teamId);
     var sh = resolveTeamSheet_(t, kind === 'staff' ? 'staff' : 'schedule');
     if (!sh) fail_('MISSING_SHEET', 'The ' + kind + ' sheet of "' + t.teamName + '" is missing. Use Rebuild sheets.');
-    sh.activate();
-    return { sheet: sh.getName() };
+    return activateSheet_(sh);
   });
 }
 

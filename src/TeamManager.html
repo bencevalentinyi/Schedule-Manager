@@ -24,7 +24,7 @@
     <button type="button" class="btn" onclick="closeDialog()">Close</button>
     <span class="spacer"></span>
     <button type="button" class="btn" onclick="load()">Reload</button>
-    <button type="button" class="btn primary" onclick="call('Opening the team wizard…', 'apiShowTeamDialog', '')">Create new team</button>
+    <button type="button" class="btn primary" onclick="openTool('team', null, 'apiShowTeamDialog', '')">Create new team</button>
   </footer>
 
   <?!= include('ClientCore') ?>
@@ -40,7 +40,7 @@
       if (!teams.length) {
         $('count').textContent = '';
         $('teams').innerHTML = emptyHtml('▦', 'No teams yet', 'A team gets its own daily schedule sheet and staff sheet.',
-          '<button type="button" class="btn primary" onclick="call(\'Opening the team wizard…\', \'apiShowTeamDialog\', \'\')">Create the first team</button>');
+          '<button type="button" class="btn primary" onclick="openTool(\'team\', null, \'apiShowTeamDialog\', \'\')">Create the first team</button>');
         return;
       }
       var q = $('q').value.trim().toLowerCase();
@@ -68,8 +68,8 @@
         }).join('') + '</tbody></table></div>';
     }
 
-    function edit(i) { call('Opening…', 'apiShowTeamDialog', teams[i].teamId); }
-    function openSheet(i, kind) { call('Opening…', 'apiOpenTeamSheet', teams[i].teamId, kind); }
+    function edit(i) { openTool('team', { teamId: teams[i].teamId }, 'apiShowTeamDialog', teams[i].teamId); }
+    function openSheet(i, kind) { call('Opening…', 'apiOpenTeamSheet', teams[i].teamId, kind).then(sheetOpened); }
     function toggle(i) {
       var t = teams[i];
       call('Saving…', 'apiSetTeamActive', t.teamId, !t.active).then(function () {

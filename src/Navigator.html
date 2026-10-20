@@ -74,6 +74,7 @@
     <button type="button" class="btn" onclick="refresh()">Refresh</button>
     <span class="spacer"></span>
     <button type="button" class="btn" onclick="openStaff()">Staff directory</button>
+    <a id="sheetLink" class="btn primary hidden" target="_blank" rel="noopener">Open schedule in Sheets ↗</a>
   </footer>
 
   <?!= include('ClientCore') ?>
@@ -106,6 +107,8 @@
     }
     function paint(r) {
       last = r;
+      // Web app: the rows are in the sheet, so offer it in a new tab.
+      if (WEB && r.link) { $('sheetLink').href = r.link.url; show('sheetLink', true); }
       $('date').value = r.date;
       $('weekday').textContent = r.weekday;
       $('hdrTitle').textContent = r.teamName;
@@ -150,7 +153,7 @@
       $('emp').value = ''; $('emp').dataset.value = '(All)';
       render($('date').value, { employee: '(All)', activity: '(All)', status: '(All)' });
     }
-    function openStaff() { call('Opening staff directory…', 'apiOpenTeamSheet', $('team').value, 'staff'); }
+    function openStaff() { call('Opening staff directory…', 'apiOpenTeamSheet', $('team').value, 'staff').then(sheetOpened); }
     init();
   </script>
 </body>

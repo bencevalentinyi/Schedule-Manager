@@ -53,7 +53,34 @@
     });
   }
   function show(el, on) { (typeof el === 'string' ? $(el) : el).classList.toggle('hidden', !on); }
-  function closeDialog() { google.script.host.close(); }
+  /* ---------- Web app (WebApp.gs sets window.WEB_APP; inside Sheets it is undefined) ---------- */
+
+  var WEB = window.WEB_APP || null;
+  /** Link to a web-app page, e.g. webHref('team', {teamId: 'TEAM_001'}). */
+  function webHref(page, params) {
+    var q = '?page=' + encodeURIComponent(page);
+    Object.keys(params || {}).forEach(function (k) { if (params[k] !== '' && params[k] !== null && params[k] !== undefined) q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
+    return WEB.url + q;
+  }
+  function goPage(page, params) { window.open(webHref(page, params), '_top'); }
+  /** Closes the dialog; in the web app goes back to the page it came from (or Home). */
+  function closeDialog() { if (WEB) goPage(WEB.back || 'home'); else google.script.host.close(); }
+  /**
+   * After an API call that opened a sheet ({sheet, url} or {link: {sheet, url}}): inside Sheets the sheet is
+   * already shown; in the web app a button opens it in a new tab. Returns true in the web app.
+   */
+  function sheetOpened(r) {
+    if (!WEB) return false;
+    var l = r && (r.link || r);
+    if (l && l.url) showStatus('ok', '<a class="btn sm primary" href="' + esc(l.url) + '" target="_blank" rel="noopener">Open “' + esc(l.sheet) + '” in Google Sheets ↗</a>', 'Ready');
+    return true;
+  }
+  /** Opens another tool: its page in the web app, or its dialog (through the server) inside Sheets. */
+  function openTool(page, params, apiName) {
+    if (WEB) { goPage(page, params); return; }
+    var args = ['Opening…', apiName].concat(Array.prototype.slice.call(arguments, 3));
+    call.apply(null, args);
+  }
   function radio(name) { var el = document.querySelector('input[name="' + name + '"]:checked'); return el ? el.value : ''; }
   function setRadio(name, v) { var el = document.querySelector('input[name="' + name + '"][value="' + v + '"]'); if (el) el.checked = true; }
   /** Values of the checked checkboxes carrying data-<attr>. */

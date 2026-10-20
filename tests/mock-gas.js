@@ -257,9 +257,13 @@ function makeGlobals(tz) {
         getDocumentProperties: () => ({
           getProperty: (k) => (k in props ? props[k] : null),
           setProperty: (k, v) => { props[k] = String(v); }
+        }),
+        getScriptProperties: () => ({
+          getProperty: (k) => (k in props ? props[k] : null),
+          setProperty: (k, v) => { props[k] = String(v); }
         })
       },
-      LockService: { getDocumentLock: () => ({ tryLock: () => true, releaseLock() {} }) },
+      LockService: { getDocumentLock: () => ({ tryLock: () => true, releaseLock() {} }), getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
       Session: { getActiveUser: () => ({ getEmail: () => 'tester@example.com' }) }
     }
   };

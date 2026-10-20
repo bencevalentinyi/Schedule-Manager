@@ -72,6 +72,7 @@ All files in `src/` belong in **one** Apps Script project bound to the spreadshe
 | `EmployeeIdDialog.html` | Import Employee IDs from a Quinyx "Custom report" (Badge no. + Name) into the staff sheets | StaffService |
 | `MonitoringLinkService.gs`, `MonitoringLinksDialog.html` | Monitoring links: dashboard URLs filled with the platform IDs (a staff column such as "Aircall ID") of the people who are working. Templates are stored in `_CONFIG` (LINK_TEMPLATES), never in code | Schedule, Staff, StaffFieldService, Config |
 | `Navigator.html` | Schedule Viewer sidebar (date navigation, filters, summary) | ScheduleService |
+| `WebApp.gs`, `WebShell.html`, `WebHome.html` | **Web app** (optional): `doGet` shows every tool as a page in a browser tab, with a navigation bar and a Home page (teams, last import, maintenance). The pages are the same dialog files. See [docs/WEB_APP.md](docs/WEB_APP.md). | all client APIs |
 | `ImportDialog.html`, `ImportPreview.html` | Import wizard, preview and confirmation | ImportService |
 | `ThemeSky.html`, `ThemeEmber.html` | **Optional** themes (a `<style>` block each), chosen in *Configure Display Settings → Theme*. Leave them out and the default look is used. To add a theme: create `Theme<Name>.html` and add one entry to `THEMES` in `Schema.gs`. | Styles (loaded after it by `include`) |
 

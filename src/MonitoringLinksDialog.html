@@ -381,7 +381,7 @@
         }
       });
     }
-    function openSheet() { call('Opening…', 'apiLinksOpenSheet').then(closeDialog); }
+    function openSheet() { call('Opening…', 'apiLinksOpenSheet').then(function (r) { if (!sheetOpened(r)) closeDialog(); }); }
 
     /* ---------- sheet layout ---------- */
     function openLayout() {

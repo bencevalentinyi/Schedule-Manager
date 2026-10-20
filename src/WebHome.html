@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s3); align-items: start; }
+    .home-grid .panel { margin: 0; }
+    .home-grid .wide { grid-column: 1 / -1; }
+    a.btn { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="head-row">
+      <div>
+        <h1>Home</h1>
+        <p class="subtitle" id="subtitle">The same tools as the Schedule Manager menu in Sheets. Schedules, staff sheets and the Dashboard open in Google Sheets.</p>
+      </div>
+      <span id="versionBadge"></span>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div id="setup"></div>
+    <div id="home"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading…</div></div>
+  </main>
+  <footer class="app-footer">
+    <span class="foot-note" id="who"></span>
+    <span class="spacer"></span>
+    <button type="button" class="btn" onclick="load()">Reload</button>
+  </footer>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var home = null;
+
+    function load() {
+      call('Loading…', 'apiWebHome').then(function (d) { home = d; render(); });
+    }
+    function pageLink(page, label, cls, params) {
+      return '<a class="btn ' + (cls || '') + '" href="' + esc(webHref(page, params)) + '" target="_top">' + esc(label) + '</a>';
+    }
+    function sheetLink(l, label) {
+      return l ? '<a class="btn sm" href="' + esc(l.url) + '" target="_blank" rel="noopener">' + esc(label) + ' ↗</a>' : badge('bad', 'Sheet missing');
+    }
+
+    function render() {
+      var d = home, s = d.state;
+      $('subtitle').textContent = 'Spreadsheet: ' + d.spreadsheetName + '. Schedules, staff sheets and the Dashboard open in Google Sheets.';
+      $('versionBadge').innerHTML = badge('', 'v' + d.version);
+      $('who').textContent = d.user ? 'Signed in as ' + d.user : '';
+      if (!s.initialized || s.needsUpgrade) {
+        $('setup').innerHTML = alertHtml('warning', s.needsUpgrade ? 'The spreadsheet needs an upgrade' : 'The spreadsheet is not set up yet',
+          'Open Setup to ' + (s.needsUpgrade ? 'upgrade it to this version' : 'create the system sheets') + '. Nothing else works until then.<div class="cluster mt-2">' +
+          pageLink('setup', 'Open Setup', 'sm primary') + '</div>');
+        $('home').innerHTML = '';
+        return;
+      }
+      $('setup').innerHTML = s.healthy ? '' : alertHtml('warning', 'Some system sheets are missing or incomplete', 'Run Validate structure below, then Setup or Rebuild missing sheets.');
+
+      var last = d.lastImport;
+      var lastHtml = last ? kvTable([
+        ['File', esc(last.sourceFile)], ['Time', esc(last.timestamp)], ['Teams', esc(last.teams)],
+        ['Status', badge(last.status === 'COMMITTED' ? 'ok' : (last.status === 'FAILED' || last.status === 'COMMITTING' ? 'bad' : 'warn'), last.status)]
+      ]) : '<p class="muted mb-0">Nothing imported yet.</p>';
+
+      var teams = d.teams.length ? '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Sheets</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' +
+        d.teams.map(function (t) {
+          return '<tr><td><b>' + esc(t.teamName) + '</b><div class="small muted">' + esc(t.teamId) + '</div></td>' +
+            '<td>' + (t.status === 'READY' ? badge('ok', 'Ready') : badge('bad', t.status)) + ' ' + (t.active ? badge('', 'Active') : badge('warn', 'Inactive')) + '</td>' +
+            '<td><div class="cluster">' + sheetLink(t.schedule, 'Schedule') + sheetLink(t.staff, 'Staff') + '</div></td>' +
+            '<td class="actions">' + pageLink('team', 'Edit', 'sm', { teamId: t.teamId }) + '</td></tr>';
+        }).join('') + '</tbody></table></div>'
+        : emptyHtml('▦', 'No teams yet', 'A team gets its own daily schedule sheet and staff sheet.', pageLink('team', 'Create the first team', 'primary'));
+
+      $('home').innerHTML = '<div class="home-grid">' +
+        '<section class="panel"><div class="panel-head"><h2>Quick actions</h2></div><div class="cluster">' +
+          pageLink('import', 'Import Quinyx export', 'primary') + pageLink('schedule', 'Schedule viewer') +
+          '<button type="button" class="btn" onclick="generateLinks()"' + (d.linkItems ? '' : ' disabled title="No monitoring links or plans saved yet"') + '>Generate monitoring links</button>' +
+          pageLink('history', 'Import history / Undo') + '</div></section>' +
+        '<section class="panel"><div class="panel-head"><h2>Last import</h2></div>' + lastHtml + '</section>' +
+        '<section class="panel wide"><div class="panel-head"><h2>Teams</h2><span class="spacer"></span>' + pageLink('teams', 'Manage teams', 'sm') + pageLink('team', '+ New team', 'sm') + '</div>' + teams + '</section>' +
+        '<section class="panel"><div class="panel-head"><h2>Monitoring Links</h2></div><p class="small">' + d.linkItems + ' saved item(s).</p><div class="cluster">' +
+          pageLink('links', 'Edit links and plans', 'sm') + (d.linksSheet ? sheetLink(d.linksSheet, 'Monitoring Links sheet') : '<span class="small muted">The sheet appears after the first Generate.</span>') + '</div></section>' +
+        '<section class="panel"><div class="panel-head"><h2>More tools</h2></div><div class="cluster">' +
+          pageLink('staff', 'Staff directory', 'sm') + pageLink('ids', 'Import Employee IDs', 'sm') + pageLink('fields', 'Configure staff fields', 'sm') +
+          pageLink('settings', 'Display settings', 'sm') + pageLink('setup', 'Setup', 'sm') + pageLink('help', 'About / Help', 'sm') + '</div></section>' +
+        '<section class="panel wide"><div class="panel-head"><h2>Maintenance</h2></div><div class="cluster">' +
+          '<button type="button" class="btn sm" onclick="maintain(\'structure\')">Validate structure</button>' +
+          '<button type="button" class="btn sm" onclick="maintain(\'data\')">Validate data</button>' +
+          '<button type="button" class="btn sm" onclick="maintain(\'refresh\')">Refresh schedule data</button>' +
+          '<button type="button" class="btn sm" onclick="maintain(\'repair\')">Repair formatting</button>' +
+          '<button type="button" class="btn sm" onclick="maintain(\'rebuild\')">Rebuild missing sheets</button>' +
+          '</div><div id="report" class="mt-3"></div></section>' +
+        '</div>';
+    }
+
+    function generateLinks() {
+      call('Building all links and plans…', 'apiLinksGenerateAll', '').then(function (r) {
+        showStatus('ok', r.results.map(function (x) { return esc(x.name) + ': ' + x.count + (x.kind === 'PLAN' ? ' line(s)' : ' agent(s)'); }).join('<br>') +
+          '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="load()">Reload</button></div>', r.results.length + ' item(s) written to "' + esc(r.sheet) + '"');
+        if (!home.linksSheet) load();
+      });
+    }
+    function maintain(action) {
+      call('Working…', 'apiWebMaintenance', action).then(function (r) {
+        var rep = r.report || {};
+        var clean = !(rep.fatal && rep.fatal.length) && !(rep.warnings && rep.warnings.length);
+        $('report').innerHTML = '<h3>' + esc(r.title) + '</h3>' + (clean ? alertHtml('success', 'No problems found', '') : '') + renderReport(rep);
+      });
+    }
+    load();
+  </script>
+</body>
+</html>

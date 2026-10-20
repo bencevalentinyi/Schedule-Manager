@@ -328,8 +328,43 @@ function toClient_(v) {
 /* Apps Script service helpers (not pure)                                   */
 /* ======================================================================== */
 
+var SS_CACHE_ = null;
+var SS_ID_PROPERTY_ = 'SPREADSHEET_ID';
+
+/**
+ * The spreadsheet. Inside Sheets (menus, dialogs, triggers) the active one; its ID is remembered
+ * so the web app (WebApp.gs), which has no active spreadsheet, opens the same one.
+ */
 function getSs_() {
-  return SpreadsheetApp.getActiveSpreadsheet();
+  if (SS_CACHE_) return SS_CACHE_;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var props = null;
+  try { props = PropertiesService.getScriptProperties(); } catch (e) { props = null; }
+  if (ss) {
+    try { if (props && props.getProperty(SS_ID_PROPERTY_) !== ss.getId()) props.setProperty(SS_ID_PROPERTY_, ss.getId()); } catch (e) { /* read-only context */ }
+  } else {
+    var id = props ? props.getProperty(SS_ID_PROPERTY_) : '';
+    if (!id) fail_('NO_SPREADSHEET', 'The web app does not know the spreadsheet yet. Open the spreadsheet once (the Schedule Manager menu), then reload this page.');
+    ss = SpreadsheetApp.openById(id);
+  }
+  SS_CACHE_ = ss;
+  return ss;
+}
+
+/** {sheet, url} of a sheet: a link that opens the spreadsheet at that tab. */
+function sheetLink_(sh) {
+  return { sheet: sh.getName(), url: getSs_().getUrl() + '#gid=' + sh.getSheetId() };
+}
+
+/** Shows a sheet inside Sheets (no-op in the web app) and returns its link for the web app. */
+function activateSheet_(sh) {
+  try { sh.activate(); } catch (e) { /* web app: nothing to activate */ }
+  return sheetLink_(sh);
+}
+
+/** The active sheet inside Sheets, or null in the web app. */
+function activeSheetOrNull_() {
+  try { return SpreadsheetApp.getActiveSpreadsheet() ? getSs_().getActiveSheet() : null; } catch (e) { return null; }
 }
 
 function getTz_() {
@@ -373,7 +408,9 @@ function currentUserEmail_() {
  * lock; internal functions never do, so locks are never nested.
  */
 function withLock_(fn, timeoutMs) {
-  var lock = LockService.getDocumentLock();
+  // The script lock (one spreadsheet per script) also exists in the web app, where there is no document
+  // lock, so operations from Sheets and from the web app wait for each other.
+  var lock = LockService.getScriptLock();
   if (!lock.tryLock(timeoutMs || 30000)) {
     fail_('BUSY', 'Another Schedule Manager operation is currently running (for example an import). Wait a moment and try again.');
   }

@@ -364,7 +364,9 @@
           ['Schedule sheet: ' + r.scheduleSheet, 'Staff sheet: ' + r.staffSheet].concat(r.warnings || [])) +
           '<h3>Next steps</h3><ol class="small"><li>Add staff: Schedule Management → View Staff Directory.</li><li>Import a schedule: Schedule Import → Import Quinyx Export.</li></ol>';
         show('done', true);
-        $('footer').innerHTML = '<span class="spacer"></span><button type="button" class="btn primary" onclick="closeDialog()">Close</button>';
+        $('footer').innerHTML = '<span class="spacer"></span>' +
+          (WEB && r.link ? '<a class="btn" href="' + esc(r.link.url) + '" target="_blank" rel="noopener">Open schedule in Sheets ↗</a>' : '') +
+          '<button type="button" class="btn primary" onclick="closeDialog()">' + (WEB ? 'Back to teams' : 'Close') + '</button>';
         focusFirst('done');
       }, function (e) { busy(false); $('saveBtn').disabled = false; showError(e); });
     }

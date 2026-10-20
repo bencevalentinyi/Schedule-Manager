@@ -102,7 +102,7 @@
       });
     }
 
-    function createTeam() { call('Opening the team wizard…', 'apiShowTeamDialog', ''); }
+    function createTeam() { openTool('team', null, 'apiShowTeamDialog', ''); }
     function validate() { google.script.run.menuValidateStructure(); }
 
     load();

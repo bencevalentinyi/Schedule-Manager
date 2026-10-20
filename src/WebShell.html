@@ -1,0 +1,33 @@
+<!-- Web app navigation bar (WebApp.gs puts it at the top of every page). Uses the page's theme. -->
+<style>
+  .web-nav {
+    flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--s1);
+    padding: 8px max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
+  }
+  .web-nav .web-brand { font-weight: 700; color: var(--text); text-decoration: none; margin-right: var(--s3); white-space: nowrap; }
+  .web-nav .web-links { display: flex; flex-wrap: wrap; gap: 2px; }
+  .web-nav .web-links a, .web-nav .web-sheet {
+    padding: 6px 10px; border-radius: var(--radius); color: var(--text-2); text-decoration: none; font-weight: 500; white-space: nowrap;
+  }
+  .web-nav .web-links a:hover, .web-nav .web-sheet:hover { background: var(--muted-bg); color: var(--text); }
+  .web-nav .web-links a[aria-current="page"] { background: var(--primary-soft); color: var(--primary); }
+  .web-nav .web-links a:focus-visible, .web-nav .web-sheet:focus-visible, .web-nav .web-brand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+  .web-nav .web-sheet { margin-left: auto; }
+  /* The page itself: full-width bars, content centered at the page's width. */
+  body.web-page > .app-header, body.web-page > .app-body, body.web-page > .app-footer {
+    padding-left: max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
+    padding-right: max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
+  }
+  body.web-page { background: var(--surface); }
+  @media (max-width: 620px) { .web-nav .web-sheet { margin-left: 0; } }
+</style>
+<nav class="web-nav" aria-label="<?= appName ?>">
+  <a class="web-brand" href="<?= homeUrl ?>" target="_top"><?= appName ?></a>
+  <div class="web-links">
+    <? for (var i = 0; i < nav.length; i++) { ?>
+      <a href="<?= nav[i].href ?>" target="_top"<? if (nav[i].current) { ?> aria-current="page"<? } ?>><?= nav[i].label ?></a>
+    <? } ?>
+  </div>
+  <a class="web-sheet" href="<?= spreadsheetUrl ?>" target="_blank" rel="noopener">Open spreadsheet ↗</a>
+</nav>

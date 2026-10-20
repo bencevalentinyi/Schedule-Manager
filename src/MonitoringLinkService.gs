@@ -766,7 +766,6 @@ function apiLinksOpenSheet() {
   return apiCall_('apiLinksOpenSheet', function () {
     var sh = getSs_().getSheetByName(LINKS_SHEET_);
     if (!sh) fail_('NOT_FOUND', 'The Monitoring Links sheet does not exist yet. Click "Generate all" first.');
-    sh.activate();
-    return true;
+    return activateSheet_(sh);
   });
 }

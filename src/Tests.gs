@@ -1018,6 +1018,35 @@ function unitTestsLinks_() {
   ];
 }
 
+function unitTestsWebApp_() {
+  return [
+    ['Web app: the navigation bar goes right after <body>, the script before </head>, and <body> gets the web-page class', function () {
+      var page = '<!DOCTYPE html><html><head><base target="_top"></head><body class="sidebar">\n<main>x</main></body></html>';
+      var out = injectWebShell_(page, '<script>W</script>', '<nav>N</nav>');
+      assert_(out.indexOf('<script>W</script></head>') > 0, 'head part');
+      assert_(out.indexOf('<body class="web-page sidebar"><nav>N</nav>') > 0, 'class kept and nav first: ' + out);
+      assert_(injectWebShell_('<html><head></head><body><p>', 'H', 'N').indexOf('<body class="web-page">N<p>') > 0, 'body without class');
+      assertEq_(injectWebShell_('<p>bare</p>', 'H', 'N'), 'NH<p>bare</p>', 'no head or body tag');
+    }],
+    ['Web app: every page has a file and a title; the nav marks the current page (or the page it belongs to)', function () {
+      Object.keys(WEB_PAGES).forEach(function (k) { assert_(WEB_PAGES[k].file && WEB_PAGES[k].title, k); });
+      var nav = webNav_('team', 'https://x/exec');
+      assertEq_(nav.map(function (n) { return n.key; }), ['home', 'import', 'schedule', 'teams', 'staff', 'links', 'settings']);
+      assertEq_(nav.filter(function (n) { return n.current; }).map(function (n) { return n.key; }), ['teams'], 'Team editor belongs to Teams');
+      assertEq_(nav[1].href, 'https://x/exec?page=import');
+      assertEq_(WEB_PAGES.setup.init, false, 'Setup opens before initialization');
+    }],
+    ['Sheet index: the newest stored copy wins; copies stored before the web app are read too', function () {
+      var old = JSON.stringify({ 11: { teamId: 'T1', kind: 'schedule' } });
+      var newer = JSON.stringify({ at: 200, idx: { 22: { teamId: 'T2', kind: 'staff' } } });
+      var older = JSON.stringify({ at: 100, idx: { 33: { teamId: 'T3', kind: 'staff' } } });
+      assertEq_(Object.keys(newestSheetIndex_([old])), ['11']);
+      assertEq_(Object.keys(newestSheetIndex_([older, newer, old])), ['22']);
+      assertEq_(newestSheetIndex_(['not json']), null);
+    }]
+  ];
+}
+
 function unitTestsIdImport_() {
   var report = [['Custom report', ''], ['Badge no.', 'Name as First name, Last name'],
     ['0123', 'Ann, Lee'], ['555', 'Bob Ray'], ['777', 'Fox, Dee'], ['900', 'Zed New'], ['', 'No Badge'], ['555', 'Cy Moe']];
@@ -1056,7 +1085,7 @@ function unitTestsIdImport_() {
 
 function runUnitTests() {
   return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_())
-    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()).concat(unitTestsSplitShifts_()).concat(unitTestsLinks_()));
+    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()).concat(unitTestsSplitShifts_()).concat(unitTestsLinks_()).concat(unitTestsWebApp_()));
 }
 
 /** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */

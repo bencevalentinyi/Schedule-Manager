@@ -35,6 +35,7 @@ function onOpen() {
       .addItem('Validate Data', 'menuValidateData')
       .addItem('Open System Configuration', 'menuOpenConfig')
       .addSeparator()
+      .addItem('Open Web App', 'menuOpenWebApp')
       .addItem('About / Help', 'menuHelp'))
     .addToUi();
 }
@@ -73,9 +74,9 @@ function checkInstall() {
     TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
     ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
     MonitoringLinkService: 'buildMonitoringUrls_', ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
-    AuditService: 'readImportLog_', Main: 'onOpen', Tests: 'runUnitTests'
+    AuditService: 'readImportLog_', WebApp: 'doGet', Main: 'onOpen', Tests: 'runUnitTests'
   };
-  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog'];
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog', 'WebShell', 'WebHome'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
     if (typeof g[scripts[file]] === 'undefined') problems.push('Script file "' + file + '" is missing, empty, incomplete or contains another file\'s code (expected to define ' + scripts[file] + ').');
@@ -311,6 +312,20 @@ function menuOpenConfig() {
     sh.activate();
     getSs_().toast('Prefer Configure Display Settings: it validates values before saving. Maintenance → Repair Formatting hides this sheet again.', APP.NAME, 6);
   });
+}
+
+/** Shows the web app's link (after it was deployed: Deploy → New deployment → Web app). */
+function menuOpenWebApp() {
+  menuRun_('menuOpenWebApp', function () {
+    getSs_(); // remembers this spreadsheet for the web app
+    var url = webAppUrl_();
+    var body = url
+      ? '<p>Open the same tools in a browser tab:</p><p><a href="' + escapeHtml_(url) + '" target="_blank" rel="noopener" style="font-weight:600">Open the web app ↗</a></p>' +
+        '<p style="color:#545d69">Anyone who can edit this spreadsheet can use it. Bookmark the link.</p>'
+      : '<p>The web app is not deployed yet.</p><p style="color:#545d69">In the Apps Script editor: <b>Deploy → New deployment</b>, type <b>Web app</b>, Execute as <b>User accessing the web app</b>, then <b>Deploy</b>. See docs/WEB_APP.md.</p>';
+    var out = HtmlService.createHtmlOutput('<div style="font:13px/1.5 Arial,sans-serif;padding:4px 8px">' + body + '</div>').setWidth(420).setHeight(200);
+    SpreadsheetApp.getUi().showModalDialog(out, 'Web App');
+  }, false);
 }
 
 function menuHelp() {

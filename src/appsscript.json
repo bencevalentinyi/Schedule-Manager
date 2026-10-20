@@ -2,6 +2,10 @@
   "timeZone": "Etc/UTC",
   "runtimeVersion": "V8",
   "exceptionLogging": "STACKDRIVER",
+  "webapp": {
+    "executeAs": "USER_ACCESSING",
+    "access": "ANYONE"
+  },
   "dependencies": {
     "enabledAdvancedServices": [
       {

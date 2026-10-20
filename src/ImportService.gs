@@ -1258,7 +1258,7 @@ function apiImportBootstrap() {
     teams.forEach(function (t) {
       [t.settings.scheduleSheetId, t.settings.staffSheetId].forEach(function (id) { if (id) teamSheetIds[id] = true; });
     });
-    var current = teamForSheet_(getSs_().getActiveSheet());
+    var current = teamForSheet_(activeSheetOrNull_());
     return {
       teams: teams.map(function (t) {
         var imp = t.settings.import;

@@ -464,7 +464,7 @@ function stampStaffRows_(sh, range) {
 function apiStaffBootstrap() {
   return apiCall_('apiStaffBootstrap', function () {
     requireInitialized_();
-    var current = teamForSheet_(getSs_().getActiveSheet());
+    var current = teamForSheet_(activeSheetOrNull_());
     return {
       teams: listTeams_().filter(function (t) { return t.status === TEAM_STATUS.READY; })
         .map(function (t) { return { teamId: t.teamId, teamName: t.teamName, active: t.active }; }),

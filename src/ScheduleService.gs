@@ -672,7 +672,7 @@ function apiNavigatorBootstrap() {
   return apiCall_('apiNavigatorBootstrap', function () {
     requireInitialized_();
     var cfg = getConfig_();
-    var current = teamForSheet_(getSs_().getActiveSheet());
+    var current = teamForSheet_(activeSheetOrNull_());
     return {
       teams: listTeams_().filter(function (t) { return t.status === TEAM_STATUS.READY; })
         .map(function (t) { return { teamId: t.teamId, teamName: t.teamName, active: t.active }; }),
@@ -689,7 +689,7 @@ function apiOpenSchedule(teamId, dateIso) {
     if (team.status !== TEAM_STATUS.READY) fail_('TEAM_NOT_READY', 'Team "' + team.teamName + '" is ' + team.status + '. Run Manage Existing Teams → Rebuild sheets.');
     if (dateIso && !isIsoDate_(dateIso)) fail_('VALIDATION', 'Choose a valid date.');
     var r = renderTeamView_(team, dateIso ? { date: dateIso } : { useDefaultDate: true });
-    resolveTeamSheet_(team, 'schedule').activate();
+    r.link = activateSheet_(resolveTeamSheet_(team, 'schedule'));
     return r;
   });
 }
@@ -714,7 +714,9 @@ function apiViewerRender(teamId, dateIso, filters) {
     if (filters) opts.filters = filters;
     var r = renderTeamView_(team, opts);
     var sh = resolveTeamSheet_(team, 'schedule');
-    if (getSs_().getActiveSheet().getSheetId() !== sh.getSheetId()) sh.activate();
+    var active = activeSheetOrNull_();
+    if (active && active.getSheetId() !== sh.getSheetId()) activateSheet_(sh);
+    r.link = sheetLink_(sh);
     r.operatingModeLabel = OPERATING_HOURS_MODES[r.hoursMode] || r.hoursMode;
     return r;
   });
