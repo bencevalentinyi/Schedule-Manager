@@ -496,7 +496,7 @@ function adaptDailySchedule_(table, layoutIn, opts) {
   var res = {
     fatal: [], warnings: [], info: [], layout: layout, title: '', parsedDate: '', dateError: '',
     scheduleDate: '', dateSource: '', headerLabels: {}, table: [], sourceRows: [], fieldMap: {},
-    nonShiftRows: 0, filledDown: 0, blankShiftTypes: 0, dataRows: 0
+    nonShiftRows: 0, filledDown: 0, filledNames: 0, blankShiftTypes: 0, dataRows: 0
   };
   var idx = function (letter) { var n = columnNumber_(letter); return n ? n - 1 : -1; };
   var cell = function (r, letter) { var c = idx(letter); return c >= 0 && table[r] ? str_(table[r][c]) : ''; };
@@ -553,6 +553,8 @@ function adaptDailySchedule_(table, layoutIn, opts) {
 
   var current = '';
   var rows = [];
+  var prevNamed = null; // {rr, name, id} of the last row that had its own employee
+  var colOf = function (key) { for (var i = 0; i < cols.length; i++) if (cols[i][0] === key) return i; return -1; };
   for (var rr = layout.firstDataRow - 1; rr < table.length; rr++) {
     var row = table[rr] || [];
     if (row.every(function (v) { return str_(v) === ''; })) continue;
@@ -562,6 +564,17 @@ function adaptDailySchedule_(table, layoutIn, opts) {
     if (layout.fillDownShiftType && layout.shiftTypeColumn) {
       if (st) current = st;
       else if (current) { st = current; res.filledDown++; vals[0] = st; }
+    }
+    // Quinyx lists a training/meeting right below its person with the name left blank (or "-"):
+    // it belongs to the employee on the row directly above.
+    var nameI = colOf('employeeName'), idI = colOf('employeeId');
+    var blankName = !get('employeeName') || get('employeeName') === '-';
+    if (blankName && !get('employeeId') && get('shiftInfo') && /training|meeting/i.test(st) && prevNamed && prevNamed.rr === rr - 1) {
+      if (nameI >= 0) vals[nameI] = prevNamed.name;
+      if (idI >= 0) vals[idI] = prevNamed.id;
+      res.filledNames++;
+    } else if (!blankName || get('employeeId')) {
+      prevNamed = { rr: rr, name: get('employeeName'), id: get('employeeId') };
     }
     if (!get('employeeName') && !get('employeeId') && !get('shiftInfo')) { res.nonShiftRows++; continue; }
     if (layout.shiftTypeColumn && !st) res.blankShiftTypes++;
@@ -574,6 +587,7 @@ function adaptDailySchedule_(table, layoutIn, opts) {
   if (res.blankShiftTypes && !layout.fillDownShiftType) {
     res.warnings.push(res.blankShiftTypes + ' row(s) have an empty shift type. If the export lists the shift type only once per group, enable "Fill empty shift types from the row above".');
   }
+  if (res.filledNames) res.info.push(res.filledNames + ' training/meeting row(s) without a name were given to the employee on the row above.');
   if (res.nonShiftRows) res.info.push(res.nonShiftRows + ' row(s) without employee and shift information were skipped (group or spacer rows).');
   return res;
 }

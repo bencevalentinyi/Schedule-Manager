@@ -832,6 +832,21 @@ function unitTestsSplitShifts_() {
       assertEq_(p.actions.filter(function (a) { return a.record.activityCategory === 'MEETING'; }).length, 3, 'every training is still its own row');
       assertEq_(p.summary.extendedShifts, 2);
     }],
+    ['Split shifts: a piece of a shift type that is not imported still counts toward the shift; a nameless training belongs to the row above', function () {
+      var mixed = [
+        ['Daily schedule 2026-10-15', '', '', '', '', ''],
+        ['SHIFT TYPE', 'Employee Name', 'Shift', 'D', 'E', 'Hours'],
+        ['Customer Support', 'Ann Lee', '08:40 - 13:00', '', '', '4:20'],
+        ['Training', '-', '13:00 - 13:30', '', '', '0:30'],
+        ['Other Support', 'Ann Lee', '13:30 - 17:00', '', '', '3:30'],
+        ['Other Support', 'Bob Ray', '08:00 - 12:00', '', '', '4']
+      ];
+      var p = planFromDaily_(mixed, filter(true));
+      assertEq_(p.report.fatal, []);
+      assertEq_(shifts(p), ['Ann Lee 08:40-17:00'], 'Ann\'s whole working time; Bob only has the excluded type');
+      var tr = p.actions.filter(function (a) { return a.record.activityCategory === 'MEETING'; });
+      assertEq_(tr.map(function (a) { return a.record.employeeName + ' ' + a.record.shiftStart.substr(11); }), ['Ann Lee 13:00']);
+    }],
     ['Split shifts: pieces stored by an earlier import are replaced by the whole shift', function () {
       var old = [
         { recordKey: 'OLD1', teamId: 'TEAM_001', employeeId: 'E1', employeeName: 'Ann Lee', shiftDate: '2026-10-15', shiftStart: '2026-10-15 08:00', shiftEnd: '2026-10-15 15:00', recordStatus: 'ACTIVE', activityCategory: 'SHIFT' },
@@ -872,6 +887,30 @@ function unitTestsLinks_() {
       assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'WINDOW', fromMin: 9 * 60, toMin: 10 * 60 })), ['Dee Fox', 'Ann Lee']);
       assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'DAY' })).length, 4, 'meetings are never people');
       assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 14 * 60, excludeMeetings: true })), ['Bob Ray'], 'Ann is in a meeting at 14:00');
+    }],
+    ['Links: shifts "from previous day" are left out unless included', function () {
+      assertEq_(names(selectWorking_(recs, { date: '2026-10-15', who: 'AT', atMin: 5 * 60, excludePrevDay: true })), []);
+      assertEq_(selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS', excludePrevDay: true }).length, 3);
+      assertEq_([normalizeLinkTemplate_({}).includePrevDay, normalizeLinkTemplate_({ includePrevDay: true }).includePrevDay], [false, true], 'left out by default');
+    }],
+    ['Agent lists: people of a day as names or IDs, optionally only those not working on another day', function () {
+      var t = normalizeLinkTemplate_({ kind: 'LIST', name: 'Add', idField: 'NAME', separator: ', ', listDay: 'TODAY', exceptDay: 'YESTERDAY' });
+      assertEq_([t.who, t.listDay, t.exceptDay, listDayDate_('2026-10-15', 'YESTERDAY'), listDayDate_('2026-10-31', 'TOMORROW')],
+        ['DAY', 'TODAY', 'YESTERDAY', '2026-10-14', '2026-11-01']);
+      var today = selectWorking_(recs, { date: '2026-10-15', who: 'DAY', excludePrevDay: true });
+      var yesterday = {};
+      selectWorking_(recs, { date: '2026-10-14', who: 'DAY', excludePrevDay: true }).forEach(function (p) { yesterday[p.identity] = true; });
+      var nameOf = function (r) { return r.employeeName; };
+      assertEq_(buildAgentList_(t, today, nameOf, null).text, 'Dee Fox, Ann Lee, Bob Ray');
+      var add = buildAgentList_(t, today, nameOf, { 'ID:E4': true });
+      assertEq_([add.text, add.left], ['Ann Lee, Bob Ray', 1]);
+      var removed = buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', prefix: '<@', suffix: '>', separator: ' ' }),
+        selectWorking_(recs, { date: '2026-10-14', who: 'DAY', excludePrevDay: true }), function (r) { return r.employeeId === 'E3' ? 'U3' : ''; }, null);
+      assertEq_([removed.text, removed.missing], ['<@U3>', []], 'Cy worked yesterday (22:00 start)');
+      assertEq_(Object.keys(yesterday), ['ID:E3']);
+      assertEq_(buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', emptyText: '' }), [], nameOf, null).text, '');
+      assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ kind: 'LIST', name: 'X', idField: 'NAME', listDay: 'TODAY', exceptDay: 'TODAY' }), ['employeeId']).length, 1, 'compare with another day');
+      assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ kind: 'LIST', name: 'X', idField: 'NAME' }), ['employeeId']), [], 'Name needs no staff column');
     }],
     ['Links: templates need a name and an http(s) base URL; the ID column must be a staff column', function () {
       var t = normalizeLinkTemplate_({ name: 'X', baseUrl: 'https://a.example/{IDS}', idField: 'field:phone', who: 'WINDOW', from: '10:00', to: '09:00' });

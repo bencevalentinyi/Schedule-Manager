@@ -11,7 +11,10 @@
  *    in sections by the staff sheet's Role column (own headings, e.g. shift leads first), with extra
  *    text by time (e.g. a marker for everyone working during 08:00–14:00).
  *
- * Both have teams and "who" (working now / at a time / during a window / the whole day).
+ *  - LIST: an agent list, e.g. the Slack IDs of everyone working yesterday / today / tomorrow,
+ *    optionally only those NOT working on another day (who to add to / remove from a channel).
+ *
+ * All have teams and "who" (working now / at a time / during a window / the whole day).
  * Items are configuration stored in the spreadsheet (_CONFIG key LINK_TEMPLATES), never in
  * code, in the order shown in the dialog; that order is also the row order of the sheet.
  *
@@ -32,7 +35,12 @@ var LINK_WHO = {
   WINDOW: 'Working during a window',
   DAY: 'Working that day'
 };
-var LINK_KINDS = { LINK: 'Monitoring link', PLAN: 'Daily list plan' };
+var LINK_KINDS = { LINK: 'Monitoring link', PLAN: 'Daily list plan', LIST: 'Agent list' };
+/** Agent list: the day it lists, relative to the run date, and the day it can be compared with. */
+var LIST_DAYS = { YESTERDAY: 'Yesterday', TODAY: 'Today', TOMORROW: 'Tomorrow' };
+var LIST_DAY_OFFSETS_ = { YESTERDAY: -1, TODAY: 0, TOMORROW: 1 };
+/** Agent list value "Name" (instead of a staff column). */
+var LIST_NAME_FIELD_ = 'NAME';
 var PLAN_INCLUDE = { SHIFTS: 'Shifts', MEETINGS: 'Meetings and trainings', BOTH: 'Shifts, meetings and trainings' };
 /** Extra text by time: when a line's shift matches, the text is added after the name (or at {TAGS}). */
 var PLAN_TAG_MODES = {
@@ -112,11 +120,16 @@ function normalizeLinkTemplate_(t) {
     // both
     idField: str_(t.idField) || 'employeeId',
     teamIds: (Array.isArray(t.teamIds) ? t.teamIds : []).map(str_).filter(Boolean),
-    who: LINK_WHO[t.who] ? t.who : (t.kind === 'PLAN' ? 'DAY' : 'NOW'),
+    who: LINK_WHO[t.who] ? t.who : (t.kind === 'PLAN' || t.kind === 'LIST' ? 'DAY' : 'NOW'),
     at: str_(t.at) || '12:00',
     from: str_(t.from) || '08:00',
     to: str_(t.to) || '16:00',
-    excludeMeetings: !!t.excludeMeetings
+    excludeMeetings: !!t.excludeMeetings,
+    // Overnight shifts that started the day before ("from previous day") are left out unless ticked.
+    includePrevDay: !!t.includePrevDay,
+    // agent list
+    listDay: LIST_DAYS[t.listDay] ? t.listDay : 'TODAY',
+    exceptDay: LIST_DAYS[t.exceptDay] ? t.exceptDay : ''
   };
 }
 
@@ -127,7 +140,8 @@ function validateLinkTemplate_(t, idFieldKeys, otherNames) {
   else if ((otherNames || []).some(function (n) { return normName_(n) === normName_(t.name); })) errs.push('The name "' + t.name + '" is already used; Slack looks rows up by name, so names must be unique.');
   if (t.kind === 'LINK' && !/^https?:\/\/\S+$/i.test(t.baseUrl)) errs.push('The base URL must start with http:// or https:// and contain no spaces.');
   if (t.kind === 'PLAN' && !t.lineTemplate.trim()) errs.push('Enter the line format.');
-  var usesId = t.kind === 'LINK' || t.lineTemplate.indexOf('{ID}') >= 0;
+  var usesId = t.kind === 'LINK' || (t.kind === 'PLAN' && t.lineTemplate.indexOf('{ID}') >= 0) || (t.kind === 'LIST' && t.idField !== LIST_NAME_FIELD_);
+  if (t.kind === 'LIST' && t.exceptDay && t.exceptDay === t.listDay) errs.push('Compare the list with a different day.');
   if (usesId && idFieldKeys && idFieldKeys.indexOf(t.idField) < 0) errs.push('The ID column "' + t.idField + '" is not a staff column.');
   if (t.who === 'AT' && hmToMinutes_(t.at) === null) errs.push('Enter the time as HH:mm.');
   (t.tags || []).forEach(function (g) {
@@ -177,17 +191,19 @@ function linkTimeTest_(opts) {
 
 /**
  * Every assignment (shift and/or meeting) that matches the time test, sorted by start. Pure.
- * @param {{date, who, atMin?, fromMin?, toMin?, excludeMeetings?, include?: 'SHIFTS'|'MEETINGS'|'BOTH'}} opts
+ * excludePrevDay leaves out what started before the date (overnight shifts "from previous day").
+ * @param {{date, who, atMin?, fromMin?, toMin?, excludeMeetings?, excludePrevDay?, include?: 'SHIFTS'|'MEETINGS'|'BOTH'}} opts
  * @return {Array<{rec, s, e, category, identity}>}
  */
 function selectAssignments_(records, opts) {
   var test = linkTimeTest_(opts);
   var include = opts.include || 'SHIFTS';
+  var dayStart = dayNumber_(opts.date) * 1440;
   var items = records.filter(function (r) {
     return r.recordStatus === RECORD_STATUS.ACTIVE && isIsoDateTime_(r.shiftStart) && isIsoDateTime_(r.shiftEnd);
   }).map(function (r) {
     return { rec: r, s: wallMinutes_(r.shiftStart), e: wallMinutes_(r.shiftEnd), category: activityCategoryOf_(r), identity: employeeIdentity_(r) };
-  }).filter(function (x) { return test(x); });
+  }).filter(function (x) { return test(x) && !(opts.excludePrevDay && x.s < dayStart); });
   var inMeeting = {};
   if (opts.excludeMeetings && (opts.who === 'NOW' || opts.who === 'AT')) {
     items.forEach(function (x) { if (x.category === ACTIVITY_CATEGORY.MEETING) inMeeting[x.identity] = true; });
@@ -207,7 +223,7 @@ function selectAssignments_(records, opts) {
 function selectWorking_(records, opts) {
   var seen = {}, out = [];
   selectAssignments_(records, { date: opts.date, who: opts.who, atMin: opts.atMin, fromMin: opts.fromMin, toMin: opts.toMin,
-    excludeMeetings: opts.excludeMeetings, include: 'SHIFTS' }).forEach(function (x) {
+    excludeMeetings: opts.excludeMeetings, excludePrevDay: opts.excludePrevDay, include: 'SHIFTS' }).forEach(function (x) {
     if (seen[x.identity]) return;
     seen[x.identity] = true;
     out.push({ identity: x.identity, teamId: x.rec.teamId, employeeId: x.rec.employeeId, employeeName: x.rec.employeeName, startAbs: x.s, rec: x.rec });
@@ -325,6 +341,32 @@ function buildPlanText_(t, items, teamNames, idOf, roleOf, dateIso) {
   return order.map(function (k) { return (teamNames[k] || k) + '\n' + block(groups[k]); }).join('\n\n');
 }
 
+/** The run date moved by an agent-list day (YESTERDAY / TODAY / TOMORROW). Pure. */
+function listDayDate_(dateIso, day) {
+  return isoFromDayNumber_(dayNumber_(dateIso) + (LIST_DAY_OFFSETS_[day] || 0));
+}
+
+/**
+ * Agent list text: one value per person (name or staff column, e.g. a Slack ID), in start-time order,
+ * each with the text before/after it, joined by the separator. People in `except` (identities working
+ * on the compared day) are left out, e.g. "worked yesterday but not today". Pure.
+ * @param {Array} people from selectWorking_
+ * @param {function(Object): string} valueOf the value of a record's employee ('' if none)
+ * @param {Object=} except identity -> true
+ * @return {{text: string, values: string[], missing: string[], left: number}} left = people left out by the comparison
+ */
+function buildAgentList_(t, people, valueOf, except) {
+  var values = [], missing = [], left = 0;
+  people.forEach(function (p) {
+    if (except && except[p.identity]) { left++; return; }
+    var v = valueOf(p.rec);
+    if (!v) { missing.push(p.employeeName || p.employeeId); return; }
+    if (values.indexOf(v) < 0) values.push(v);
+  });
+  var text = values.length ? values.map(function (v) { return t.prefix + v + t.suffix; }).join(t.separator) : t.emptyText;
+  return { text: text, values: values, missing: missing, left: left };
+}
+
 /* ------------------------------------------------------------------------ */
 /* Generation (reads the spreadsheet)                                        */
 /* ------------------------------------------------------------------------ */
@@ -374,14 +416,21 @@ function linkIdReader_(idField, teamsById, staffCache) {
 function generateLink_(t, ctx, teamsById, staffCache) {
   var teamIds = t.teamIds.length ? t.teamIds.filter(function (id) { return teamsById[id]; })
     : Object.keys(teamsById).filter(function (id) { return teamsById[id].active; });
-  var prev = isoFromDayNumber_(dayNumber_(ctx.date) - 1);
-  var records = teamIds.length ? queryScheduleRecords_({ teamIds: teamIds, dates: [prev, ctx.date] }) : [];
-  var opts = { date: ctx.date, who: t.who, atMin: t.who === 'NOW' ? ctx.nowMin : hmToMinutes_(t.at),
-    fromMin: hmToMinutes_(t.from), toMin: hmToMinutes_(t.to), excludeMeetings: t.excludeMeetings };
+  var date = t.kind === 'LIST' ? listDayDate_(ctx.date, t.listDay) : ctx.date;
+  var exceptDate = t.kind === 'LIST' && t.exceptDay ? listDayDate_(ctx.date, t.exceptDay) : '';
+  // Each day's records plus the day before (overnight shifts reaching into it).
+  var dates = [];
+  [date, exceptDate].filter(Boolean).forEach(function (d) {
+    [isoFromDayNumber_(dayNumber_(d) - 1), d].forEach(function (x) { if (dates.indexOf(x) < 0) dates.push(x); });
+  });
+  var records = teamIds.length ? queryScheduleRecords_({ teamIds: teamIds, dates: dates }) : [];
+  var opts = { date: date, who: t.who, atMin: t.who === 'NOW' ? ctx.nowMin : hmToMinutes_(t.at),
+    fromMin: hmToMinutes_(t.from), toMin: hmToMinutes_(t.to), excludeMeetings: t.excludeMeetings, excludePrevDay: !t.includePrevDay };
   var whenLabel = (t.who === 'NOW' ? 'now (' + minutesToHm_(ctx.nowMin) + ')' : t.who === 'AT' ? 'at ' + t.at
     : t.who === 'WINDOW' ? t.from + '–' + t.to : 'whole day') +
     (t.excludeMeetings && (t.who === 'NOW' || t.who === 'AT') ? ', not in a meeting' : '');
   var idOf = linkIdReader_(t.idField, teamsById, staffCache);
+  if (t.kind === 'LIST') whenLabel = LIST_DAYS[t.listDay].toLowerCase() + ' (' + date + '), ' + whenLabel;
   var res = { template: t, date: ctx.date, whenLabel: whenLabel, urls: [], text: '', count: 0, people: 0, missing: [],
     teams: teamIds.map(function (id) { return teamsById[id].teamName; }) };
 
@@ -403,6 +452,23 @@ function generateLink_(t, ctx, teamsById, staffCache) {
     res.count = listed.length;
     res.people = uniq_(listed.map(function (x) { return x.identity; })).length;
     res.missing = Object.keys(missing);
+    return res;
+  }
+
+  if (t.kind === 'LIST') {
+    var working = selectWorking_(records, opts);
+    var except = null;
+    if (exceptDate) {
+      except = {};
+      // Compared with the whole other day (shifts starting on it).
+      selectWorking_(records, { date: exceptDate, who: 'DAY', excludePrevDay: true }).forEach(function (p) { except[p.identity] = true; });
+    }
+    var valueOf = t.idField === LIST_NAME_FIELD_ ? function (r) { return str_(r.employeeName) || str_(r.employeeId); } : idOf;
+    var list = buildAgentList_(t, working, valueOf, except);
+    res.text = list.text;
+    res.count = list.values.length;
+    res.people = working.length - list.left;
+    res.missing = list.missing;
     return res;
   }
 
@@ -460,7 +526,7 @@ function formatLinkDate_(dateIso, fmt) {
 function linksSheetRow_(results, settings, dateText) {
   var header = [settings.keyHeader, settings.dateHeader], values = [settings.keyValue, dateText], urlCols = [];
   results.forEach(function (r) {
-    if (r.template.kind === 'PLAN') { header.push(r.template.name); values.push(r.text); return; }
+    if (r.template.kind !== 'LINK') { header.push(r.template.name); values.push(r.text); return; }
     var urls = r.urls.length ? r.urls : [''];
     urls.forEach(function (u, i) {
       header.push(r.template.name + (i ? ' ' + (i + 1) : ''));
@@ -477,7 +543,7 @@ function linksSheetRows_(results, updated) {
   var header = ['Name', 'Kind', 'Date', 'Updated', 'Count', 'Missing', 'Text', 'URL'];
   for (var i = 2; i <= urlCols; i++) header.push('URL ' + i);
   var rows = results.map(function (r) {
-    var row = [r.template.name, r.template.kind === 'PLAN' ? 'Plan' : 'Link', r.date, updated,
+    var row = [r.template.name, { PLAN: 'Plan', LIST: 'List', LINK: 'Link' }[r.template.kind], r.date, updated,
       r.template.kind === 'PLAN' ? r.count : r.count + (r.missing.length ? ' of ' + r.people : ''), r.missing.join(', '), r.text];
     for (var j = 0; j < urlCols; j++) row.push(r.urls[j] || '');
     return row;
@@ -580,7 +646,7 @@ function apiLinksBootstrap() {
       templates: loadLinkTemplates_(),
       idFields: linkIdFieldOptions_(),
       teams: Object.keys(teams).map(function (k) { return { teamId: k, teamName: teams[k].teamName, active: teams[k].active }; }),
-      who: LINK_WHO, kinds: LINK_KINDS, include: PLAN_INCLUDE, tagModes: PLAN_TAG_MODES, tagWindowModes: PLAN_TAG_WINDOW_MODES_, defaultLine: PLAN_DEFAULT_LINE_,
+      who: LINK_WHO, kinds: LINK_KINDS, listDays: LIST_DAYS, listNameField: LIST_NAME_FIELD_, include: PLAN_INCLUDE, tagModes: PLAN_TAG_MODES, tagWindowModes: PLAN_TAG_WINDOW_MODES_, defaultLine: PLAN_DEFAULT_LINE_,
       sheetSettings: loadLinkSheetSettings_(), layouts: LINK_SHEET_LAYOUTS,
       today: ctx.today
     };

@@ -463,6 +463,10 @@ function buildImportPlan_(input) {
       if (filter.mode === 'NOT_CONFIGURED') needsChoice[teamId] = true;
       else if (filter.mode === 'SELECTED' && filter.types.indexOf(cls) < 0) {
         ts.excluded++; S.excludedByShiftType++;
+        // Not imported, but part of the person's working time: a piece of another shift type that
+        // touches or bridges the imported pieces still counts toward the shift's real length.
+        var xx = normalizeRow_(row, headers, resolved.columns, nopts);
+        if (!xx.errors.length) addBridge(who, xx);
         return;
       }
       ts.included++;

@@ -12,7 +12,7 @@
 <body>
   <header class="app-header">
     <h1>Monitoring Links</h1>
-    <p class="subtitle">Monitoring links and daily list plans, written to the "Monitoring Links" sheet for a Slack Workflow (see Sheet layout). Settings are stored in this spreadsheet only.</p>
+    <p class="subtitle">Monitoring links, daily list plans and agent lists, written to the "Monitoring Links" sheet for a Slack Workflow (see Sheet layout). Settings are stored in this spreadsheet only.</p>
   </header>
   <main class="app-body" id="main">
     <div id="status" aria-live="polite"></div>
@@ -22,6 +22,7 @@
         <div class="cluster mt-2">
           <button type="button" class="btn sm" onclick="edit(null, 'LINK')">+ Link</button>
           <button type="button" class="btn sm" onclick="edit(null, 'PLAN')">+ Daily plan</button>
+          <button type="button" class="btn sm" onclick="edit(null, 'LIST')">+ Agent list</button>
           <button type="button" class="btn sm ghost" onclick="openLayout()">Sheet layout…</button>
         </div>
       </div>
@@ -118,6 +119,25 @@
             </div>
           </div>
 
+          <!-- Agent list settings -->
+          <div id="listBox" class="hidden">
+            <p class="hint mt-0">A list of the people working on a day, e.g. their Slack IDs for a workflow that adds people to a channel (working today, not yesterday) or removes them (worked yesterday, not today).</p>
+            <div class="row">
+              <div class="field"><label class="label" for="listDay">List the people working</label><select id="listDay"></select></div>
+              <div class="field"><label class="label" for="exceptDay">Leave out people who also work</label><select id="exceptDay"></select>
+                <p class="hint">Compared with that whole day.</p></div>
+            </div>
+            <div class="row">
+              <div class="field"><label class="label" for="listIdField">Value</label><select id="listIdField"></select></div>
+              <div class="field"><label class="label" for="listSeparator">Separator</label><input type="text" id="listSeparator" spellcheck="false" placeholder=", "></div>
+            </div>
+            <div class="row">
+              <div class="field"><label class="label" for="listPrefix">Before each value<span class="optional">optional</span></label><input type="text" id="listPrefix" spellcheck="false" placeholder="e.g. &lt;@"></div>
+              <div class="field"><label class="label" for="listSuffix">After each value<span class="optional">optional</span></label><input type="text" id="listSuffix" spellcheck="false" placeholder="e.g. &gt;"></div>
+              <div class="field"><label class="label" for="listEmpty">When no one is listed<span class="optional">optional</span></label><input type="text" id="listEmpty"></div>
+            </div>
+          </div>
+
           <h3>Who</h3>
           <div class="row">
             <div class="field"><label class="label" for="who">People</label><select id="who" onchange="whoChanged()"></select></div>
@@ -126,6 +146,8 @@
             <div class="field" id="toBox"><label class="label" for="to">Until</label><input type="time" id="to"></div>
           </div>
           <label class="check" id="meetBox"><input type="checkbox" id="excludeMeetings"> <span>Leave out people who are in a meeting or training at that time</span></label>
+          <label class="check"><input type="checkbox" id="includePrevDay"> <span>Include shifts that started the day before
+            <span class="hint">Overnight shifts shown as "from previous day" (e.g. 22:00 – 06:00 of the day before) are left out unless this is ticked.</span></span></label>
           <fieldset class="mt-3">
             <legend>Teams <span class="hint" style="display:inline;font-weight:400">none ticked = all active teams</span></legend>
             <div class="check-grid panel subtle" id="teams"></div>
@@ -163,15 +185,20 @@
         $('planIdField').innerHTML = options(d.idFields, 'key', 'label');
         $('who').innerHTML = options(kv(d.who), 'k', 'l');
         $('include').innerHTML = options(kv(d.include), 'k', 'l');
+        $('listDay').innerHTML = options(kv(d.listDays), 'k', 'l');
+        $('exceptDay').innerHTML = '<option value="">Don\'t compare</option>' + options(kv(d.listDays), 'k', 'l');
+        $('listIdField').innerHTML = options([{ key: d.listNameField, label: 'Name' }].concat(d.idFields), 'key', 'label');
         if (!$('runDate').value) $('runDate').value = d.today;
         renderList();
       });
     }
-    function fieldLabel(key) { return (data.idFields.filter(function (f) { return f.key === key; })[0] || {}).label || key; }
+    function fieldLabel(key) { return key === data.listNameField ? 'Name' : (data.idFields.filter(function (f) { return f.key === key; })[0] || {}).label || key; }
     function indexOf(id) { return data.templates.map(function (t) { return t.id; }).indexOf(id); }
     function renderList() {
       $('list').innerHTML = data.templates.map(function (t, i) {
-        var meta = t.kind === 'PLAN' ? 'Daily plan · ' + data.include[t.include] : 'Link · ' + fieldLabel(t.idField);
+        var meta = t.kind === 'PLAN' ? 'Daily plan · ' + data.include[t.include]
+          : t.kind === 'LIST' ? 'Agent list · ' + data.listDays[t.listDay] + (t.exceptDay ? ' not ' + data.listDays[t.exceptDay].toLowerCase() : '') + ' · ' + fieldLabel(t.idField)
+          : 'Link · ' + fieldLabel(t.idField);
         return '<button type="button" class="list-item" role="option" aria-selected="' + (current && current.id === t.id) + '" data-i="' + i + '" onclick="edit(' + i + ')">' +
           '<span class="name">' + esc(t.name) + '</span><span class="meta">' + esc(meta) + ' · ' + esc(data.who[t.who]) + '</span></button>';
       }).join('') || emptyHtml('🔗', 'Nothing yet', 'Add a link or a daily plan.');
@@ -180,16 +207,21 @@
     function edit(i, newKind) {
       current = i === null ? null : data.templates[i];
       kind = current ? current.kind : newKind;
-      var t = current || { name: '', kind: kind, baseUrl: '', idField: 'employeeId', separator: ',', prefix: '', suffix: '', encode: true, maxPerLink: 0,
-        include: 'SHIFTS', lineTemplate: data.defaultLine, groupByTeam: false, emptyText: 'No one scheduled',
+      var isList = kind === 'LIST';
+      var t = current || { name: '', kind: kind, baseUrl: '', idField: isList ? data.listNameField : 'employeeId', separator: isList ? ', ' : ',', prefix: '', suffix: '', encode: true, maxPerLink: 0,
+        include: 'SHIFTS', lineTemplate: data.defaultLine, groupByTeam: false, emptyText: isList ? '' : 'No one scheduled',
         sections: [], showRest: true, restHeading: '', excludeRoles: [], tags: [],
-        teamIds: [], who: kind === 'PLAN' ? 'DAY' : 'NOW', at: '12:00', from: '08:00', to: '16:00', excludeMeetings: false };
+        teamIds: [], who: kind === 'LINK' ? 'NOW' : 'DAY', at: '12:00', from: '08:00', to: '16:00', excludeMeetings: false,
+        includePrevDay: false, listDay: 'TODAY', exceptDay: '' };
       renderList();
       clearFieldErrors(); closeConfirm('confirmBox');
-      $('edTitle').textContent = current ? current.name : (kind === 'PLAN' ? 'New daily plan' : 'New link');
-      show('linkBox', kind === 'LINK'); show('planBox', kind === 'PLAN');
+      $('edTitle').textContent = current ? current.name : ({ PLAN: 'New daily plan', LIST: 'New agent list' }[kind] || 'New link');
+      show('linkBox', kind === 'LINK'); show('planBox', kind === 'PLAN'); show('listBox', isList);
       $('name').value = t.name; $('baseUrl').value = t.baseUrl;
-      $('idField').value = t.idField; $('planIdField').value = t.idField;
+      $('idField').value = t.idField; $('planIdField').value = t.idField; $('listIdField').value = t.idField;
+      $('listDay').value = t.listDay; $('exceptDay').value = t.exceptDay;
+      $('listSeparator').value = t.separator; $('listPrefix').value = t.prefix; $('listSuffix').value = t.suffix; $('listEmpty').value = t.emptyText;
+      $('includePrevDay').checked = t.includePrevDay;
       $('separator').value = t.separator; $('prefix').value = t.prefix; $('suffix').value = t.suffix;
       $('encode').checked = t.encode; $('maxPerLink').value = t.maxPerLink || '';
       $('include').value = t.include; $('lineTemplate').value = t.lineTemplate; $('groupByTeam').checked = t.groupByTeam; $('emptyText').value = t.emptyText;
@@ -262,14 +294,17 @@
     function addTag() { tagsState = readTags(); tagsState.push({ text: '', mode: 'OVERLAPS', from: '08:00', to: '14:00' }); renderTags(); }
     function removeTag(i) { tagsState = readTags(); tagsState.splice(i, 1); renderTags(); }
     function collect() {
+      var isList = kind === 'LIST';
       return {
         id: current ? current.id : '', kind: kind, name: $('name').value.trim(),
-        baseUrl: $('baseUrl').value.trim(), idField: kind === 'PLAN' ? $('planIdField').value : $('idField').value,
-        separator: $('separator').value, prefix: $('prefix').value, suffix: $('suffix').value, encode: $('encode').checked,
+        baseUrl: $('baseUrl').value.trim(), idField: kind === 'PLAN' ? $('planIdField').value : isList ? $('listIdField').value : $('idField').value,
+        separator: isList ? $('listSeparator').value : $('separator').value, prefix: isList ? $('listPrefix').value : $('prefix').value,
+        suffix: isList ? $('listSuffix').value : $('suffix').value, encode: $('encode').checked,
         maxPerLink: Number($('maxPerLink').value || 0),
-        include: $('include').value, lineTemplate: $('lineTemplate').value, groupByTeam: $('groupByTeam').checked, emptyText: $('emptyText').value,
+        include: $('include').value, lineTemplate: $('lineTemplate').value, groupByTeam: $('groupByTeam').checked, emptyText: isList ? $('listEmpty').value : $('emptyText').value,
         sections: readSections(), showRest: $('showRest').checked, restHeading: $('restHeading').value, excludeRoles: $('excludeRoles').value, tags: readTags(),
-        teamIds: checkedData('team'), who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked
+        teamIds: checkedData('team'), who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked,
+        includePrevDay: $('includePrevDay').checked, listDay: $('listDay').value, exceptDay: $('exceptDay').value
       };
     }
     function check(t) {
@@ -277,6 +312,7 @@
       if (!t.name) { fieldError('name', 'Enter a name.'); $('name').focus(); return false; }
       if (t.kind === 'LINK' && !/^https?:\/\/\S+$/i.test(t.baseUrl)) { fieldError('baseUrl', 'Paste the base URL, starting with https://'); $('baseUrl').focus(); return false; }
       if (t.kind === 'PLAN' && !t.lineTemplate.trim()) { fieldError('lineTemplate', 'Enter the line format.'); $('lineTemplate').focus(); return false; }
+      if (t.kind === 'LIST' && t.exceptDay && t.exceptDay === t.listDay) { fieldError('exceptDay', 'Choose a different day.'); $('exceptDay').focus(); return false; }
       return true;
     }
 
@@ -300,7 +336,12 @@
         var missing = r.missing.length ? alertHtml('warning', 'No ' + esc(fieldLabel(t.idField)) + ' in the staff sheet', esc(r.missing.join(', ')) +
           '. Fill in their ID (or run Import Employee IDs) to include them.') : '';
         var body;
-        if (r.kind === 'PLAN') {
+        if (r.kind === 'LIST') {
+          body = '<div class="stats mt-3">' + stat('Working ' + r.whenLabel, r.people) + stat('Listed', r.count, 'good') +
+            stat('Missing value', r.missing.length, r.missing.length ? 'warn' : '') + '</div>' + missing +
+            '<div class="field"><label class="label" for="planOut">Text</label><textarea id="planOut" class="url-box" readonly onclick="this.select()">' + esc(r.text) + '</textarea>' +
+            '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="copyText(\'planOut\')">Copy</button></div></div>';
+        } else if (r.kind === 'PLAN') {
           body = '<div class="stats mt-3">' + stat('Lines', r.count) + stat('People', r.people) + '</div>' + missing +
             '<div class="field"><label class="label" for="planOut">Text (column "Text")</label><textarea id="planOut" class="plan-box" readonly onclick="this.select()">' + esc(r.text) + '</textarea>' +
             '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="copyText(\'planOut\')">Copy</button></div></div>';
