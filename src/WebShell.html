@@ -14,11 +14,21 @@
   .web-nav .web-links a[aria-current="page"] { background: var(--primary-soft); color: var(--primary); }
   .web-nav .web-links a:focus-visible, .web-nav .web-sheet:focus-visible, .web-nav .web-brand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .web-nav .web-sheet { margin-left: auto; }
-  /* The page itself: full-width bars, content centered at the page's width. */
+  /* The page itself: full-width bars, content centered at the page's width. Only the side padding
+     (--pad-x) is widened, never the padding itself, so a theme's extra room for its logo
+     (padding-right: calc(var(--pad-x) + …), logo at right: var(--pad-x)) stays intact. */
   body.web-page > .app-header, body.web-page > .app-body, body.web-page > .app-footer {
-    padding-left: max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
-    padding-right: max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
+    --pad-x: max(20px, calc((100% - var(--web-max, 1180px)) / 2));
   }
+  body.web-page.sidebar > .app-header, body.web-page.sidebar > .app-body, body.web-page.sidebar > .app-footer {
+    --pad-x: max(14px, calc((100% - var(--web-max, 1180px)) / 2));
+  }
+  /* Content never wider than the page: long words, tables and toolbars wrap or scroll inside. */
+  body.web-page .app-body { overflow-x: hidden; }
+  body.web-page .head-row { flex-wrap: wrap; }
+  body.web-page .head-row > * { min-width: 0; }
+  body.web-page .table-wrap { max-width: 100%; overflow-x: auto; }
+  body.web-page pre, body.web-page code { overflow-wrap: anywhere; }
   body.web-page { background: var(--surface); }
   /* Phones: the links scroll sideways in one row; tables scroll inside their box. */
   @media (max-width: 620px) {
@@ -26,7 +36,8 @@
     .web-nav .web-brand { display: none; }
     .web-nav .web-links { flex-wrap: nowrap; }
     .web-nav .web-sheet { margin-left: 0; }
-    body.web-page > .app-header, body.web-page > .app-body, body.web-page > .app-footer { padding-left: 12px; padding-right: 12px; }
+    body.web-page > .app-header, body.web-page > .app-body, body.web-page > .app-footer,
+    body.web-page.sidebar > .app-header, body.web-page.sidebar > .app-body, body.web-page.sidebar > .app-footer { --pad-x: 12px; }
     body.web-page .app-header .subtitle { display: none; }
     body.web-page .table-wrap { overflow-x: auto; }
   }
