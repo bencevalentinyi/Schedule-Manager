@@ -101,6 +101,18 @@ function checkInstall() {
     catch (e) { console.log('Theme ' + k + ': "' + file + '" not added (optional; the default look is used).'); }
   });
   if (typeof g.APP !== 'undefined' && g.APP.VERSION) console.log('Code version: ' + g.APP.VERSION);
+  // Web app tab icon: which address the active theme gives, and whether Apps Script accepts it.
+  if (typeof g.themeFaviconUrl_ === 'function') {
+    try {
+      var icon = g.themeFaviconUrl_();
+      var themeKey = '';
+      try { themeKey = g.getConfig_().UI_THEME; } catch (e) { themeKey = '(not set up)'; }
+      var accepted = 'accepted';
+      try { HtmlService.createHtmlOutput('').setFaviconUrl(icon); } catch (e) { accepted = 'REFUSED: ' + e.message; }
+      console.log('Web app tab icon (theme ' + themeKey + '): ' + icon + ' (' + accepted + ')');
+      console.log('Web app URL: ' + (g.webAppUrl_() || 'not deployed') + '. The deployed version only changes with Deploy → Manage deployments → Edit → New version.');
+    } catch (e) { console.log('PROBLEM: the web app tab icon could not be checked: ' + e.message); }
+  }
   if (problems.length) problems.forEach(function (p) { console.log('PROBLEM: ' + p); });
   else console.log('All ' + Object.keys(scripts).length + ' script files and ' + html.length + ' HTML files are present. If something still fails, check Executions for the error message.');
   return problems;

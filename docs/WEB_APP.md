@@ -21,7 +21,7 @@ The browser tab shows the active theme's icon (Display Settings → Theme):
 - **Sky:** `assets/favicons/sky.png`
 - **Ember:** `assets/favicons/ember.png`
 
-Apps Script can only use an icon from a web address, so these are loaded from the repository on GitHub. The first line of a theme file names its icon, `<!-- favicon: https://… -->`; change that address to use your own.
+Apps Script can only use an icon from a web address, so these are loaded from the repository on GitHub. The first line of a theme file names its icon: `<meta name="sm-favicon" content="https://…">`. Change that address to use your own.
 
 ## Speed
 

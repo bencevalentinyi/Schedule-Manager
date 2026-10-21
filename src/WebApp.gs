@@ -73,15 +73,29 @@ var WEB_MAX_WIDTH_ = { wide: 1180, narrow: 760 };
 
 /**
  * Browser-tab icon. Apps Script only takes an icon by URL, so the icons are hosted: the Default one
- * here, a theme's own in its theme file as a first-line marker "<!-- favicon: https://… -->". A brand
- * copy of a theme file (kept outside the repository) can point to a brand icon the same way.
+ * here, a theme's own in its theme file as a tag on the first line, <meta name="sm-favicon" content="https://…">
+ * (a tag, not a comment: Apps Script can drop HTML comments when it reads a file). A brand copy of a
+ * theme file (kept outside the repository) can point to a brand icon the same way.
  */
 var WEB_DEFAULT_FAVICON_ = 'https://raw.githubusercontent.com/bencevalentinyi/Schedule-Manager/main/assets/favicons/default.png';
 
-/** The icon URL from a theme file's "<!-- favicon: URL -->" marker, or ''. Only http(s) URLs. Pure. */
+/**
+ * The icon URL a theme file names, or ''. Reads <meta name="sm-favicon" content="URL"> (either attribute
+ * order, &amp; allowed) and, for older files, the comment form <!-- favicon: URL -->. Only http(s). Pure.
+ */
 function faviconFromThemeHtml_(html) {
-  var m = /<!--\s*favicon:\s*(https?:\/\/[^\s<>"]+)\s*-->/i.exec(str_(html));
-  return m ? m[1] : '';
+  html = str_(html);
+  var meta = /<meta\b[^>]*\bname\s*=\s*["']sm-favicon["'][^>]*>/i.exec(html);
+  var url = '';
+  if (meta) {
+    var c = /\bcontent\s*=\s*["']([^"']+)["']/i.exec(meta[0]);
+    url = c ? c[1] : '';
+  } else {
+    var m = /<!--\s*favicon:\s*(\S+?)\s*-->/i.exec(html);
+    url = m ? m[1] : '';
+  }
+  url = url.replace(/&amp;/g, '&').trim();
+  return /^https?:\/\/[^\s<>"']+$/i.test(url) ? url : '';
 }
 
 /** The icon of the active theme (Display Settings → Theme), or the default icon. */
