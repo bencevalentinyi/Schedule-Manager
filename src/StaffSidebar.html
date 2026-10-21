@@ -51,6 +51,7 @@
     <button type="button" class="btn primary sm" onclick="edit(null)">+ Add staff</button>
     <button type="button" class="btn sm" onclick="loadUnknown()">Unknown…</button>
     <button type="button" class="btn sm" onclick="openTool('ids', null, 'apiShowIdImportDialog')" title="Fill in Employee IDs from a Quinyx Custom report (Badge no. + Name)">Import IDs…</button>
+    <button type="button" class="btn sm" onclick="sortSheet()" title="Sort the staff sheet A–Z by name (also people typed straight into the sheet)">A–Z</button>
     <span class="spacer"></span>
     <button type="button" class="btn ghost sm" onclick="openSheet()" title="Open the staff sheet (table with all columns)">Open sheet</button>
   </footer>
@@ -149,6 +150,11 @@
       var ids = checkedData('u').map(function (i) { return unknown[Number(i)].employeeId; });
       if (!ids.length) { showStatus('warn', 'Tick at least one person.', 'Nobody selected'); return; }
       call('Adding…', 'apiStaffAddUnknown', teamId(), ids).then(function (r) { search('Added ' + r.added.length + ' employee(s).'); });
+    }
+    function sortSheet() {
+      call('Sorting the staff sheet…', 'apiStaffSort', teamId()).then(function (r) {
+        search(r.sorted ? 'The staff sheet of ' + r.teamName + ' is sorted A–Z by name.' : 'Nothing to sort yet.');
+      });
     }
     function openSheet() { call('Opening the staff sheet…', 'apiOpenTeamSheet', teamId(), 'staff').then(sheetOpened); }
     init();

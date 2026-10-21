@@ -1087,6 +1087,11 @@ function unitTestsWebApp_() {
         ['Live', 'Link', '', '', '', '', '3 agent(s)', 'https://x/1', 'https://x/2'], ['Plan', 'Plan', '', '', '', '', '08:00 Ann', '', '']], { layout: 'ROWS' });
       assertEq_(rows.map(function (x) { return x.name + '=' + x.value; }), ['Live=https://x/1', 'Live 2=https://x/2', 'Plan=08:00 Ann']);
     }],
+    ['Web app: the tab icon comes from the theme file\'s first-line marker; only http(s) URLs', function () {
+      assertEq_(faviconFromThemeHtml_('<!-- favicon: https://x.example/i.png?a=1&b=2 -->\n<style>'), 'https://x.example/i.png?a=1&b=2');
+      assertEq_([faviconFromThemeHtml_('<style>no marker</style>'), faviconFromThemeHtml_('<!-- favicon: javascript:alert(1) -->')], ['', '']);
+      assert_(/^https:\/\/raw\.githubusercontent\.com\/.+\/default\.png$/.test(WEB_DEFAULT_FAVICON_), 'default icon hosted with the repository');
+    }],
     ['Sheet index: the newest stored copy wins; copies stored before the web app are read too', function () {
       var old = JSON.stringify({ 11: { teamId: 'T1', kind: 'schedule' } });
       var newer = JSON.stringify({ at: 200, idx: { 22: { teamId: 'T2', kind: 'staff' } } });

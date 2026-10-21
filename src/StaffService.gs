@@ -533,11 +533,43 @@ function deleteStaff_(team, employeeId) {
 function apiStaffSave(teamId, values, originalId) {
   return apiCall_('apiStaffSave', function () {
     return withLock_(function () {
-      var r = upsertStaff_(requireTeam_(teamId), values, originalId);
+      var team = requireTeam_(teamId);
+      var r = upsertStaff_(team, values, originalId);
+      sortStaffSheetSafe_(team);
       rebuildStaffMasterSafe_();
       return r;
     });
   });
+}
+
+/**
+ * Sorts the staff rows of a team's staff sheet A–Z by Employee Name (the header rows stay; whole rows
+ * move, so every column keeps belonging to its person). Run after people are added or edited.
+ */
+function sortStaffSheet_(team) {
+  var st = readStaff_(team);
+  var sh = st.sheet;
+  var first = STAFF_LAYOUT.FIRST_DATA_ROW, last = sh.getLastRow();
+  var nameCol = st.keys.indexOf('employeeName') + 1;
+  if (nameCol < 1 || last <= first) return false;
+  sh.getRange(first, 1, last - first + 1, Math.max(sh.getLastColumn(), st.header.length)).sort({ column: nameCol, ascending: true });
+  return true;
+}
+
+/** "A–Z" button (Staff directory and the web app's Staff page): sorts the team's staff sheet by name now. */
+function apiStaffSort(teamId) {
+  return apiCall_('apiStaffSort', function () {
+    return withLock_(function () {
+      var team = requireTeam_(teamId);
+      var sorted = sortStaffSheet_(team);
+      return { teamName: team.teamName, sorted: sorted };
+    });
+  });
+}
+
+/** sortStaffSheet_ that never fails the save it follows (logged instead). */
+function sortStaffSheetSafe_(team) {
+  try { return sortStaffSheet_(team); } catch (e) { logError_('sortStaffSheet_', e); return false; }
 }
 
 function apiStaffUnknownCandidates(teamId) {
@@ -551,6 +583,7 @@ function apiStaffAddUnknown(teamId, employeeIds) {
     return withLock_(function () {
       var team = requireTeam_(teamId);
       var added = addUnknownStaff_(team, employeeIds);
+      if (added.length) sortStaffSheetSafe_(team);
       rebuildStaffMasterSafe_();
       try { renderTeamView_(team, {}); } catch (e) { logError_('apiStaffAddUnknown.render', e); }
       return { added: added };

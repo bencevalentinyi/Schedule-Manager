@@ -71,6 +71,37 @@ function webPrefetch_(calls) {
 }
 var WEB_MAX_WIDTH_ = { wide: 1180, narrow: 760 };
 
+/**
+ * Browser-tab icon. Apps Script only takes an icon by URL, so the icons are hosted: the Default one
+ * here, a theme's own in its theme file as a first-line marker "<!-- favicon: https://… -->". A brand
+ * copy of a theme file (kept outside the repository) can point to a brand icon the same way.
+ */
+var WEB_DEFAULT_FAVICON_ = 'https://raw.githubusercontent.com/bencevalentinyi/Schedule-Manager/main/assets/favicons/default.png';
+
+/** The icon URL from a theme file's "<!-- favicon: URL -->" marker, or ''. Only http(s) URLs. Pure. */
+function faviconFromThemeHtml_(html) {
+  var m = /<!--\s*favicon:\s*(https?:\/\/[^\s<>"]+)\s*-->/i.exec(str_(html));
+  return m ? m[1] : '';
+}
+
+/** The icon of the active theme (Display Settings → Theme), or the default icon. */
+function themeFaviconUrl_() {
+  try {
+    var theme = THEMES[getConfig_().UI_THEME];
+    if (theme && theme.file) {
+      var url = faviconFromThemeHtml_(HtmlService.createHtmlOutputFromFile(theme.file).getContent());
+      if (url) return url;
+    }
+  } catch (e) { /* no theme file or not set up yet: default icon */ }
+  return WEB_DEFAULT_FAVICON_;
+}
+
+/** Sets the tab icon; an icon Apps Script refuses never stops the page from opening. */
+function withFavicon_(out) {
+  try { out.setFaviconUrl(themeFaviconUrl_()); } catch (e) { logError_('withFavicon_', e); }
+  return out;
+}
+
 /** Web app entry point (GET). */
 function doGet(e) {
   var params = (e && e.parameter) || {};
@@ -107,9 +138,9 @@ function renderWebPage_(key, params) {
   // Sidebar pages (Schedule, Staff) have no page header; give them one so the theme's mark and top bar show.
   var top = shell.evaluate().getContent() + webPageHeader_(content, data.title || page.title);
   var html = injectWebShell_(content, head, top);
-  return HtmlService.createHtmlOutput(html)
+  return withFavicon_(HtmlService.createHtmlOutput(html)
     .setTitle(APP.NAME + ' · ' + (data.title || page.title))
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1'));
 }
 
 /**
@@ -153,8 +184,8 @@ function webErrorPage_(u) {
       : 'Reload the page. If it keeps failing, open the spreadsheet once and check Apps Script → Executions.') + '</div></div></div></main>';
   var styles = '';
   try { styles = include('Styles'); } catch (e) { styles = ''; }
-  return HtmlService.createHtmlOutput('<!DOCTYPE html><html><head><meta charset="utf-8">' + styles + '</head><body>' + body + '</body></html>')
-    .setTitle(APP.NAME).addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  return withFavicon_(HtmlService.createHtmlOutput('<!DOCTYPE html><html><head><meta charset="utf-8">' + styles + '</head><body>' + body + '</body></html>')
+    .setTitle(APP.NAME).addMetaTag('viewport', 'width=device-width, initial-scale=1'));
 }
 
 function escapeHtml_(s) {

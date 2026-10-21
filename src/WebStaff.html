@@ -32,6 +32,7 @@
       <span class="spacer"></span>
       <button type="button" class="btn primary" onclick="edit(-1)">+ Add person</button>
       <button type="button" class="btn" onclick="findUnknown()">Find unknown employees</button>
+      <button type="button" class="btn" onclick="sortSheet()" title="Sort the staff sheet A–Z by name (also people typed straight into the sheet)">Sort sheet A–Z</button>
     </div>
     <div id="status" aria-live="polite"></div>
     <div id="editBox" class="hidden"></div>
@@ -141,6 +142,11 @@
       });
     }
 
+    function sortSheet() {
+      call('Sorting the staff sheet…', 'apiStaffSort', data.teamId).then(function (r) {
+        showStatus('ok', '', r.sorted ? 'The staff sheet of ' + r.teamName + ' is sorted A–Z by name.' : 'Nothing to sort yet.');
+      });
+    }
     function findUnknown() {
       call('Looking for unknown employees…', 'apiStaffUnknownCandidates', data.teamId).then(function (list) {
         unknown = list; show('editBox', false); editing = null; paint();

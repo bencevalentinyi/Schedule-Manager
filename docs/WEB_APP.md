@@ -14,6 +14,15 @@ The web app shows Schedule Manager in a normal browser tab, so day-to-day work d
 
 The daily sheets, staff sheets and the Dashboard sheet still exist and stay up to date. Every page links to its sheet ("Open in Sheets ↗").
 
+## Tab icon
+
+The browser tab shows the active theme's icon (Display Settings → Theme):
+- **Default:** `assets/favicons/default.png`
+- **Sky:** `assets/favicons/sky.png`
+- **Ember:** `assets/favicons/ember.png`
+
+Apps Script can only use an icon from a web address, so these are loaded from the repository on GitHub. The first line of a theme file names its icon, `<!-- favicon: https://… -->`; change that address to use your own.
+
 ## Speed
 
 - **One round trip per page.** The data a page needs when it opens is fetched while the page is built and sent with it, so the page doesn't have to ask the server again (`prefetch` in `WEB_PAGES`).
