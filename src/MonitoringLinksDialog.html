@@ -101,14 +101,15 @@
             </div>
             <div class="panel subtle">
               <div class="panel-head"><h3>Sections</h3></div>
-              <p class="hint mt-0">Group people by the <b>Role</b> column of the staff sheets, in this order, each under your own heading (leave a heading empty for no heading line).</p>
+              <div class="field mt-0"><label class="label" for="sectionField">Sections by column</label><select id="sectionField" onchange="sectionFieldChanged()"></select>
+                <p class="hint">Group people by this column of the staff sheets (Role, Notes, Team, Skills or your own column), in this order, each under your own heading (leave a heading empty for no heading line). A cell with several values, e.g. "Chat, Phone", matches any of them.</p></div>
               <div id="sections"></div>
               <button type="button" class="btn sm" onclick="addSection()">+ Add section</button>
               <div class="row mt-3">
                 <div class="field"><span class="label">&nbsp;</span><label class="check"><input type="checkbox" id="showRest" checked onchange="restChanged()"> List everyone else (after the sections)</label></div>
                 <div class="field" id="restBox"><label class="label" for="restHeading">Heading for everyone else<span class="optional">optional</span></label><input type="text" id="restHeading" placeholder="e.g. Agents"></div>
               </div>
-              <div class="field"><label class="label" for="excludeRoles">Leave out these roles<span class="optional">optional</span></label>
+              <div class="field"><label class="label" for="excludeRoles"><span id="excludeLabel">Leave out these roles</span><span class="optional">optional</span></label>
                 <input type="text" id="excludeRoles" placeholder="Comma-separated, e.g. Trainee"></div>
             </div>
             <div class="panel subtle">
@@ -189,6 +190,7 @@
         data = d;
         $('idField').innerHTML = options(d.idFields, 'key', 'label');
         $('planIdField').innerHTML = options(d.idFields, 'key', 'label');
+        $('sectionField').innerHTML = options(d.sectionFields, 'key', 'label');
         $('who').innerHTML = options(kv(d.who), 'k', 'l');
         $('include').innerHTML = options(kv(d.include), 'k', 'l');
         $('listDay').innerHTML = options(kv(d.listDays), 'k', 'l');
@@ -217,7 +219,7 @@
       var isList = kind === 'LIST';
       var t = current || { name: '', kind: kind, baseUrl: '', idField: isList ? data.listNameField : 'employeeId', separator: isList ? ', ' : ',', prefix: '', suffix: '', encode: true, maxPerLink: 0,
         include: 'SHIFTS', lineTemplate: data.defaultLine, groupByTeam: false, emptyText: isList ? '' : 'No one scheduled',
-        sections: [], showRest: true, restHeading: '', excludeRoles: [], tags: [],
+        sections: [], showRest: true, restHeading: '', excludeRoles: [], sectionField: 'role', tags: [],
         teamIds: [], who: kind === 'LINK' ? 'NOW' : 'DAY', at: '12:00', from: '08:00', to: '16:00', excludeMeetings: false,
         includePrevDay: false, listDay: 'TODAY', exceptDay: '' };
       renderList();
@@ -235,6 +237,11 @@
       $('include').value = t.include; $('lineTemplate').value = t.lineTemplate; $('groupByTeam').checked = t.groupByTeam; $('emptyText').value = t.emptyText;
       sectionsState = JSON.parse(JSON.stringify(t.sections)); tagsState = JSON.parse(JSON.stringify(t.tags));
       $('showRest').checked = t.showRest; $('restHeading').value = t.restHeading; $('excludeRoles').value = t.excludeRoles.join(', ');
+      // A column that no longer exists still shows, so saving reports it instead of silently switching to Role.
+      $('sectionField').innerHTML = options(data.sectionFields, 'key', 'label') +
+        (data.sectionFields.some(function (f) { return f.key === t.sectionField; }) ? '' : '<option value="' + esc(t.sectionField) + '">' + esc(t.sectionField) + ' (missing)</option>');
+      $('sectionField').value = t.sectionField || 'role';
+      sectionFieldChanged(true);
       renderSections(); renderTags();
       $('who').value = t.who; $('at').value = t.at; $('from').value = t.from; $('to').value = t.to;
       $('excludeMeetings').checked = t.excludeMeetings;
@@ -272,11 +279,26 @@
         var roles = Array.isArray(s.roles) ? s.roles.join(', ') : (s.roles || '');
         return '<div class="row tight" data-sec="' + i + '">' +
           '<div class="field"><input type="text" data-f="heading" aria-label="Heading of section ' + (i + 1) + '" placeholder="Heading, e.g. 🎧 Shift leads" value="' + esc(s.heading) + '"></div>' +
-          '<div class="field"><input type="text" data-f="roles" aria-label="Roles of section ' + (i + 1) + '" placeholder="Roles, e.g. Support Shift Lead" value="' + esc(roles) + '"></div>' +
+          '<div class="field"><input type="text" data-f="roles" aria-label="Roles of section ' + (i + 1) + '" placeholder="' + esc(sectionPlaceholder()) + '" value="' + esc(roles) + '"></div>' +
           '<div class="field" style="flex:0 0 auto"><label class="check" style="padding-top:6px"><input type="checkbox" data-f="noTags"' + (s.noTags ? ' checked' : '') + '> No extra text</label></div>' +
           '<div class="field" style="flex:0 0 auto"><button type="button" class="btn sm" onclick="moveSection(' + i + ', -1)" aria-label="Move section up"' + (i ? '' : ' disabled') + '>▲</button> ' +
           '<button type="button" class="btn sm danger" onclick="removeSection(' + i + ')" aria-label="Remove section">✕</button></div></div>';
       }).join('') : '<p class="hint mt-0">No sections: everyone is listed by start time.</p>';
+    }
+    /** The chosen section column's name, e.g. "Role" or "Skills". */
+    function sectionFieldLabel() {
+      var k = $('sectionField').value;
+      return (data.sectionFields.filter(function (f) { return f.key === k; })[0] || { label: k || 'Role' }).label;
+    }
+    function sectionPlaceholder() {
+      return $('sectionField').value === 'role' ? 'Roles, e.g. Support Shift Lead' : sectionFieldLabel() + ' values, comma-separated';
+    }
+    /** Relabels the section fields for the chosen column (noRender: the caller renders the sections itself). */
+    function sectionFieldChanged(noRender) {
+      var role = $('sectionField').value === 'role';
+      $('excludeLabel').textContent = role ? 'Leave out these roles' : 'Leave out people whose ' + sectionFieldLabel() + ' is';
+      $('excludeRoles').placeholder = role ? 'Comma-separated, e.g. Trainee' : 'Comma-separated values';
+      if (noRender !== true) { sectionsState = readSections(); renderSections(); }
     }
     function addSection() { sectionsState = readSections(); sectionsState.push({ heading: '', roles: '', noTags: false }); renderSections(); }
     function removeSection(i) { sectionsState = readSections(); sectionsState.splice(i, 1); renderSections(); }
@@ -310,7 +332,8 @@
         suffix: isList ? $('listSuffix').value : $('suffix').value, encode: $('encode').checked,
         maxPerLink: Number($('maxPerLink').value || 0),
         include: $('include').value, lineTemplate: $('lineTemplate').value, groupByTeam: $('groupByTeam').checked, emptyText: isList ? $('listEmpty').value : $('emptyText').value,
-        sections: readSections(), showRest: $('showRest').checked, restHeading: $('restHeading').value, excludeRoles: isList ? $('listExcludeRoles').value : $('excludeRoles').value, tags: readTags(),
+        sections: readSections(), showRest: $('showRest').checked, restHeading: $('restHeading').value, excludeRoles: isList ? $('listExcludeRoles').value : $('excludeRoles').value,
+        sectionField: $('sectionField').value || 'role', tags: readTags(),
         teamIds: checkedData('team'), who: $('who').value, at: $('at').value, from: $('from').value, to: $('to').value, excludeMeetings: $('excludeMeetings').checked,
         includePrevDay: $('includePrevDay').checked, listDay: $('listDay').value, exceptDay: $('exceptDay').value
       };

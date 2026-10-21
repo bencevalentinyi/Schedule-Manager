@@ -81,6 +81,7 @@ function planSections_(t) {
   };
 }
 var PLAN_DEFAULT_LINE_ = '{START} - {END} {NAME}';
+var PLAN_SECTION_FIELD_DEFAULT_ = 'role';
 var LINKS_SHEET_ = 'Monitoring Links';
 
 /* ------------------------------------------------------------------------ */
@@ -113,6 +114,8 @@ function normalizeLinkTemplate_(t) {
     showRest: sec.showRest,
     restHeading: sec.restHeading,
     excludeRoles: sec.excludeRoles,
+    // The staff column the sections (and "leave out") match against: Role by default, or Notes, Team, any own column…
+    sectionField: str_(t.sectionField) || PLAN_SECTION_FIELD_DEFAULT_,
     tags: (Array.isArray(t.tags) ? t.tags : []).map(function (g) {
       g = g || {};
       return { text: str_(g.text), mode: PLAN_TAG_MODES[g.mode] ? g.mode : 'OVERLAPS', from: str_(g.from) || '08:00', to: str_(g.to) || '14:00' };
@@ -133,9 +136,14 @@ function normalizeLinkTemplate_(t) {
   };
 }
 
-/** Validation messages for an item (empty list = valid). Pure. */
-function validateLinkTemplate_(t, idFieldKeys, otherNames) {
+/**
+ * Validation messages for an item (empty list = valid). Pure.
+ * @param {string[]=} sectionFieldKeys staff columns a plan can be sectioned by (checked when given)
+ */
+function validateLinkTemplate_(t, idFieldKeys, otherNames, sectionFieldKeys) {
   var errs = [];
+  var sectioned = t.kind === 'PLAN' && (t.sections.length || t.excludeRoles.length);
+  if (sectioned && sectionFieldKeys && sectionFieldKeys.indexOf(t.sectionField) < 0) errs.push('The section column "' + t.sectionField + '" is not a staff column.');
   if (!t.name) errs.push('Enter a name.');
   else if ((otherNames || []).some(function (n) { return normName_(n) === normName_(t.name); })) errs.push('The name "' + t.name + '" is already used; Slack looks rows up by name, so names must be unique.');
   if (t.kind === 'LINK' && !/^https?:\/\/\S+$/i.test(t.baseUrl)) errs.push('The base URL must start with http:// or https:// and contain no spaces.');
@@ -265,26 +273,37 @@ function buildMonitoringUrls_(t, ids) {
 }
 
 /**
- * Puts the assignments into the plan's sections by the staff sheet's Role column. Pure.
- * Each person goes to the first section listing their role (roles match ignoring case and spaces);
- * everyone else follows (or is left out when "everyone else" is off); excluded roles are dropped.
- * Within a section the order stays by start time.
+ * Puts the assignments into the plan's sections by one staff-sheet column (t.sectionField: Role by
+ * default, or Notes, Team, Skills, an own column…). Pure.
+ * Each person goes to the first section listing their value (matched ignoring case and spaces; a cell
+ * with several comma-separated values, e.g. "Chat, Phone", matches a section listing any of them);
+ * everyone else follows (or is left out when "everyone else" is off); people with a left-out value
+ * are dropped. Within a section the order stays by start time.
+ * @param {function(Object): string} valueOf the record's employee's value in that column ('' if none)
  * @return {Array<{x, rank}>} rank = section index, or the number of sections for everyone else
  */
-function orderPlanItems_(t, items, roleOf) {
-  var sectionRoles = t.sections.map(function (s) { return s.roles.map(normText_); });
+function orderPlanItems_(t, items, valueOf) {
+  var sectionValues = t.sections.map(function (s) { return s.roles.map(normText_); });
   var excluded = t.excludeRoles.map(normText_);
+  var hits = function (vals, list) { return vals.some(function (v) { return list.indexOf(v) >= 0; }); };
   var ranked = [];
   items.forEach(function (x, i) {
-    var role = normText_(roleOf(x.rec));
-    if (role && excluded.indexOf(role) >= 0) return;
+    var vals = planCellValues_(valueOf(x.rec));
+    if (hits(vals, excluded)) return;
     var rank = -1;
-    for (var k = 0; k < sectionRoles.length && rank < 0; k++) if (role && sectionRoles[k].indexOf(role) >= 0) rank = k;
-    if (rank < 0) { if (!t.showRest) return; rank = sectionRoles.length; }
+    for (var k = 0; k < sectionValues.length && rank < 0; k++) if (hits(vals, sectionValues[k])) rank = k;
+    if (rank < 0) { if (!t.showRest) return; rank = sectionValues.length; }
     ranked.push({ x: x, rank: rank, i: i });
   });
   ranked.sort(function (a, b) { return a.rank - b.rank || a.i - b.i; });
   return ranked;
+}
+
+/** A cell's values for section matching: the whole cell and each comma-separated part, normalized. Pure. */
+function planCellValues_(cell) {
+  var whole = normText_(cell);
+  if (!whole) return [];
+  return uniq_([whole].concat(planRoleList_(cell).map(normText_))).filter(Boolean);
 }
 
 /** The extra texts of the time rules that match one assignment (absolute minutes; base = 00:00 of the date). Pure. */
@@ -307,11 +326,13 @@ function planTagsFor_(t, x, base) {
  * @param {Array} items from selectAssignments_
  * @param {Object} teamNames teamId -> team name
  * @param {function(Object): string} idOf the chosen ID column value of a record's employee ('' if none)
- * @param {function(Object): string=} roleOf the employee's Role from the staff sheet ('' if none)
+ * @param {function(Object): string=} roleOf the employee's Role from the staff sheet ('' if none), for {ROLE}
  * @param {string=} dateIso the plan's date, for the time rules (default: each shift's own day)
+ * @param {function(Object): string=} sectionOf the employee's value in the section column (default: roleOf)
  */
-function buildPlanText_(t, items, teamNames, idOf, roleOf, dateIso) {
+function buildPlanText_(t, items, teamNames, idOf, roleOf, dateIso, sectionOf) {
   roleOf = roleOf || function () { return ''; };
+  sectionOf = sectionOf || roleOf;
   var hm = function (abs) { return minutesToHm_(((abs % 1440) + 1440) % 1440); };
   var hasTagsSlot = t.lineTemplate.indexOf('{TAGS}') >= 0;
   var line = function (x, rank) {
@@ -338,7 +359,7 @@ function buildPlanText_(t, items, teamNames, idOf, roleOf, dateIso) {
     var headed = parts.some(function (s) { return titleOf(s.rank); });
     return parts.map(function (s) { return (titleOf(s.rank) ? titleOf(s.rank) + '\n' : '') + s.lines.join('\n'); }).join(headed ? '\n\n' : '\n');
   };
-  var ranked = orderPlanItems_(t, items, roleOf);
+  var ranked = orderPlanItems_(t, items, sectionOf);
   if (!ranked.length) return t.emptyText;
   if (!t.groupByTeam) return block(ranked);
   var order = [], groups = {};
@@ -387,6 +408,16 @@ function buildAgentList_(t, people, valueOf, except, roleOf) {
 /* ------------------------------------------------------------------------ */
 /* Generation (reads the spreadsheet)                                        */
 /* ------------------------------------------------------------------------ */
+
+/**
+ * Staff columns a daily plan can be put into sections by: the standard ones that hold a category
+ * (Role, Notes, Team, Skills, Email) and every own column.
+ */
+function planSectionFieldOptions_() {
+  var opts = ['role', 'notes', 'team', 'skills', 'email'].map(function (k) { return { key: k, label: STAFF_FIELD_DEFS[k].label }; });
+  listStaffFields_().forEach(function (f) { opts.push({ key: STAFF_REGISTRY_PREFIX + f.fieldKey, label: f.displayName }); });
+  return opts;
+}
 
 /** Staff columns that can hold a platform ID: Employee ID and every custom staff column. */
 function linkIdFieldOptions_() {
@@ -466,9 +497,11 @@ function generateLink_(t, ctx, teamsById, staffCache) {
       if (needsId && !v) missing[str_(r.employeeName) || str_(r.employeeId)] = true;
       return v;
     };
-    var roleOf = linkIdReader_('role', teamsById, staffCache); // the staff sheet's Role column
-    res.text = buildPlanText_(t, items, names, reader, roleOf, ctx.date);
-    var listed = orderPlanItems_(t, items, roleOf).map(function (p) { return p.x; });
+    var roleOf = linkIdReader_('role', teamsById, staffCache); // the staff sheet's Role column, for {ROLE}
+    // Sections follow the chosen staff column (Role unless another one is chosen).
+    var sectionOf = t.sectionField === 'role' ? roleOf : linkIdReader_(t.sectionField, teamsById, staffCache);
+    res.text = buildPlanText_(t, items, names, reader, roleOf, ctx.date, sectionOf);
+    var listed = orderPlanItems_(t, items, sectionOf).map(function (p) { return p.x; });
     res.count = listed.length;
     res.people = uniq_(listed.map(function (x) { return x.identity; })).length;
     res.missing = Object.keys(missing);
@@ -672,7 +705,7 @@ function apiLinksBootstrap() {
     var ctx = linkRunContext_('');
     return {
       templates: loadLinkTemplates_(),
-      idFields: linkIdFieldOptions_(),
+      idFields: linkIdFieldOptions_(), sectionFields: planSectionFieldOptions_(),
       teams: Object.keys(teams).map(function (k) { return { teamId: k, teamName: teams[k].teamName, active: teams[k].active }; }),
       who: LINK_WHO, kinds: LINK_KINDS, listDays: LIST_DAYS, listNameField: LIST_NAME_FIELD_, include: PLAN_INCLUDE, tagModes: PLAN_TAG_MODES, tagWindowModes: PLAN_TAG_WINDOW_MODES_, defaultLine: PLAN_DEFAULT_LINE_,
       sheetSettings: loadLinkSheetSettings_(), layouts: LINK_SHEET_LAYOUTS,
@@ -708,7 +741,7 @@ function apiLinksSave(input) {
       var ss = loadLinkSheetSettings_();
       // Names must be unique: they are row names (one row per item) or column names (one row), next to Key and date.
       var others = list.filter(function (x) { return x.id !== t.id; }).map(function (x) { return x.name; }).concat([ss.keyHeader, ss.dateHeader]);
-      var errs = validateLinkTemplate_(t, linkIdFieldOptions_().map(function (f) { return f.key; }), others);
+      var errs = validateLinkTemplate_(t, linkIdFieldOptions_().map(function (f) { return f.key; }), others, planSectionFieldOptions_().map(function (f) { return f.key; }));
       if (errs.length) fail_('VALIDATION', errs.join(' '));
       if (!t.id) t.id = newId_('LNK');
       var i = list.map(function (x) { return x.id; }).indexOf(t.id);
@@ -747,7 +780,7 @@ function apiLinksPreview(input, dateIso) {
   return apiCall_('apiLinksPreview', function () {
     requireInitialized_();
     var t = normalizeLinkTemplate_(input);
-    var errs = validateLinkTemplate_(t, linkIdFieldOptions_().map(function (f) { return f.key; }), null);
+    var errs = validateLinkTemplate_(t, linkIdFieldOptions_().map(function (f) { return f.key; }), null, planSectionFieldOptions_().map(function (f) { return f.key; }));
     if (errs.length) fail_('VALIDATION', errs.join(' '));
     var r = generateLink_(t, linkRunContext_(dateIso), teamsByIdForLinks_(), {});
     return { kind: t.kind, urls: r.urls, text: r.text, count: r.count, people: r.people, missing: r.missing, teams: r.teams, whenLabel: r.whenLabel, date: r.date };

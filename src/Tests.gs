@@ -975,6 +975,23 @@ function unitTestsLinks_() {
       var old = normalizeLinkTemplate_({ kind: 'PLAN', roles: 'A, B', roleMode: 'ONLY', roleHeadings: true });
       assertEq_([old.sections.map(function (s) { return s.heading + ':' + s.roles.join('|'); }), old.showRest], [['A:A', 'B:B'], false], 'older role settings are converted');
     }],
+    ['Daily plans: sections by any staff column (e.g. Skills); a cell with several values matches any; {ROLE} stays the Role', function () {
+      var skills = { E1: 'Chat, Phone', E2: 'Email', E3: 'phone', E4: '' };
+      var roles = { E1: 'Agent', E2: 'Lead', E3: 'Agent', E4: 'Agent' };
+      var skillOf = function (r) { return skills[r.employeeId] || ''; };
+      var roleOf = function (r) { return roles[r.employeeId] || ''; };
+      var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS' });
+      var plan = normalizeLinkTemplate_({ kind: 'PLAN', lineTemplate: '{NAME} ({ROLE})', sectionField: 'skills',
+        sections: [{ heading: '📞 Phone', roles: 'Phone' }, { heading: '✉ Email', roles: 'email' }], restHeading: 'Others', excludeRoles: 'Chat only' });
+      assertEq_(plan.sectionField, 'skills');
+      assertEq_(buildPlanText_(plan, shifts, {}, function () { return ''; }, roleOf, '2026-10-15', skillOf),
+        '📞 Phone\nCy Moe (Agent)\nAnn Lee (Agent)\n\n✉ Email\nBob Ray (Lead)\n\nOthers\nDee Fox (Agent)', 'Ann\'s "Chat, Phone" matches Phone; {ROLE} still shows the Role');
+      assertEq_(normalizeLinkTemplate_({ kind: 'PLAN' }).sectionField, 'role', 'Role by default (older plans unchanged)');
+      assertEq_(planCellValues_(' Chat ,Phone '), ['chat phone', 'chat', 'phone']);
+      var gone = normalizeLinkTemplate_({ kind: 'PLAN', name: 'P', sectionField: 'field:old', sections: [{ heading: 'A', roles: 'x' }] });
+      assertEq_(validateLinkTemplate_(gone, ['employeeId'], [], ['role', 'notes']).length, 1, 'a deleted column is reported');
+      assertEq_(validateLinkTemplate_(normalizeLinkTemplate_({ kind: 'PLAN', name: 'P', sectionField: 'field:old' }), ['employeeId'], [], ['role']), [], 'no sections: the column does not matter');
+    }],
     ['Daily plans: extra text by time is added after the name, or at {TAGS}', function () {
       var shifts = selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS' });
       var tags = [{ text: '📞', mode: 'OVERLAPS', from: '08:00', to: '14:00' }, { text: '🌙', mode: 'ENDS_AFTER', from: '21:00' },
