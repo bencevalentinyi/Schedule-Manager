@@ -919,7 +919,12 @@ function unitTestsLinks_() {
       assertEq_([linkOutputValues_(list), linkOutputValues_(list, true)], [['@Ann Lee', '@Bob Ray'], ['Ann Lee', 'Bob Ray']], 'plain: without the text added before/after each value');
       assertEq_(normalizeLinkCsvSettings_({ plain: 1 }).plain, true);
       assertEq_(normalizeLinkCsvSettings_({ columns: [{ id: 'A', header: 'X' }, { id: '' }], layout: 'NOPE', delimiter: '|' }),
-        { columns: [{ id: 'A', header: 'X' }], layout: 'ROWS', delimiter: ',', plain: false });
+        { columns: [{ id: 'A', header: 'X', field: '' }], layout: 'ROWS', delimiter: ',', plain: false });
+      var recs3 = [{ employeeId: 'E1', employeeName: 'Ann Lee', teamId: 'T1' }, { employeeId: 'E2', employeeName: 'Bob Ray', teamId: 'T1' }, { employeeId: 'E1', employeeName: 'Ann Lee', teamId: 'T1' }, { employeeId: '', employeeName: 'Cy Moe', teamId: 'T1' }];
+      var mail = { E1: 'ann@x.com', E2: 'bob@x.com' };
+      assertEq_(staffColumnValues_(recs3, function (r) { return mail[r.employeeId] || ''; }), { values: ['ann@x.com', 'bob@x.com'], missing: ['Cy Moe'] }, 'emails of the listed people, each once; who has none is named');
+      var al = buildAgentList_(normalizeLinkTemplate_({ kind: 'LIST', separator: ', ' }), [{ identity: 'a', rec: recs3[0] }, { identity: 'b', rec: recs3[1] }], function (r) { return r.employeeName; });
+      assertEq_(al.listed.map(function (r) { return r.employeeId; }), ['E1', 'E2'], 'the people behind the names, in order');
     }],
     ['Agent lists: people of a day as names or IDs, optionally only those not working on another day', function () {
       var t = normalizeLinkTemplate_({ kind: 'LIST', name: 'Add', idField: 'NAME', separator: ', ', listDay: 'TODAY', exceptDay: 'YESTERDAY' });

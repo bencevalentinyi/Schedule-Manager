@@ -49,7 +49,7 @@
         <div id="csvPanel" class="hidden">
           <div class="panel-head"><h2>Export CSV</h2></div>
           <p class="hint mt-0">Builds the ticked items for the date at the bottom (as <b>Generate all</b> does) into a CSV file: one column per item, with your own header. Nothing in the sheet changes.</p>
-          <div class="table-wrap"><table class="table"><thead><tr><th scope="col">Export</th><th scope="col">Item</th><th scope="col">Column header</th></tr></thead>
+          <div class="table-wrap"><table class="table"><thead><tr><th scope="col">Export</th><th scope="col">Item</th><th scope="col">Column header</th><th scope="col">Write</th></tr></thead>
             <tbody id="csvItems"></tbody></table></div>
           <div class="row mt-3">
             <div class="field"><label class="label" for="csvLayout">Layout</label><select id="csvLayout"></select></div>
@@ -449,14 +449,19 @@
     function openCsv() {
       current = null; renderList();
       var s = data.csvSettings || { columns: [], layout: 'ROWS', delimiter: ',' };
-      var chosen = {};
-      s.columns.forEach(function (c) { chosen[c.id] = c.header; });
+      var chosen = {}, field = {};
+      s.columns.forEach(function (c) { chosen[c.id] = c.header; field[c.id] = c.field || ''; });
+      // What to write per person: the output as it is, or a staff column looked up for the same people (e.g. Email).
+      var writeOptions = [{ key: '', label: 'The output as it is' }, { key: data.listNameField, label: 'Name' }].concat(data.idFields);
       $('csvItems').innerHTML = data.templates.map(function (t, i) {
         var on = Object.prototype.hasOwnProperty.call(chosen, t.id);
+        var write = t.kind === 'LINK' ? '<span class="small muted">The link</span>'
+          : '<select data-csv-field="' + esc(t.id) + '" aria-label="What to write for ' + esc(t.name) + '">' + options(writeOptions, 'key', 'label', field[t.id] || '') + '</select>';
         return '<tr><td><input type="checkbox" data-csv="' + esc(t.id) + '" aria-label="Export ' + esc(t.name) + '"' + (on ? ' checked' : '') + '></td>' +
           '<td>' + esc(t.name) + '<div class="small muted">' + esc(data.kinds[t.kind]) + '</div></td>' +
-          '<td><input type="text" data-csv-header="' + esc(t.id) + '" aria-label="Column header for ' + esc(t.name) + '" value="' + esc(on && chosen[t.id] ? chosen[t.id] : t.name) + '"></td></tr>';
-      }).join('') || '<tr><td colspan="3">' + emptyHtml('🔗', 'Nothing to export yet', 'Add a link, daily plan or agent list first.') + '</td></tr>';
+          '<td><input type="text" data-csv-header="' + esc(t.id) + '" aria-label="Column header for ' + esc(t.name) + '" value="' + esc(on && chosen[t.id] ? chosen[t.id] : t.name) + '"></td>' +
+          '<td>' + write + '</td></tr>';
+      }).join('') || '<tr><td colspan="4">' + emptyHtml('🔗', 'Nothing to export yet', 'Add a link, daily plan or agent list first.') + '</td></tr>';
       $('csvLayout').innerHTML = options(kv(data.csvLayouts), 'k', 'l', s.layout);
       $('csvDelimiter').innerHTML = options(kv(data.csvDelimiters), 'k', 'l', s.delimiter);
       $('csvPlain').checked = !!s.plain;
@@ -466,12 +471,16 @@
     function readCsv() {
       // Columns in the order of the item list (also the order of the sheet).
       var columns = data.templates.filter(function (t) { var b = document.querySelector('[data-csv="' + t.id + '"]'); return b && b.checked; })
-        .map(function (t) { return { id: t.id, header: document.querySelector('[data-csv-header="' + t.id + '"]').value.trim() || t.name }; });
+        .map(function (t) {
+          var f = document.querySelector('[data-csv-field="' + t.id + '"]');
+          return { id: t.id, header: document.querySelector('[data-csv-header="' + t.id + '"]').value.trim() || t.name, field: f ? f.value : '' };
+        });
       return { columns: columns, layout: $('csvLayout').value, delimiter: $('csvDelimiter').value, plain: $('csvPlain').checked };
     }
     function csvDone(r) {
       data.csvSettings = readCsv();
-      return r.columns + ' column(s), ' + r.rows + ' row(s) for ' + esc(r.date);
+      return r.columns + ' column(s), ' + r.rows + ' row(s) for ' + esc(r.date) +
+        (r.missing && r.missing.length ? '<div class="small mt-2">Left out because their staff sheet has no value: ' + esc(r.missing.join('; ')) + '</div>' : '');
     }
     function downloadCsv() {
       var s = readCsv();

@@ -389,7 +389,7 @@ function listDayDate_(dateIso, day) {
  *   left = people left out by the comparison, byRole = people left out by their role
  */
 function buildAgentList_(t, people, valueOf, except, roleOf) {
-  var values = [], missing = [], left = 0, byRole = 0;
+  var values = [], missing = [], left = 0, byRole = 0, listed = [];
   var excluded = (t.excludeRoles || []).map(normText_);
   people.forEach(function (p) {
     if (except && except[p.identity]) { left++; return; }
@@ -397,12 +397,13 @@ function buildAgentList_(t, people, valueOf, except, roleOf) {
     if (role && excluded.indexOf(role) >= 0) { byRole++; return; }
     var v = valueOf(p.rec);
     if (!v) { missing.push(p.employeeName || p.employeeId); return; }
-    if (values.indexOf(v) < 0) values.push(v);
+    if (values.indexOf(v) < 0) { values.push(v); listed.push(p.rec); }
   });
   // "\n" typed in the separator box means a line break (one value per line).
   var sep = t.separator.replace(/\\n/g, '\n');
   var text = values.length ? values.map(function (v) { return t.prefix + v + t.suffix; }).join(sep) : t.emptyText;
-  return { text: text, values: values, missing: missing, left: left, byRole: byRole };
+  // listed: one record per value, in order, so an export can write another staff column for the same people.
+  return { text: text, values: values, missing: missing, left: left, byRole: byRole, listed: listed };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -419,9 +420,13 @@ function planSectionFieldOptions_() {
   return opts;
 }
 
-/** Staff columns that can hold a platform ID: Employee ID and every custom staff column. */
+/**
+ * Staff columns an item can write for each person: Employee ID, the standard columns (Email, Role,
+ * Notes, Team, Skills) and every own column (e.g. "Aircall ID", "Slack ID").
+ */
 function linkIdFieldOptions_() {
   var opts = [{ key: 'employeeId', label: 'Employee ID' }];
+  ['email', 'role', 'notes', 'team', 'skills'].forEach(function (k) { opts.push({ key: k, label: STAFF_FIELD_DEFS[k].label }); });
   listStaffFields_().forEach(function (f) { opts.push({ key: STAFF_REGISTRY_PREFIX + f.fieldKey, label: f.displayName }); });
   return opts;
 }
@@ -502,6 +507,7 @@ function generateLink_(t, ctx, teamsById, staffCache) {
     var sectionOf = t.sectionField === 'role' ? roleOf : linkIdReader_(t.sectionField, teamsById, staffCache);
     res.text = buildPlanText_(t, items, names, reader, roleOf, ctx.date, sectionOf);
     var listed = orderPlanItems_(t, items, sectionOf).map(function (p) { return p.x; });
+    res.listed = listed.map(function (x) { return x.rec; }); // in plan order (CSV: another staff column for them)
     res.count = listed.length;
     res.people = uniq_(listed.map(function (x) { return x.identity; })).length;
     res.missing = Object.keys(missing);
@@ -521,6 +527,7 @@ function generateLink_(t, ctx, teamsById, staffCache) {
     res.text = list.text;
     res.values = list.values.map(function (v) { return t.prefix + v + t.suffix; }); // one per agent, for the CSV export
     res.rawValues = list.values.slice(); // without the text before/after each value
+    res.listed = list.listed; // the people listed, in order (CSV: another staff column for them)
     res.count = list.values.length;
     res.people = working.length - list.left - list.byRole;
     res.missing = list.missing;
@@ -817,7 +824,8 @@ var LINK_CSV_DELIMITERS = { ',': 'Comma (,)', ';': 'Semicolon (;) — Excel with
 function normalizeLinkCsvSettings_(s) {
   s = s || {};
   return {
-    columns: (Array.isArray(s.columns) ? s.columns : []).map(function (c) { return { id: str_(c && c.id), header: str_(c && c.header).substr(0, 120) }; })
+    // field: '' = the output as it is; otherwise a staff column written for each listed person (e.g. email).
+    columns: (Array.isArray(s.columns) ? s.columns : []).map(function (c) { return { id: str_(c && c.id), header: str_(c && c.header).substr(0, 120), field: str_(c && c.field) }; })
       .filter(function (c) { return c.id; }),
     layout: LINK_CSV_LAYOUTS[s.layout] ? s.layout : 'ROWS',
     delimiter: LINK_CSV_DELIMITERS[s.delimiter] ? s.delimiter : ',',
@@ -835,6 +843,24 @@ function linkOutputValues_(r, plain) {
   if (kind === 'LINK') return r.urls.slice();
   if (kind === 'LIST') { var v = plain ? r.rawValues : r.values; return v && v.length ? v.slice() : []; }
   return str_(r.text) === str_(r.template.emptyText) ? [] : str_(r.text).split('\n').map(function (l) { return l.replace(/\s+$/, ''); }).filter(Boolean);
+}
+
+/**
+ * A staff column for the people an item lists, in order: each person once, people without a value left
+ * out (and named in `missing`). Pure.
+ * @param {Object[]} recs the listed records (res.listed)
+ * @param {function(Object): string} valueOf the record's employee's value in that column
+ */
+function staffColumnValues_(recs, valueOf) {
+  var values = [], missing = [], seen = {};
+  (recs || []).forEach(function (r) {
+    var who = employeeIdentity_(r);
+    if (seen[who]) return;
+    seen[who] = true;
+    var v = str_(valueOf(r));
+    if (v) values.push(v); else missing.push(str_(r.employeeName) || str_(r.employeeId));
+  });
+  return { values: values, missing: missing };
 }
 
 /**
@@ -878,9 +904,20 @@ function linksCsvFor_(input, dateIso) {
   if (missing.length) fail_('VALIDATION', 'An item in the export no longer exists. Tick the items again.');
   var heads = s.columns.map(function (c) { return normName_(c.header || byId[c.id].name); });
   if (heads.some(function (h, i) { return heads.indexOf(h) !== i; })) fail_('VALIDATION', 'Every column needs its own header.');
+  var fieldKeys = linkIdFieldOptions_().map(function (f) { return f.key; }).concat([LIST_NAME_FIELD_]);
+  var bad = s.columns.filter(function (c) { return c.field && fieldKeys.indexOf(c.field) < 0; })[0];
+  if (bad) fail_('VALIDATION', 'The staff column "' + bad.field + '" for "' + (bad.header || byId[bad.id].name) + '" no longer exists.');
   var ctx = linkRunContext_(dateIso), teams = teamsByIdForLinks_(), cache = {};
+  var missingAll = [];
   var cols = s.columns.map(function (c) {
     var r = generateLink_(byId[c.id], ctx, teams, cache);
+    if (c.field && r.template.kind !== 'LINK') {
+      // Another staff column for the same people, e.g. their email instead of their name.
+      var valueOf = c.field === LIST_NAME_FIELD_ ? function (x) { return str_(x.employeeName) || str_(x.employeeId); } : linkIdReader_(c.field, teams, cache);
+      var sv = staffColumnValues_(r.listed, valueOf);
+      if (sv.missing.length) missingAll.push((c.header || byId[c.id].name) + ': ' + sv.missing.join(', '));
+      return { header: c.header || byId[c.id].name, values: sv.values, text: sv.values.join(r.template.kind === 'LIST' ? r.template.separator.replace(/\\n/g, '\n') : '\n') };
+    }
     var values = linkOutputValues_(r, s.plain);
     var text = r.template.kind === 'LINK' ? r.urls.join('\n')
       // Whole output in one cell, plain: the values joined as the list joins them, without the added text.
@@ -890,7 +927,7 @@ function linksCsvFor_(input, dateIso) {
   var out = buildLinksCsv_(cols, s);
   setConfigValues_({ LINK_CSV_SETTINGS: JSON.stringify(s) });
   var name = 'Monitoring Links ' + ctx.date + '.csv';
-  return { csv: '﻿' + out.csv, fileName: name, rows: out.rows, columns: cols.length, date: ctx.date }; // BOM: Excel reads it as UTF-8
+  return { csv: String.fromCharCode(0xFEFF) + out.csv, fileName: name, rows: out.rows, columns: cols.length, date: ctx.date, missing: missingAll }; // BOM: Excel reads it as UTF-8
 }
 
 /** The CSV text, for downloading in the browser. */
@@ -910,7 +947,7 @@ function apiLinksCsvToDrive(input, dateIso) {
       fail_('DRIVE_SERVICE', 'Saving to Drive needs the Drive advanced service (Apps Script editor → Services → Drive API). Use Download CSV instead.');
     }
     var file = Drive.Files.create({ name: r.fileName, mimeType: 'text/csv' }, Utilities.newBlob(r.csv, 'text/csv', r.fileName), { fields: 'id,name,webViewLink' });
-    return { fileName: file.name || r.fileName, url: file.webViewLink || 'https://drive.google.com/file/d/' + file.id + '/view', rows: r.rows, columns: r.columns, date: r.date };
+    return { fileName: file.name || r.fileName, url: file.webViewLink || 'https://drive.google.com/file/d/' + file.id + '/view', rows: r.rows, columns: r.columns, date: r.date, missing: r.missing };
   });
 }
 
