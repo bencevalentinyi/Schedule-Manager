@@ -55,6 +55,8 @@
             <div class="field"><label class="label" for="csvLayout">Layout</label><select id="csvLayout"></select></div>
             <div class="field"><label class="label" for="csvDelimiter">Separator</label><select id="csvDelimiter"></select></div>
           </div>
+          <label class="check mt-2"><input type="checkbox" id="csvPlain"> <span>Leave out the text added before/after each value
+            <span class="hint">Agent lists only: e.g. "@John Doe" → "John Doe", "&lt;@U123&gt;" → "U123". The sheet output stays as it is.</span></span></label>
           <div class="cluster mt-3">
             <button type="button" class="btn primary" onclick="downloadCsv()">Download CSV</button>
             <button type="button" class="btn" onclick="csvToDrive()">Save to Google Drive</button>
@@ -457,6 +459,7 @@
       }).join('') || '<tr><td colspan="3">' + emptyHtml('🔗', 'Nothing to export yet', 'Add a link, daily plan or agent list first.') + '</td></tr>';
       $('csvLayout').innerHTML = options(kv(data.csvLayouts), 'k', 'l', s.layout);
       $('csvDelimiter').innerHTML = options(kv(data.csvDelimiters), 'k', 'l', s.delimiter);
+      $('csvPlain').checked = !!s.plain;
       $('csvResult').innerHTML = '';
       show('placeholder', false); show('editor', false); show('layoutPanel', false); show('csvPanel', true); showStatus('', '');
     }
@@ -464,7 +467,7 @@
       // Columns in the order of the item list (also the order of the sheet).
       var columns = data.templates.filter(function (t) { var b = document.querySelector('[data-csv="' + t.id + '"]'); return b && b.checked; })
         .map(function (t) { return { id: t.id, header: document.querySelector('[data-csv-header="' + t.id + '"]').value.trim() || t.name }; });
-      return { columns: columns, layout: $('csvLayout').value, delimiter: $('csvDelimiter').value };
+      return { columns: columns, layout: $('csvLayout').value, delimiter: $('csvDelimiter').value, plain: $('csvPlain').checked };
     }
     function csvDone(r) {
       data.csvSettings = readCsv();

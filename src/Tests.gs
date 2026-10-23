@@ -909,13 +909,17 @@ function unitTestsLinks_() {
       assertEq_(rows.rows, 3);
       var cell = buildLinksCsv_(cols, { layout: 'CELL', delimiter: ';' });
       assertEq_(cell.csv, 'Night agents;Plan, today\r\n<@U1>, <@U2>, <@U3>;"08:00 - 16:00 Ann\n14:00 - 22:00 ""Bob"""\r\n', 'semicolon; line breaks kept inside one cell');
-      assertEq_([csvField_('=SUM(A1)', ','), csvField_('-5', ','), csvField_('+1 555', ',')], ["'=SUM(A1)", '-5', "'+1 555"], 'formulas never run when the file is opened');
+      assertEq_([csvField_('=SUM(A1)', ','), csvField_('-5', ','), csvField_('+1 555', ','), csvField_('-x', ','), csvField_('@SUM(A1)', ',')], ["'=SUM(A1)", '-5', '+1 555', "'-x", "'@SUM(A1)"], 'formulas never run when the file is opened');
+      assertEq_([csvField_('@John Doe', ','), csvField_('@john.doe', ','), csvField_('<@U1>', ',')], ['@John Doe', '@john.doe', '<@U1>'], 'names and mentions stay as they are');
       var plan = { template: { kind: 'PLAN', emptyText: 'No one scheduled' }, text: 'Leads\n08:00 Ann\n\nAgents\n09:00 Bob', urls: [] };
       assertEq_(linkOutputValues_(plan), ['Leads', '08:00 Ann', 'Agents', '09:00 Bob'], 'plan lines without the blank ones');
       assertEq_(linkOutputValues_({ template: { kind: 'PLAN', emptyText: 'No one scheduled' }, text: 'No one scheduled', urls: [] }), [], 'nobody: an empty column');
       assertEq_(linkOutputValues_({ template: { kind: 'LINK' }, urls: ['https://x/1', 'https://x/2'] }), ['https://x/1', 'https://x/2']);
+      var list = { template: { kind: 'LIST', emptyText: '' }, text: '@Ann Lee, @Bob Ray', values: ['@Ann Lee', '@Bob Ray'], rawValues: ['Ann Lee', 'Bob Ray'], urls: [] };
+      assertEq_([linkOutputValues_(list), linkOutputValues_(list, true)], [['@Ann Lee', '@Bob Ray'], ['Ann Lee', 'Bob Ray']], 'plain: without the text added before/after each value');
+      assertEq_(normalizeLinkCsvSettings_({ plain: 1 }).plain, true);
       assertEq_(normalizeLinkCsvSettings_({ columns: [{ id: 'A', header: 'X' }, { id: '' }], layout: 'NOPE', delimiter: '|' }),
-        { columns: [{ id: 'A', header: 'X' }], layout: 'ROWS', delimiter: ',' });
+        { columns: [{ id: 'A', header: 'X' }], layout: 'ROWS', delimiter: ',', plain: false });
     }],
     ['Agent lists: people of a day as names or IDs, optionally only those not working on another day', function () {
       var t = normalizeLinkTemplate_({ kind: 'LIST', name: 'Add', idField: 'NAME', separator: ', ', listDay: 'TODAY', exceptDay: 'YESTERDAY' });

@@ -520,6 +520,7 @@ function generateLink_(t, ctx, teamsById, staffCache) {
     var list = buildAgentList_(t, working, valueOf, except, linkIdReader_('role', teamsById, staffCache));
     res.text = list.text;
     res.values = list.values.map(function (v) { return t.prefix + v + t.suffix; }); // one per agent, for the CSV export
+    res.rawValues = list.values.slice(); // without the text before/after each value
     res.count = list.values.length;
     res.people = working.length - list.left - list.byRole;
     res.missing = list.missing;
@@ -819,22 +820,31 @@ function normalizeLinkCsvSettings_(s) {
     columns: (Array.isArray(s.columns) ? s.columns : []).map(function (c) { return { id: str_(c && c.id), header: str_(c && c.header).substr(0, 120) }; })
       .filter(function (c) { return c.id; }),
     layout: LINK_CSV_LAYOUTS[s.layout] ? s.layout : 'ROWS',
-    delimiter: LINK_CSV_DELIMITERS[s.delimiter] ? s.delimiter : ','
+    delimiter: LINK_CSV_DELIMITERS[s.delimiter] ? s.delimiter : ',',
+    // Agent lists without the text added before/after each value (e.g. "@" or "<@" … ">"); the sheet keeps it.
+    plain: !!s.plain
   };
 }
 
-/** An item's output as CSV values: agent-list values, plan lines (blank lines dropped), or link URLs. Pure. */
-function linkOutputValues_(r) {
+/**
+ * An item's output as CSV values: agent-list values, plan lines (blank lines dropped), or link URLs. Pure.
+ * plain: agent lists without the text before/after each value.
+ */
+function linkOutputValues_(r, plain) {
   var kind = r.template.kind;
   if (kind === 'LINK') return r.urls.slice();
-  if (kind === 'LIST') return r.values && r.values.length ? r.values.slice() : [];
+  if (kind === 'LIST') { var v = plain ? r.rawValues : r.values; return v && v.length ? v.slice() : []; }
   return str_(r.text) === str_(r.template.emptyText) ? [] : str_(r.text).split('\n').map(function (l) { return l.replace(/\s+$/, ''); }).filter(Boolean);
 }
 
-/** One CSV field: quoted when it holds the delimiter, a quote or a line break; leading = + - @ made harmless for spreadsheets. Pure. */
+/**
+ * One CSV field: quoted when it holds the delimiter, a quote or a line break. A cell that would run as a
+ * formula when opened gets a ' in front: starting with =, with + or - not followed by a number, or with
+ * @ followed by a function (@SUM(…)). A mention or name such as "@John Doe" stays as it is. Pure.
+ */
 function csvField_(v, delimiter) {
   var s = String(v === null || v === undefined ? '' : v);
-  if (/^[=+\-@]/.test(s) && !/^-?\d/.test(s)) s = "'" + s; // a cell starting like a formula would run when opened
+  if (/^=/.test(s) || (/^[+\-]/.test(s) && !/^[+\-]?\d/.test(s)) || /^@\s*[A-Za-z_][\w.]*\s*\(/.test(s)) s = "'" + s;
   return s.indexOf(delimiter) >= 0 || /["\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
@@ -871,8 +881,10 @@ function linksCsvFor_(input, dateIso) {
   var ctx = linkRunContext_(dateIso), teams = teamsByIdForLinks_(), cache = {};
   var cols = s.columns.map(function (c) {
     var r = generateLink_(byId[c.id], ctx, teams, cache);
-    var values = linkOutputValues_(r);
-    var text = r.template.kind === 'LINK' ? r.urls.join('\n') : r.text;
+    var values = linkOutputValues_(r, s.plain);
+    var text = r.template.kind === 'LINK' ? r.urls.join('\n')
+      // Whole output in one cell, plain: the values joined as the list joins them, without the added text.
+      : r.template.kind === 'LIST' && s.plain ? (values.length ? values.join(r.template.separator.replace(/\\n/g, '\n')) : r.text) : r.text;
     return { header: c.header || byId[c.id].name, values: values, text: text };
   });
   var out = buildLinksCsv_(cols, s);
