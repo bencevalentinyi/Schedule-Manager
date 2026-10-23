@@ -1177,6 +1177,43 @@ function unitTestsIdImport_() {
       assertEq_(rememberedStaffImportMapping_(mem, ['Badge no.', 'Name']).fills[0].field, 'employeeId', 'the Quinyx layout keeps its own');
       assertEq_(rememberedStaffImportMapping_(mem, ['Other']), null);
     }],
+    ['Staff import: names that look alike are only suggested for review; your choice decides and is remembered', function () {
+      var sim = function (a, b) { return staffImportNameSimilarity_(a, b).why; };
+      assertEq_([sim('Lee Ann Marie', 'Ann Marie Lee'), sim('Ann Lee', 'Ann Marie Lee'), sim('Jon Smit', 'John Smith'), sim('A. Lee', 'Ann Lee'), sim('Ann Lee', 'Bob Ray')],
+        ['same words, different order', 'middle name differs', 'similar spelling', 'same last name and initial', '']);
+      var sh = sheets();
+      sh[0].rows.push(person(7, 'E7', 'Ann Marie Lee'));
+      var tg = targets.concat([{ key: 'field:aircall', label: 'Aircall ID', kind: 'IDENTIFIER', unique: true, fill: true }]);
+      sh[0].keys.push('field:aircall');
+      var t = [['Identifier', 'Full name'], ['111', 'Lee Ann Marie'], ['222', 'Zed Nobody'], ['333', 'Cy Moe']];
+      var o = { headerRow: 1, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] };
+      var p = planStaffImport_(t, o, sh, tg);
+      var it = p.items[0];
+      assertEq_([it.status, it.suggestions[0].label, it.changes.length], ['SUGGESTED', 'Ann Marie Lee · E7', 0], 'suggested, nothing written yet');
+      assertEq_([p.items[1].status, p.summary.review, p.summary.writes], ['NOT_FOUND', 1, 1], 'only Cy is written without review');
+      o.assign = { 2: it.suggestions[0].ref, 4: 'SKIP' }; // file rows: 1 = header, 2 = Lee Ann Marie, 4 = Cy Moe
+      var q = planStaffImport_(t, o, sh, tg);
+      assertEq_([q.items[0].status, q.items[0].changes[0].row, q.items[2].status, q.summary.writes], ['SET', 7, 'SKIPPED', 1], 'the chosen person gets the ID; Cy is left out');
+      assertEq_(q.learned, [{ key: 'employeeName|lee ann marie', ref: 'T1|ID:E7' }], 'the choice is remembered');
+      var again = planStaffImport_(t, { headerRow: 1, matchColumn: 1, matchField: 'employeeName', fills: o.fills, aliases: { 'employeeName|lee ann marie': 'T1|ID:E7' } }, sh, tg);
+      assertEq_([again.items[0].status, again.items[0].note], ['SET', 'Matched as you chose before.'], 'next import: matched by the remembered choice');
+      var amb = sheets(); amb[0].rows.push(person(8, 'E8', 'Cy Moe'));
+      var a = planStaffImport_([['Name', 'Role'], ['Cy Moe', 'Agent']], { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 1, field: 'role' }] }, amb, targets);
+      assertEq_([a.items[0].status, a.items[0].suggestions.length], ['AMBIGUOUS', 2], 'two Cy Moe in one sheet: both offered to choose from');
+    }],
+    ['Staff import: a 6000-row file against 300 staff stays fast', function () {
+      var staff = [];
+      for (var i = 0; i < 300; i++) staff.push(person(4 + i, 'E' + i, 'Person' + i + ' Family' + (i % 37)));
+      var big = [['Identifier', 'Full name']];
+      for (var j = 0; j < 6000; j++) big.push(['X' + j, j % 20 === 0 ? 'Person' + (j % 300) + ' Family' + ((j % 300) % 37) : 'Someone' + j + ' Else' + (j % 91)]);
+      var t0 = new Date().getTime();
+      var p = planStaffImport_(big, { headerRow: 1, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] },
+        [{ teamId: 'T1', teamName: 'Alpha', keys: ['employeeId', 'employeeName', 'field:aircall'], rows: staff }],
+        targets.concat([{ key: 'field:aircall', label: 'Aircall ID', kind: 'IDENTIFIER', unique: true, fill: true }]));
+      var ms = new Date().getTime() - t0;
+      assertEq_(p.summary.rows, 6000);
+      assert_(ms < 60000, '6000 rows took ' + ms + ' ms');
+    }],
     ['Staff import: find people by Employee ID or email; values already used by someone else are refused; mapping is checked', function () {
       var byId = plan([['ID', 'Mail'], ['b9', 'bobby@x.com'], ['0123', 'ann@x.com']], { headerRow: 1, matchColumn: 0, matchField: 'employeeId', fills: [{ column: 1, field: 'email' }] });
       assertEq_([statusOf(byId).b9, statusOf(byId)['0123']], ['CONFLICT', 'NO_COLUMN'], 'IDs ignore capitals; Beta has no Email column');

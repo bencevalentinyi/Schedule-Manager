@@ -105,6 +105,77 @@ function staffImportNameKeys_(name) {
   return { plain: plain, swapped: swapped && swapped !== plain ? swapped : '' };
 }
 
+/** A person's reference that survives re-sorting the sheet: "<teamId>|ID:<id>" or "<teamId>|NM:<name>". Pure. */
+function staffPersonRef_(teamId, r) {
+  return teamId + '|' + (r.employeeId ? 'ID:' + idKey_(r.employeeId) : 'NM:' + normName_(r.employeeName));
+}
+
+/** Edit distance of two short strings (letters added, removed or changed). Pure. */
+function staffImportEditDistance_(a, b) {
+  if (a === b) return 0;
+  var prev = [], cur;
+  for (var j = 0; j <= b.length; j++) prev.push(j);
+  for (var i = 1; i <= a.length; i++) {
+    cur = [i];
+    for (var k = 1; k <= b.length; k++) cur.push(Math.min(prev[k] + 1, cur[k - 1] + 1, prev[k - 1] + (a.charAt(i - 1) === b.charAt(k - 1) ? 0 : 1)));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * How alike two names are, for review suggestions (never applied without a choice). Pure.
+ * @return {{score: number, why: string}} 0 = not alike; higher = closer
+ */
+function staffImportNameSimilarity_(a, b) {
+  var words = function (s) { return normName_(str_(s).replace(/[,.]/g, ' ')).split(' ').filter(Boolean); };
+  var A = words(a), B = words(b);
+  if (!A.length || !B.length) return { score: 0, why: '' };
+  var has = function (list, w) { return list.indexOf(w) >= 0; };
+  var sameSet = A.length === B.length && A.every(function (w) { return has(B, w); });
+  if (sameSet) return { score: 100, why: 'same words, different order' };
+  var short = A.length <= B.length ? A : B, long = short === A ? B : A;
+  if (short.length >= 2 && has(long, short[0]) && has(long, short[short.length - 1])) return { score: 90, why: 'middle name differs' };
+  if (short.length >= 2 && short.every(function (w) { return has(long, w); })) return { score: 80, why: 'one name contains the other' };
+  // Every word close in spelling (1 letter, or 2 for long words), in any order.
+  var close = function (w, list) { return list.some(function (x) { return staffImportEditDistance_(w, x) <= (Math.max(w.length, x.length) >= 7 ? 2 : 1); }); };
+  if (A.length === B.length && A.length >= 2 && A.every(function (w) { return close(w, B); })) return { score: 70, why: 'similar spelling' };
+  // Same last name and the same first initial ("A. Lee" / "Ann Lee").
+  if (A[A.length - 1] === B[B.length - 1] && A[0].charAt(0) === B[0].charAt(0) && (A[0].length === 1 || B[0].length === 1)) return { score: 60, why: 'same last name and initial' };
+  return { score: 0, why: '' };
+}
+
+/**
+ * Index of the staff names for suggestions, so a big file (thousands of rows) only compares each name
+ * with the people who share a word or the first 3 letters of a word, not with everyone. Pure.
+ */
+function staffImportNameIndex_(peopleList, people) {
+  var words = function (s) { return normName_(str_(s).replace(/[,.]/g, ' ')).split(' ').filter(Boolean); };
+  var byWord = {}, byPrefix = {};
+  var add = function (map, k, ref) { if (!k) return; var l = map[k] = map[k] || []; if (l[l.length - 1] !== ref) l.push(ref); };
+  peopleList.forEach(function (p) {
+    words(people[p.ref].r.employeeName).forEach(function (w) { add(byWord, w, p.ref); if (w.length >= 3) add(byPrefix, w.substr(0, 3), p.ref); });
+  });
+  var label = {};
+  peopleList.forEach(function (p) { label[p.ref] = p; });
+  return { byWord: byWord, byPrefix: byPrefix, label: label, people: people, words: words };
+}
+
+/** Up to 5 staff people whose name is alike, best first, as {ref, label, teamName, why}. Pure. */
+function staffImportNameSuggestions_(raw, ix) {
+  var seen = {}, cands = [];
+  ix.words(raw).forEach(function (w) {
+    (ix.byWord[w] || []).concat(w.length >= 3 ? ix.byPrefix[w.substr(0, 3)] || [] : []).forEach(function (ref) { if (!seen[ref]) { seen[ref] = true; cands.push(ref); } });
+  });
+  return cands.map(function (ref) {
+    var p = ix.label[ref];
+    var sim = staffImportNameSimilarity_(raw, ix.people[ref].r.employeeName);
+    return { ref: ref, label: p.label, teamName: p.teamName, why: sim.why, score: sim.score };
+  }).filter(function (s) { return s.score > 0; })
+    .sort(function (x, y) { return y.score - x.score || x.label.localeCompare(y.label); })
+    .slice(0, 5).map(function (s) { return { ref: s.ref, label: s.label, teamName: s.teamName, why: s.why }; });
+}
+
 /** The value as it will be written, or {error}. Pure. */
 function staffImportValue_(target, raw, stripZeros) {
   var v = str_(raw).replace(/\s+/g, ' ').trim();
@@ -166,6 +237,21 @@ function planStaffImport_(table, opts, sheets, targets) {
     });
   });
 
+  // Every person by a reference that survives re-sorting the sheet: "<teamId>|ID:<id>" or "<teamId>|NM:<name>".
+  var people = {}, peopleList = [];
+  use.forEach(function (s, si) {
+    s.rows.forEach(function (r) {
+      var ref = staffPersonRef_(s.teamId, r);
+      if (people[ref]) return;
+      people[ref] = { si: si, r: r };
+      peopleList.push({ ref: ref, label: r.employeeName + (r.employeeId ? ' · ' + r.employeeId : ''), teamName: s.teamName });
+    });
+  });
+  peopleList.sort(function (a, b) { return a.label.localeCompare(b.label) || a.teamName.localeCompare(b.teamName); });
+  var personOption = function (ref) { var p = people[ref]; return { ref: ref, label: p.r.employeeName + (p.r.employeeId ? ' · ' + p.r.employeeId : ''), teamName: use[p.si].teamName }; };
+  var assign = opts.assign || {}, aliases = opts.aliases || {};
+  var nameIndex = opts.matchField === 'employeeName' ? staffImportNameIndex_(peopleList, people) : null;
+
   var rows = [];
   for (var i = headerRow; i < table.length; i++) {
     var row = table[i] || [];
@@ -186,20 +272,49 @@ function planStaffImport_(table, opts, sheets, targets) {
 
   var items = rows.map(function (x) {
     var raw = str_(x.cells[opts.matchColumn]).replace(/\s+/g, ' ').trim();
-    var it = { row: x.row, key: raw, label: raw, status: '', note: '', changes: [] };
+    var it = { row: x.row, key: raw, label: raw, status: '', note: '', changes: [], choice: '', suggestions: [] };
     if (!raw) { it.status = 'NO_KEY'; it.note = 'No ' + matchT.label + ' in this row.'; return it; }
     var key = staffImportKey_(opts.matchField, raw, strip);
-    if (keyCount[key] > 1) { it.status = 'DUPLICATE_IN_FILE'; it.note = 'This ' + matchT.label + ' appears in several rows.'; return it; }
-    var found = index[key] || [];
-    if (!found.length && opts.matchField === 'employeeName') {
-      var sw = staffImportNameKeys_(raw).swapped;
-      if (sw && index[sw]) { found = index[sw]; it.note = 'Matched as "Last, First".'; }
+    var aliasKey = opts.matchField + '|' + key;
+    var found = [];
+    var picked = str_(assign[String(x.row)]);
+    if (picked === 'SKIP') { it.status = 'SKIPPED'; it.choice = 'SKIP'; it.note = 'Left out (your choice).'; return it; }
+    if (picked) {
+      // Chosen in the preview: that person, whatever the names say.
+      it.choice = picked;
+      if (!people[picked]) { it.status = 'NOT_FOUND'; it.note = 'The person you chose is no longer in the staff sheet.'; return it; }
+      found = [people[picked]];
+      it.note = 'Chosen by you.';
+      it.aliasKey = aliasKey; it.chosen = true;
+    } else {
+      if (keyCount[key] > 1) { it.status = 'DUPLICATE_IN_FILE'; it.note = 'This ' + matchT.label + ' appears in several rows.'; return it; }
+      found = index[key] || [];
+      if (!found.length && opts.matchField === 'employeeName') {
+        var sw = staffImportNameKeys_(raw).swapped;
+        if (sw && index[sw]) { found = index[sw]; it.note = 'Matched as "Last, First".'; }
+      }
+      if (!found.length && aliases[aliasKey] && people[aliases[aliasKey]]) {
+        // Chosen for this name in an earlier import.
+        it.choice = aliases[aliasKey];
+        found = [people[aliases[aliasKey]]];
+        it.note = 'Matched as you chose before.';
+      }
     }
-    if (!found.length) { it.status = 'NOT_FOUND'; it.note = 'Not in ' + (chosen.length ? 'the chosen' : 'any') + ' staff sheet.'; return it; }
+    if (!found.length) {
+      it.suggestions = nameIndex ? staffImportNameSuggestions_(raw, nameIndex) : [];
+      it.status = it.suggestions.length ? 'SUGGESTED' : 'NOT_FOUND';
+      it.note = it.suggestions.length ? 'Not found by name; possible match: ' + it.suggestions.map(function (s) { return s.label + ' (' + s.teamName + ')'; }).join(', ') + '.'
+        : 'Not in ' + (chosen.length ? 'the chosen' : 'any') + ' staff sheet.';
+      return it;
+    }
     var perSheet = {};
     found.forEach(function (f) { perSheet[f.si] = (perSheet[f.si] || 0) + 1; });
     var dup = Object.keys(perSheet).filter(function (si) { return perSheet[si] > 1; })[0];
-    if (dup !== undefined) { it.status = 'AMBIGUOUS'; it.note = 'Several people have this ' + matchT.label + ' in the staff sheet of ' + use[dup].teamName + '.'; return it; }
+    if (dup !== undefined) {
+      it.status = 'AMBIGUOUS'; it.note = 'Several people have this ' + matchT.label + ' in the staff sheet of ' + use[dup].teamName + '. Choose the right one.';
+      it.suggestions = found.map(function (f) { return personOption(staffPersonRef_(use[f.si].teamId, f.r)); });
+      return it;
+    }
     it.label = found[0].r.employeeName || raw;
     found.forEach(function (f) {
       var s = use[f.si];
@@ -256,7 +371,10 @@ function planStaffImport_(table, opts, sheets, targets) {
   S.rows = items.length;
   items.forEach(function (it) {
     if (it.status === 'NOT_FOUND') S.notFound++;
-    else if (['AMBIGUOUS', 'NO_KEY', 'DUPLICATE_IN_FILE'].indexOf(it.status) >= 0) S.problems++;
+    else if (it.status === 'SUGGESTED') S.review++;
+    else if (it.status === 'SKIPPED') S.skipped++;
+    else if (it.status === 'AMBIGUOUS') { S.review++; S.problems++; }
+    else if (['NO_KEY', 'DUPLICATE_IN_FILE'].indexOf(it.status) >= 0) S.problems++;
     else S.matched++;
     it.changes.forEach(function (c) {
       if (c.status === 'SET') S.set++;
@@ -266,11 +384,13 @@ function planStaffImport_(table, opts, sheets, targets) {
       if (c.status === 'SET' || (c.status === 'CONFLICT' && opts.overwrite)) S.writes++;
     });
   });
-  return { items: items, summary: S, errors: [] };
+  // Names you matched to a person by hand, remembered for the next import (only those that are used).
+  var learned = items.filter(function (it) { return it.chosen && it.changes.length; }).map(function (it) { return { key: it.aliasKey, ref: it.choice }; });
+  return { items: items, summary: S, errors: [], people: peopleList, learned: learned };
 }
 
 function emptyStaffImportSummary_() {
-  return { rows: 0, matched: 0, notFound: 0, set: 0, same: 0, conflict: 0, problems: 0, writes: 0 };
+  return { rows: 0, matched: 0, notFound: 0, review: 0, skipped: 0, set: 0, same: 0, conflict: 0, problems: 0, writes: 0 };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -310,8 +430,31 @@ function staffImportOptions_(o) {
     headerRow: Math.max(1, Math.floor(toNumber_(o.headerRow, 1))), matchColumn: Math.floor(toNumber_(o.matchColumn, -1)), matchField: str_(o.matchField),
     fills: (Array.isArray(o.fills) ? o.fills : []).map(function (f) { return { column: Math.floor(toNumber_(f && f.column, -1)), field: str_(f && f.field) }; }),
     overwrite: !!o.overwrite, teamIds: (Array.isArray(o.teamIds) ? o.teamIds : []).map(str_).filter(Boolean),
-    stripZeros: cfgBool_(getConfig_(), 'STRIP_LEADING_ZEROS')
+    stripZeros: cfgBool_(getConfig_(), 'STRIP_LEADING_ZEROS'),
+    // Choices made in the preview: source row → person reference, or "SKIP".
+    assign: (function () {
+      var a = {};
+      Object.keys(o.assign && typeof o.assign === 'object' ? o.assign : {}).forEach(function (k) { var v = str_(o.assign[k]); if (/^\d+$/.test(k) && v) a[k] = v; });
+      return a;
+    })(),
+    aliases: loadStaffImportMatches_()
   };
+}
+
+/** Names matched by hand before: "<matchField>|<key>" → person reference. */
+function loadStaffImportMatches_() {
+  var v = parseJson_(getConfig_().STAFF_IMPORT_MATCHES, {});
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+}
+
+/** Adds the new hand matches (the newest first; at most 500 kept, so they fit in one _CONFIG cell). */
+function saveStaffImportMatches_(learned) {
+  if (!learned.length) return;
+  var old = loadStaffImportMatches_();
+  var out = {};
+  learned.forEach(function (l) { out[l.key] = l.ref; });
+  Object.keys(old).forEach(function (k) { if (!(k in out) && Object.keys(out).length < 500) out[k] = old[k]; });
+  setConfigValues_({ STAFF_IMPORT_MATCHES: JSON.stringify(out) });
 }
 
 function staffImportPlanFor_(stageId, o) {
@@ -432,7 +575,16 @@ function apiStaffImportPreview(stageId, opts) {
     requireInitialized_();
     var r = staffImportPlanFor_(stageId, opts);
     if (r.plan.errors.length) fail_('VALIDATION', r.plan.errors.join(' '));
-    return { summary: r.plan.summary, items: r.plan.items.slice(0, 500), more: Math.max(0, r.plan.items.length - 500) };
+    // A big file (thousands of rows) is cut to 1000 rows for the browser; the ones to look at come first:
+    // possible matches and your choices, then problems and different values, then "not found", then the rest.
+    var rank = function (it) {
+      if (it.status === 'SUGGESTED' || it.status === 'AMBIGUOUS' || it.choice) return 0;
+      if (['NO_KEY', 'DUPLICATE_IN_FILE', 'INVALID_VALUE', 'DUP_VALUE', 'IN_USE', 'CONFLICT', 'NO_COLUMN'].indexOf(it.status) >= 0) return 1;
+      if (it.status === 'NOT_FOUND') return 2;
+      return 3;
+    };
+    var items = r.plan.items.slice().sort(function (a, b) { return rank(a) - rank(b) || a.row - b.row; });
+    return { summary: r.plan.summary, items: items.slice(0, 1000), more: Math.max(0, items.length - 1000), people: r.plan.people };
   });
 }
 
@@ -470,6 +622,7 @@ function apiStaffImportApply(stageId, opts) {
         teams.push(s.teamName);
       });
       clearStaged_(stageId);
+      try { saveStaffImportMatches_(r.plan.learned); } catch (e) { logError_('saveStaffImportMatches_', e); }
       try {
         var labels = staffImportColumns_(r.staged.table, r.opts.headerRow).map(function (c) { return c.label; });
         var memory = rememberStaffImportMapping_(loadStaffImportMemory_(), labels,
