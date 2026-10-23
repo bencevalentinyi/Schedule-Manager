@@ -22,7 +22,7 @@ Teams, staff fields and shift and meeting types are configured through the **Sch
 2.0.0 removes the Slack module, the team type dialog, the import settings dialog and team membership, simplifies the team and import dialogs, and adds multi-team imports, Employee ID import, Monitoring Links and themes (see the changelog). No team, staff or schedule data is deleted.
 
 1. **Delete the removed files** from the Apps Script project: `SlackDialog.html`, `SlackMessageService.gs`, `SlackPayloadService.gs`, `TeamTypeDialog.html`, `MembershipService.gs`.
-   **Add the new files:** `EmployeeIdDialog.html`, `MonitoringLinkService.gs`, `MonitoringLinksDialog.html`, and optionally `ThemeSky.html` / `ThemeEmber.html`.
+   **Add the new files:** `StaffImportService.gs`, `StaffImportDialog.html`, `MonitoringLinkService.gs`, `MonitoringLinksDialog.html`, and optionally `ThemeSky.html` / `ThemeEmber.html`.
 2. **Replace** every other file in `src/`. With clasp: `git pull`, then `clasp push`.
 3. **Check the files:** save, run **`checkInstall`**, then reload the spreadsheet.
 4. **Run the upgrade once:** *Setup / Configure Spreadsheet → **Upgrade*** (other actions show "upgrade required" until you do). It records version 2.0.0, gives every team that still shares a staff sheet its own copy and hides the system sheets.
@@ -69,7 +69,7 @@ All files in `src/` belong in **one** Apps Script project bound to the spreadshe
 | `SetupDialog.html`, `ReportDialog.html`, `HistoryDialog.html`, `SettingsDialog.html`, `TeamManager.html`, `StaffFieldsDialog.html` | Setup, reports and help, import history, display settings, team list, custom fields | their services |
 | `TeamDialog.html` | Five-step team dialog (create and edit) | TeamService |
 | `StaffSidebar.html` | Staff directory sidebar | StaffService |
-| `EmployeeIdDialog.html` | Import Employee IDs from a Quinyx "Custom report" (Badge no. + Name) into the staff sheets | StaffService |
+| `StaffImportService.gs`, `StaffImportDialog.html` | Import Staff Data: fills staff columns (Employee ID, Email, Role, own columns…) from a file, a sheet tab or another Google Sheet; one column finds each person (Name, Employee ID, Email…). Recognises the Quinyx "Custom report" (Badge no. + Name) | StaffService, StaffFieldService, QuinyxParser, ImportService (staging) |
 | `MonitoringLinkService.gs`, `MonitoringLinksDialog.html` | Monitoring links: dashboard URLs filled with the platform IDs (a staff column such as "Aircall ID") of the people who are working. Templates are stored in `_CONFIG` (LINK_TEMPLATES), never in code | Schedule, Staff, StaffFieldService, Config |
 | `Navigator.html` | Schedule Viewer sidebar (date navigation, filters, summary) | ScheduleService |
 | `WebApp.gs`, `WebShell.html`, `WebHome.html` | **Web app** (optional): `doGet` shows every tool as a page in a browser tab, with a navigation bar, a Home page and prefetched data (one round trip per page). The tool pages are the same dialog files. See [docs/WEB_APP.md](docs/WEB_APP.md). | all client APIs |

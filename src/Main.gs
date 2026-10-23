@@ -27,7 +27,7 @@ function onOpen() {
       .addItem('Refresh Schedule Data', 'menuRefresh')
       .addSeparator()
       .addItem('View Staff Directory', 'menuViewStaff')
-      .addItem('Import Employee IDs', 'menuImportEmployeeIds')
+      .addItem('Import Staff Data (IDs, emails…)', 'menuImportEmployeeIds')
       .addItem('Monitoring Links', 'menuMonitoringLinks'))
     .addSubMenu(ui.createMenu('Maintenance')
       .addItem('Rebuild Missing Sheets', 'menuRebuildMissing')
@@ -74,12 +74,12 @@ function checkInstall() {
   var g = (function () { return this; })() || globalThis;
   var scripts = {
     Schema: 'APP', Utils: 'logError_', SheetStore: 'readTable_', ConfigService: 'getConfig_', Setup: 'initializeSystem_',
-    TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_',
+    TeamTypeService: 'listTeamTypes_', TeamService: 'listTeams_', StaffFieldService: 'listStaffFields_', StaffService: 'layoutStaffSheet_', StaffImportService: 'planStaffImport_',
     ScheduleService: 'renderDailyView_', DashboardService: 'rebuildDashboard_', QuinyxParser: 'parseCsv_',
     MonitoringLinkService: 'buildMonitoringUrls_', ImportMappingService: 'listProfiles_', ImportService: 'buildImportPlan_', ValidationService: 'validateStructure_',
     AuditService: 'readImportLog_', WebApp: 'doGet', WebDataService: 'apiWebDay', Main: 'onOpen', Tests: 'runUnitTests'
   };
-  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'EmployeeIdDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog',
+  var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'StaffImportDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog',
     'WebShell', 'WebHome', 'WebSchedule', 'WebDashboard', 'WebPerson', 'WebStaff', 'WebLinksOutput'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
@@ -291,7 +291,7 @@ function menuViewStaff() {
 }
 
 function menuImportEmployeeIds() {
-  menuRun_('menuImportEmployeeIds', function () { showHtml_('EmployeeIdDialog', 'Import Employee IDs', {}, DIALOG_SIZE.LARGE); });
+  menuRun_('menuImportEmployeeIds', function () { showHtml_('StaffImportDialog', 'Import Staff Data', {}, DIALOG_SIZE.LARGE); });
 }
 
 function menuMonitoringLinks() {

@@ -45,7 +45,7 @@ var WEB_PAGES = {
   directory: { file: 'StaffSidebar', title: 'Staff Directory (sidebar)', back: 'staff', narrow: true, prefetch: function () { return [['apiStaffBootstrap']]; } },
   history: { file: 'HistoryDialog', title: 'Import History', prefetch: function () { return [['apiImportHistory', 100]]; } },
   fields: { file: 'StaffFieldsDialog', title: 'Configure Staff Fields', back: 'staff', prefetch: function () { return [['apiStaffFieldsBootstrap']]; } },
-  ids: { file: 'EmployeeIdDialog', title: 'Import Employee IDs', back: 'staff', prefetch: function () { return [['apiImportBootstrap']]; } },
+  ids: { file: 'StaffImportDialog', title: 'Import Staff Data', back: 'staff', prefetch: function () { return [['apiStaffImportBootstrap']]; } },
   setup: { file: 'SetupDialog', title: 'Setup / Configure Spreadsheet', init: false, boot: function () { return { state: getSetupState_() }; } },
   help: { file: 'ReportDialog', title: 'About / Help', init: false, boot: function () { return { title: APP.NAME + ' ' + APP.VERSION, help: true }; } }
 };

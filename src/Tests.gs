@@ -1107,37 +1107,68 @@ function unitTestsWebApp_() {
 }
 
 function unitTestsIdImport_() {
-  var report = [['Custom report', ''], ['Badge no.', 'Name as First name, Last name'],
-    ['0123', 'Ann, Lee'], ['555', 'Bob Ray'], ['777', 'Fox, Dee'], ['900', 'Zed New'], ['', 'No Badge'], ['555', 'Cy Moe']];
+  var targets = [
+    { key: 'employeeId', label: 'Employee ID', kind: 'ID', unique: true, fill: true },
+    { key: 'employeeName', label: 'Employee Name', kind: 'TEXT', unique: false, fill: false },
+    { key: 'email', label: 'Email', kind: 'EMAIL', unique: false, fill: true },
+    { key: 'role', label: 'Role', kind: 'TEXT', unique: false, fill: true },
+    { key: 'field:slack', label: 'Slack ID', kind: 'IDENTIFIER', unique: true, fill: true }
+  ];
+  var person = function (row, id, name, f) { return { _row: row, employeeId: id, employeeName: name, fields: f || {} }; };
   var sheets = function () {
     return [
-      { teamId: 'T1', teamName: 'Alpha', rows: [{ _row: 4, employeeId: '', employeeName: 'Ann Lee' }, { _row: 5, employeeId: 'B9', employeeName: 'Bob Ray' },
-        { _row: 6, employeeId: '', employeeName: 'Cy Moe' }] },
-      { teamId: 'T2', teamName: 'Beta', rows: [{ _row: 4, employeeId: '', employeeName: 'Dee Fox' }, { _row: 5, employeeId: '0123', employeeName: 'Ann Lee' }] }
+      { teamId: 'T1', teamName: 'Alpha', keys: ['employeeId', 'employeeName', 'role', 'email', 'field:slack'], rows: [person(4, '', 'Ann Lee', { email: '' }),
+        person(5, 'B9', 'Bob Ray', { email: 'bob@x.com', 'field:slack': 'U9' }), person(6, '', 'Cy Moe')] },
+      { teamId: 'T2', teamName: 'Beta', keys: ['employeeId', 'employeeName', 'role'], rows: [person(4, '', 'Dee Fox'), person(5, '0123', 'Ann Lee')] }
     ];
   };
-  var byName = function (plan) { var o = {}; plan.items.forEach(function (i) { o[i.name] = i.status; }); return o; };
+  var report = [['Custom report', ''], ['Badge no.', 'Name as First name, Last name'],
+    ['0123', 'Ann, Lee'], ['555', 'Bob Ray'], ['777', 'Fox, Dee'], ['900', 'Zed New'], ['', 'No Badge'], ['555', 'Cy Moe']];
+  var plan = function (table, o) { return planStaffImport_(table, o, sheets(), targets); };
+  var statusOf = function (p) { var o = {}; p.items.forEach(function (i) { o[i.key] = i.status; }); return o; };
   return [
-    ['Employee IDs: the Custom report header is found in row 2 and every person is read', function () {
-      var p = parseIdReport_(report);
-      assertEq_([p.error, p.headerRow, p.idHeader, p.entries.length, p.entries[0].id, p.entries[0].row], ['', 2, 'Badge no.', 6, '0123', 3]);
-      assert_(parseIdReport_([['Custom report'], ['Something', 'Else']]).error, 'a report without the columns is refused');
+    ['Staff import: a Quinyx Custom report is read from row 2 and mapped as Name → find, Badge no. → Employee ID', function () {
+      assertEq_(detectStaffImportHeader_(report), 2);
+      var cols = staffImportColumns_(report, 2);
+      assertEq_(cols.map(function (c) { return c.label; }), ['Badge no.', 'Name as First name, Last name']);
+      var m = guessStaffImportMapping_(cols, targets);
+      assertEq_([m.matchColumn, m.matchField, m.fills], [1, 'employeeName', [{ column: 0, field: 'employeeId' }]]);
+      var e = guessStaffImportMapping_(staffImportColumns_([['Name', 'Email', 'Slack ID', 'Other']], 1), targets);
+      assertEq_(e.fills, [{ column: 1, field: 'email' }, { column: 2, field: 'field:slack' }], 'columns named like staff columns are filled');
     }],
-    ['Employee IDs: names match in every staff sheet; existing IDs are never overwritten silently', function () {
-      var plan = planIdImport_(parseIdReport_(report).entries, sheets(), {});
-      var s = byName(plan);
-      assertEq_([s['Ann, Lee'], s['Zed New'], s['No Badge']], ['SET', 'NOT_FOUND', 'INVALID']);
-      assertEq_([s['Bob Ray'], s['Cy Moe']], ['DUPLICATE_IN_FILE', 'DUPLICATE_IN_FILE'], 'one badge for two names is refused');
-      var ann = plan.items.filter(function (i) { return i.name === 'Ann, Lee'; })[0];
-      assertEq_(ann.matches.map(function (m) { return m.teamName + ':' + m.status; }), ['Alpha:SET', 'Beta:SAME'], 'leading zeros kept; same ID in Beta');
-      assertEq_(s['Fox, Dee'], 'SET', '"Last, First" is tried when "First Last" finds nobody');
-      assertEq_(plan.summary.writes, 2);
+    ['Staff import: names match in every staff sheet; "Last, First" is tried; existing values are never replaced silently', function () {
+      var p = plan(report, { headerRow: 2, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'employeeId' }] });
+      var s = statusOf(p);
+      assertEq_([s['Ann, Lee'], s['Zed New'], s['Fox, Dee']], ['SET', 'NOT_FOUND', 'SET']);
+      assertEq_(s['No Badge'], 'NOT_FOUND');
+      assertEq_(statusOf(plan([['Name', 'Mail'], ['Cy Moe', '']], { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 1, field: 'email' }] }))['Cy Moe'], 'EMPTY', 'an empty cell never clears anything');
+      assertEq_([s['Bob Ray'], s['Cy Moe']], ['DUP_VALUE', 'DUP_VALUE'], 'one badge for two people is refused');
+      var ann = p.items.filter(function (i) { return i.key === 'Ann, Lee'; })[0];
+      assertEq_(ann.changes.map(function (c) { return c.teamName + ':' + c.status; }), ['Alpha:SET', 'Beta:SAME'], 'leading zeros kept; same ID in Beta');
+      assertEq_(p.summary.writes, 2);
     }],
-    ['Employee IDs: a different existing ID is a conflict unless replacing is chosen; an ID used by someone else is refused', function () {
-      var rep = [['Custom report'], ['Badge no.', 'Name'], ['B7', 'Bob Ray'], ['B9', 'Cy Moe']];
-      var keep = planIdImport_(parseIdReport_(rep).entries, sheets(), {});
-      assertEq_([byName(keep)['Bob Ray'], byName(keep)['Cy Moe'], keep.summary.writes], ['CONFLICT', 'ID_IN_USE', 0]);
-      assertEq_(planIdImport_(parseIdReport_(rep).entries, sheets(), { overwrite: true }).summary.writes, 1, 'only the conflict is replaced');
+    ['Staff import: emails and own columns; checks per column; teams can be limited', function () {
+      var t = [['Name', 'E-mail', 'Slack', 'Role'], ['Ann Lee', 'ann@x.com', 'U1', 'Agent'], ['Bob Ray', 'BOB@x.com', 'U9', 'Lead'], ['Cy Moe', 'not-an-email', 'U9', ''], ['Dee Fox', 'dee@x.com', '', 'Agent']];
+      var p = plan(t, { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 1, field: 'email' }, { column: 2, field: 'field:slack' }, { column: 3, field: 'role' }] });
+      var ch = function (key, field, team) { return p.items.filter(function (i) { return i.key === key; })[0].changes.filter(function (c) { return c.field === field && (!team || c.teamName === team); })[0].status; };
+      assertEq_([ch('Ann Lee', 'email', 'Alpha'), ch('Bob Ray', 'email'), ch('Cy Moe', 'email')], ['SET', 'SAME', 'INVALID_VALUE'], 'emails ignore capitals; invalid ones are refused');
+      assertEq_([ch('Bob Ray', 'field:slack'), ch('Cy Moe', 'field:slack')], ['DUP_VALUE', 'DUP_VALUE'], 'one Slack ID for two people in the file');
+      assertEq_(ch('Ann Lee', 'email', 'Beta'), 'NO_COLUMN', 'Beta has no Email column');
+      assertEq_(ch('Bob Ray', 'role'), 'SET');
+      var only = plan(t, { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 3, field: 'role' }], teamIds: ['T2'] });
+      assertEq_(statusOf(only)['Bob Ray'], 'NOT_FOUND', 'only the chosen team is searched');
+    }],
+    ['Staff import: find people by Employee ID or email; values already used by someone else are refused; mapping is checked', function () {
+      var byId = plan([['ID', 'Mail'], ['b9', 'bobby@x.com'], ['0123', 'ann@x.com']], { headerRow: 1, matchColumn: 0, matchField: 'employeeId', fills: [{ column: 1, field: 'email' }] });
+      assertEq_([statusOf(byId).b9, statusOf(byId)['0123']], ['CONFLICT', 'NO_COLUMN'], 'IDs ignore capitals; Beta has no Email column');
+      assertEq_(byId.summary.writes, 0, 'a different email is only replaced when chosen');
+      assertEq_(plan([['ID', 'Mail'], ['b9', 'bobby@x.com']], { headerRow: 1, matchColumn: 0, matchField: 'employeeId', fills: [{ column: 1, field: 'email' }], overwrite: true }).summary.writes, 1, 'replacing is a choice');
+      var byMail = plan([['Mail', 'Slack'], ['BOB@x.com', 'U5']], { headerRow: 1, matchColumn: 0, matchField: 'email', fills: [{ column: 1, field: 'field:slack' }] });
+      assertEq_(statusOf(byMail)['BOB@x.com'], 'CONFLICT');
+      var inUse = plan([['Name', 'Slack'], ['Ann Lee', 'u9']], { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 1, field: 'field:slack' }] });
+      assertEq_(inUse.items[0].changes[0].status, 'IN_USE', 'U9 already belongs to Bob in Alpha');
+      assert_(plan(report, { headerRow: 2, matchColumn: 1, matchField: 'employeeName', fills: [] }).errors.length, 'something must be filled');
+      assert_(plan(report, { headerRow: 2, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'employeeName' }] }).errors.length, 'names are only for finding');
     }]
   ];
 }

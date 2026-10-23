@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .map-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: var(--s2); align-items: center; margin-bottom: var(--s2); }
+    .map-row .arrow { color: var(--text-2); }
+    .sample { font-size: var(--fs-small); color: var(--text-2); }
+    @media (max-width: 620px) { .map-row { grid-template-columns: 1fr; } .map-row .arrow { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Import Staff Data</h1>
+    <p class="subtitle">Fills in staff-sheet columns (Employee ID, Email, Role, your own columns…) from a file, a sheet tab or another Google Sheet. Nothing is written until you click Apply.</p>
+    <ol class="stepper" id="steps" aria-label="Progress"></ol>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+
+    <!-- 1. Source -->
+    <section id="s-source" aria-labelledby="h-source">
+      <h2 id="h-source" class="sr-only">Choose the source</h2>
+      <fieldset>
+        <legend>Where is the data?</legend>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="src" value="FILE" checked onchange="srcChanged()"><span><span class="title">Upload a file</span><span class="hint" id="fileHint"></span></span></label>
+          <label class="choice"><input type="radio" name="src" value="URL" onchange="srcChanged()"><span><span class="title">Another Google Sheet</span><span class="hint">Paste its link; you need access to it</span></span></label>
+          <label class="choice"><input type="radio" name="src" value="TAB" onchange="srcChanged()"><span><span class="title">A tab of this spreadsheet</span><span class="hint">e.g. data pasted into a new tab</span></span></label>
+        </div>
+      </fieldset>
+      <div id="fileBox" class="field"><label class="label" for="file">File</label>
+        <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" onchange="fieldError('file', '')"></div>
+      <div id="urlBox" class="hidden">
+        <div class="field"><label class="label" for="url">Google Sheet link</label>
+          <div class="cluster"><input type="url" id="url" placeholder="https://docs.google.com/spreadsheets/d/…" spellcheck="false" style="flex:1 1 320px">
+            <button type="button" class="btn" onclick="loadTabs()">Load tabs</button></div></div>
+        <div class="field hidden" id="tabBox"><label class="label" for="tab">Tab</label><select id="tab"></select></div>
+      </div>
+      <div id="sheetBox" class="hidden field"><label class="label" for="srcSheet">Sheet tab</label><select id="srcSheet"></select></div>
+      <p class="hint">A Quinyx "Custom report" (Badge no. + Name) is recognised: the name finds each person and the badge becomes their Employee ID.</p>
+    </section>
+
+    <!-- 2. Columns -->
+    <section id="s-columns" class="hidden" aria-labelledby="h-columns">
+      <h2 id="h-columns" class="sr-only">Choose the columns</h2>
+      <dl class="facts" id="facts"></dl>
+      <div class="row">
+        <div class="field"><label class="label" for="headerRow">Row with the column names</label>
+          <input type="number" id="headerRow" min="1" onchange="changeHeader()" style="max-width:120px"></div>
+      </div>
+      <div class="panel subtle">
+        <div class="panel-head"><h3>Find each person by</h3></div>
+        <div class="map-row"><select id="matchColumn" aria-label="Column in the source"></select><span class="arrow" aria-hidden="true">matches</span>
+          <select id="matchField" aria-label="Staff column"></select><span></span></div>
+        <p class="hint mt-0">A person is found when this value equals their staff-sheet value (names: "Last, First" is tried too; capitals and extra spaces don't matter).</p>
+      </div>
+      <div class="panel subtle">
+        <div class="panel-head"><h3>Fill in</h3></div>
+        <div id="fills"></div>
+        <button type="button" class="btn sm" onclick="addFill()">+ Add a column</button>
+        <p class="hint">Empty cells in the source never clear anything.</p>
+      </div>
+      <fieldset class="mt-3"><legend>Teams <span class="hint" style="display:inline;font-weight:400">none ticked = every team</span></legend>
+        <div class="check-grid panel subtle" id="teams"></div></fieldset>
+      <label class="check mt-3"><input type="checkbox" id="overwrite"> <span>Replace existing values that are different
+        <span class="hint">Off: people who already have another value are left unchanged and listed as "Different value".</span></span></label>
+    </section>
+
+    <!-- 3. Preview -->
+    <section id="s-preview" class="hidden" aria-labelledby="h-preview">
+      <h2 id="h-preview" class="sr-only">Preview</h2>
+      <div class="stats" id="stats"></div>
+      <div class="toolbar mt-3"><div class="field mb-0"><label class="label" for="filter">Show</label>
+        <select id="filter" onchange="renderItems()"><option value="ATTENTION">Needs attention</option><option value="WRITE">Will be written</option><option value="ALL">All rows</option></select></div></div>
+      <div id="items"></div>
+    </section>
+
+    <!-- 4. Done -->
+    <section id="s-done" class="hidden" aria-live="polite"></section>
+  </main>
+  <footer class="app-footer" id="footer">
+    <button type="button" class="btn" onclick="cancel()">Cancel</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="backBtn" onclick="back()">Back</button>
+    <button type="button" class="btn primary" id="nextBtn" onclick="next()">Read</button>
+    <button type="button" class="btn primary hidden" id="applyBtn" onclick="apply()">Apply</button>
+  </footer>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var NAMES = ['Source', 'Columns', 'Preview', 'Done'];
+    var boot = null, src = null, res = null, cur = 0, fillsState = [];
+    var STATUS = {
+      SET: ['ok', 'Will be filled in'], SAME: ['', 'Already set'], CONFLICT: ['warn', 'Different value'], NO_COLUMN: ['warn', 'No such column'],
+      IN_USE: ['bad', 'Already used'], INVALID_VALUE: ['bad', 'Invalid value'], DUP_VALUE: ['bad', 'Duplicate value in file'],
+      NOT_FOUND: ['warn', 'Not in a staff sheet'], AMBIGUOUS: ['bad', 'Not unique'], NO_KEY: ['bad', 'Nothing to find by'],
+      DUPLICATE_IN_FILE: ['bad', 'Duplicate in file'], EMPTY: ['', 'Nothing to fill in']
+    };
+
+    function init() {
+      call('Loading…', 'apiStaffImportBootstrap').then(function (b) {
+        boot = b;
+        $('srcSheet').innerHTML = options(b.sourceSheets, null, null, '', b.sourceSheets.length ? undefined : '(no suitable sheet tabs)');
+        $('fileHint').textContent = (b.driveAvailable ? 'XLSX, XLS, ODS, CSV or TXT' : 'CSV or TXT (XLSX needs the Drive advanced service)') + ', up to ' + b.maxFileMb + ' MB';
+        $('matchField').innerHTML = options(b.targets, 'key', 'label');
+        $('teams').innerHTML = b.teams.map(function (t) { return '<label class="check"><input type="checkbox" data-team="' + esc(t.teamId) + '"> ' + esc(t.teamName) + '</label>'; }).join('') || '<p class="hint mt-0">No teams yet.</p>';
+        go(0);
+      });
+    }
+    function srcChanged() { var s = radio('src'); show('fileBox', s === 'FILE'); show('urlBox', s === 'URL'); show('sheetBox', s === 'TAB'); clearFieldErrors(); }
+    function go(i) {
+      cur = i;
+      ['s-source', 's-columns', 's-preview', 's-done'].forEach(function (id, k) { show(id, k === i); });
+      renderStepper('steps', NAMES, i);
+      $('backBtn').disabled = i === 0 || i === 3;
+      show('nextBtn', i < 2); show('applyBtn', i === 2);
+      $('nextBtn').textContent = i === 0 ? 'Read' : 'Preview';
+      showStatus('', '');
+      $('main').scrollTop = 0;
+    }
+    function back() { if (cur > 0) go(cur - 1); }
+    function next() { if (cur === 0) read(); else if (cur === 1) preview(); }
+
+    /* ---------- 1. source ---------- */
+    function loadTabs() {
+      var url = $('url').value.trim();
+      if (!url) { fieldError('url', 'Paste the link of the Google Sheet.'); return; }
+      call('Opening the Google Sheet…', 'apiStaffImportTabs', url).then(function (r) {
+        $('tab').innerHTML = options(r.tabs, null, null, r.tabs[0]); show('tabBox', true);
+        showStatus('ok', '', 'Opened "' + r.name + '". Choose the tab and click Read.');
+      });
+    }
+    function read() {
+      clearFieldErrors();
+      var s = radio('src'), payload = { source: s };
+      if (s === 'TAB') {
+        payload.sheetName = $('srcSheet').value;
+        if (!payload.sheetName) { fieldError('srcSheet', 'Choose a sheet tab.'); return; }
+        return send(payload);
+      }
+      if (s === 'URL') {
+        payload.url = $('url').value.trim(); payload.tab = $('tabBox').classList.contains('hidden') ? '' : $('tab').value;
+        if (!payload.url) { fieldError('url', 'Paste the link of the Google Sheet.'); $('url').focus(); return; }
+        return send(payload);
+      }
+      var f = $('file').files[0];
+      if (!f) { fieldError('file', 'Choose a file.'); $('file').focus(); return; }
+      if (f.size > boot.maxFileMb * 1048576) { fieldError('file', 'The file is larger than ' + boot.maxFileMb + ' MB.'); return; }
+      var reader = new FileReader();
+      busy(true, 'Reading the file…');
+      reader.onload = function () {
+        busy(false);
+        payload.fileName = f.name; payload.mimeType = f.type; payload.encoding = 'AUTO';
+        payload.base64 = String(reader.result).split(',')[1] || '';
+        send(payload);
+      };
+      reader.onerror = function () { busy(false); showStatus('fatal', 'Try again, or save it as CSV.', 'The browser could not read the file'); };
+      reader.readAsDataURL(f);
+    }
+    function send(payload) { call('Reading…', 'apiStaffImportRead', payload).then(function (r) { showSource(r); go(1); }); }
+
+    /* ---------- 2. columns ---------- */
+    function colOptions(selected) {
+      return '<option value="-1">— choose —</option>' + src.columns.map(function (c) {
+        return '<option value="' + c.index + '"' + (c.index === selected ? ' selected' : '') + '>' + esc(c.label) + (c.samples.length ? ' (e.g. ' + esc(c.samples[0]) + ')' : '') + '</option>';
+      }).join('');
+    }
+    function showSource(r) {
+      src = r;
+      $('facts').innerHTML = '<div><dt>Source</dt><dd>' + esc(r.name) + '</dd></div><div><dt>Rows</dt><dd>' + r.rows + '</dd></div>' +
+        (r.quinyx ? '<div><dt>Recognised</dt><dd>Quinyx Custom report</dd></div>' : '');
+      $('headerRow').value = r.headerRow;
+      $('matchColumn').innerHTML = colOptions(r.mapping.matchColumn);
+      $('matchField').value = r.mapping.matchField || 'employeeName';
+      fillsState = (r.mapping.fills || []).slice();
+      if (!fillsState.length) fillsState.push({ column: -1, field: '' });
+      renderFills();
+    }
+    function changeHeader() {
+      call('Reading the columns…', 'apiStaffImportColumns', src.stageId, Number($('headerRow').value || 1)).then(showSource);
+    }
+    function fillTargets() { return boot.targets.filter(function (t) { return t.fill; }); }
+    function readFills() {
+      return Array.prototype.map.call(document.querySelectorAll('[data-fill]'), function (row) {
+        return { column: Number(row.querySelector('[data-f="column"]').value), field: row.querySelector('[data-f="field"]').value };
+      });
+    }
+    function renderFills() {
+      $('fills').innerHTML = fillsState.map(function (f, i) {
+        return '<div class="map-row" data-fill="' + i + '"><select data-f="column" aria-label="Source column ' + (i + 1) + '">' + colOptions(f.column) + '</select>' +
+          '<span class="arrow" aria-hidden="true">→</span><select data-f="field" aria-label="Staff column ' + (i + 1) + '">' + options(fillTargets(), 'key', 'label', f.field, '— choose —') + '</select>' +
+          '<button type="button" class="btn sm danger" onclick="removeFill(' + i + ')" aria-label="Remove">✕</button></div>';
+      }).join('');
+    }
+    function addFill() { fillsState = readFills(); fillsState.push({ column: -1, field: '' }); renderFills(); }
+    function removeFill(i) { fillsState = readFills(); fillsState.splice(i, 1); renderFills(); }
+    function collect() {
+      return { headerRow: Number($('headerRow').value || 1), matchColumn: Number($('matchColumn').value), matchField: $('matchField').value,
+        fills: readFills().filter(function (f) { return f.column >= 0 && f.field; }), overwrite: $('overwrite').checked, teamIds: checkedData('team') };
+    }
+    function check(o) {
+      clearFieldErrors();
+      if (o.matchColumn < 0) { fieldError('matchColumn', 'Choose the column that finds each person.'); $('matchColumn').focus(); return false; }
+      if (!o.fills.length) { showStatus('warn', 'Choose at least one source column and the staff column it fills.', 'Nothing to fill in'); return false; }
+      return true;
+    }
+
+    /* ---------- 3. preview ---------- */
+    function preview() {
+      var o = collect();
+      if (!check(o)) return;
+      call('Finding the people in the staff sheets…', 'apiStaffImportPreview', src.stageId, o).then(function (r) { res = r; go(2); showResult(); });
+    }
+    function showResult() {
+      var S = res.summary;
+      $('stats').innerHTML = stat('Rows', S.rows) + stat('Found', S.matched, 'good') + stat('Will be filled in', S.set, 'good') + stat('Already set', S.same) +
+        stat('Different value', S.conflict, S.conflict ? 'warn' : '') + stat('Not in a staff sheet', S.notFound, S.notFound ? 'warn' : '') + stat('Problems', S.problems, S.problems ? 'bad' : '');
+      $('applyBtn').disabled = !S.writes;
+      $('applyBtn').textContent = S.writes ? 'Apply (' + S.writes + ' value' + (S.writes === 1 ? '' : 's') + ')' : 'Nothing to apply';
+      $('filter').value = S.conflict || S.notFound || S.problems ? 'ATTENTION' : 'WRITE';
+      renderItems();
+    }
+    function writes(c) { return c.status === 'SET' || (c.status === 'CONFLICT' && $('overwrite').checked); }
+    function renderItems() {
+      var mode = $('filter').value, rows = [];
+      res.items.forEach(function (it) {
+        var list = it.changes.length ? it.changes : [null];
+        list.forEach(function (c) {
+          var st = c ? c.status : it.status;
+          var attention = ['SET', 'SAME', 'EMPTY'].indexOf(st) < 0;
+          if (mode === 'WRITE' && !(c && writes(c))) return;
+          if (mode === 'ATTENTION' && !attention) return;
+          rows.push({ it: it, c: c, st: st });
+        });
+      });
+      if (!rows.length) { $('items').innerHTML = emptyHtml('✓', mode === 'ATTENTION' ? 'Nothing needs attention' : 'No rows', ''); return; }
+      $('items').innerHTML = '<div class="table-wrap tall"><table class="table"><thead><tr><th scope="col" class="num">Row</th><th scope="col">Person</th>' +
+        '<th scope="col">Staff sheet</th><th scope="col">Column</th><th scope="col">Now</th><th scope="col">New</th><th scope="col">Result</th><th scope="col">Note</th></tr></thead><tbody>' +
+        rows.slice(0, 800).map(function (x) {
+          var label = x.c && x.st === 'CONFLICT' && $('overwrite').checked ? ['ok', 'Will be replaced'] : (STATUS[x.st] || ['', x.st]);
+          var note = x.c ? x.c.note : x.it.note;
+          return '<tr' + (label[0] === 'bad' ? ' class="attention"' : '') + '><td class="num">' + x.it.row + '</td><td>' + esc(x.it.label || '—') + '</td>' +
+            '<td>' + esc(x.c ? x.c.teamName : '—') + '</td><td>' + esc(x.c ? x.c.fieldLabel : '—') + '</td><td class="small">' + esc(x.c ? x.c.current : '') + '</td>' +
+            '<td class="small">' + esc(x.c ? x.c.value : '') + '</td><td>' + badge(label[0], label[1]) + '</td><td class="wrap small">' + esc(note || '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        (rows.length > 800 || res.more ? '<p class="hint">Showing the first rows only; every row is included in Apply.</p>' : '') +
+        (res.summary.notFound ? '<p class="hint">People "Not in a staff sheet" are skipped. Add them to the right team\'s staff sheet and run this again.</p>' : '');
+    }
+    function apply() {
+      $('applyBtn').disabled = true;
+      call('Writing to the staff sheets…', 'apiStaffImportApply', src.stageId, collect()).then(function (r) {
+        src = null; res = null;
+        $('s-done').innerHTML = alertHtml('success', r.written + ' value' + (r.written === 1 ? '' : 's') + ' written',
+          r.teams.length ? 'Staff sheets updated: ' + esc(r.teams.join(', ')) + '.' : '') +
+          '<p class="hint">IDs are stored as text, so leading zeros are kept. The same column choice is offered next time a source has the same column names.</p>';
+        go(3);
+        $('footer').innerHTML = '<span class="spacer"></span><button type="button" class="btn primary" onclick="closeDialog()">Close</button>';
+      }, function () { $('applyBtn').disabled = false; });
+    }
+    function cancel() {
+      if (src) google.script.run.withSuccessHandler(closeDialog).withFailureHandler(closeDialog).apiStaffImportCancel(src.stageId);
+      else closeDialog();
+    }
+    init();
+  </script>
+</body>
+</html>
