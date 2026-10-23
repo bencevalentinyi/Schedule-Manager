@@ -901,6 +901,22 @@ function unitTestsLinks_() {
       assertEq_(selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'SHIFTS', excludePrevDay: true }).length, 3);
       assertEq_([normalizeLinkTemplate_({}).includePrevDay, normalizeLinkTemplate_({ includePrevDay: true }).includePrevDay], [false, true], 'left out by default');
     }],
+    ['CSV export: one column per chosen item with its own header; one value per row or the whole output in one cell; safe fields', function () {
+      var cols = [{ header: 'Night agents', values: ['<@U1>', '<@U2>', '<@U3>'], text: '<@U1>, <@U2>, <@U3>' },
+        { header: 'Plan, today', values: ['08:00 - 16:00 Ann', '14:00 - 22:00 "Bob"'], text: '08:00 - 16:00 Ann\n14:00 - 22:00 "Bob"' }];
+      var rows = buildLinksCsv_(cols, { layout: 'ROWS', delimiter: ',' });
+      assertEq_(rows.csv.split('\r\n'), ['Night agents,"Plan, today"', '<@U1>,08:00 - 16:00 Ann', '<@U2>,"14:00 - 22:00 ""Bob"""', '<@U3>,', ''], 'quotes, commas and the shorter column');
+      assertEq_(rows.rows, 3);
+      var cell = buildLinksCsv_(cols, { layout: 'CELL', delimiter: ';' });
+      assertEq_(cell.csv, 'Night agents;Plan, today\r\n<@U1>, <@U2>, <@U3>;"08:00 - 16:00 Ann\n14:00 - 22:00 ""Bob"""\r\n', 'semicolon; line breaks kept inside one cell');
+      assertEq_([csvField_('=SUM(A1)', ','), csvField_('-5', ','), csvField_('+1 555', ',')], ["'=SUM(A1)", '-5', "'+1 555"], 'formulas never run when the file is opened');
+      var plan = { template: { kind: 'PLAN', emptyText: 'No one scheduled' }, text: 'Leads\n08:00 Ann\n\nAgents\n09:00 Bob', urls: [] };
+      assertEq_(linkOutputValues_(plan), ['Leads', '08:00 Ann', 'Agents', '09:00 Bob'], 'plan lines without the blank ones');
+      assertEq_(linkOutputValues_({ template: { kind: 'PLAN', emptyText: 'No one scheduled' }, text: 'No one scheduled', urls: [] }), [], 'nobody: an empty column');
+      assertEq_(linkOutputValues_({ template: { kind: 'LINK' }, urls: ['https://x/1', 'https://x/2'] }), ['https://x/1', 'https://x/2']);
+      assertEq_(normalizeLinkCsvSettings_({ columns: [{ id: 'A', header: 'X' }, { id: '' }], layout: 'NOPE', delimiter: '|' }),
+        { columns: [{ id: 'A', header: 'X' }], layout: 'ROWS', delimiter: ',' });
+    }],
     ['Agent lists: people of a day as names or IDs, optionally only those not working on another day', function () {
       var t = normalizeLinkTemplate_({ kind: 'LIST', name: 'Add', idField: 'NAME', separator: ', ', listDay: 'TODAY', exceptDay: 'YESTERDAY' });
       assertEq_([t.who, t.listDay, t.exceptDay, listDayDate_('2026-10-15', 'YESTERDAY'), listDayDate_('2026-10-31', 'TOMORROW')],

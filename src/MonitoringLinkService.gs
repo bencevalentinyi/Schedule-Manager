@@ -519,6 +519,7 @@ function generateLink_(t, ctx, teamsById, staffCache) {
     var valueOf = t.idField === LIST_NAME_FIELD_ ? function (r) { return str_(r.employeeName) || str_(r.employeeId); } : idOf;
     var list = buildAgentList_(t, working, valueOf, except, linkIdReader_('role', teamsById, staffCache));
     res.text = list.text;
+    res.values = list.values.map(function (v) { return t.prefix + v + t.suffix; }); // one per agent, for the CSV export
     res.count = list.values.length;
     res.people = working.length - list.left - list.byRole;
     res.missing = list.missing;
@@ -709,6 +710,7 @@ function apiLinksBootstrap() {
       teams: Object.keys(teams).map(function (k) { return { teamId: k, teamName: teams[k].teamName, active: teams[k].active }; }),
       who: LINK_WHO, kinds: LINK_KINDS, listDays: LIST_DAYS, listNameField: LIST_NAME_FIELD_, include: PLAN_INCLUDE, tagModes: PLAN_TAG_MODES, tagWindowModes: PLAN_TAG_WINDOW_MODES_, defaultLine: PLAN_DEFAULT_LINE_,
       sheetSettings: loadLinkSheetSettings_(), layouts: LINK_SHEET_LAYOUTS,
+      csvSettings: normalizeLinkCsvSettings_(parseJson_(getConfig_().LINK_CSV_SETTINGS, {})), csvLayouts: LINK_CSV_LAYOUTS, csvDelimiters: LINK_CSV_DELIMITERS,
       today: ctx.today
     };
   });
@@ -800,6 +802,103 @@ function apiLinksGenerateAll(dateIso) {
         })
       };
     }, 60000);
+  });
+}
+
+/* ------------------------------------------------------------------------ */
+/* CSV export                                                                */
+/* ------------------------------------------------------------------------ */
+
+var LINK_CSV_LAYOUTS = { ROWS: 'One value per row (each agent, line or link)', CELL: 'Whole output in one cell' };
+var LINK_CSV_DELIMITERS = { ',': 'Comma (,)', ';': 'Semicolon (;) — Excel with European settings', '\t': 'Tab' };
+
+/** The export settings with defaults: columns [{id, header}] in order, layout, delimiter. Pure. */
+function normalizeLinkCsvSettings_(s) {
+  s = s || {};
+  return {
+    columns: (Array.isArray(s.columns) ? s.columns : []).map(function (c) { return { id: str_(c && c.id), header: str_(c && c.header).substr(0, 120) }; })
+      .filter(function (c) { return c.id; }),
+    layout: LINK_CSV_LAYOUTS[s.layout] ? s.layout : 'ROWS',
+    delimiter: LINK_CSV_DELIMITERS[s.delimiter] ? s.delimiter : ','
+  };
+}
+
+/** An item's output as CSV values: agent-list values, plan lines (blank lines dropped), or link URLs. Pure. */
+function linkOutputValues_(r) {
+  var kind = r.template.kind;
+  if (kind === 'LINK') return r.urls.slice();
+  if (kind === 'LIST') return r.values && r.values.length ? r.values.slice() : [];
+  return str_(r.text) === str_(r.template.emptyText) ? [] : str_(r.text).split('\n').map(function (l) { return l.replace(/\s+$/, ''); }).filter(Boolean);
+}
+
+/** One CSV field: quoted when it holds the delimiter, a quote or a line break; leading = + - @ made harmless for spreadsheets. Pure. */
+function csvField_(v, delimiter) {
+  var s = String(v === null || v === undefined ? '' : v);
+  if (/^[=+\-@]/.test(s) && !/^-?\d/.test(s)) s = "'" + s; // a cell starting like a formula would run when opened
+  return s.indexOf(delimiter) >= 0 || /["\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/**
+ * The CSV text. Pure.
+ * @param {Array<{header: string, values: string[], text: string}>} columns in order
+ * @param {{layout: 'ROWS'|'CELL', delimiter: string}} opts ROWS: each value its own row; CELL: one row, the whole output per cell
+ * @return {{csv: string, rows: number}} rows = data rows (without the header)
+ */
+function buildLinksCsv_(columns, opts) {
+  var d = opts.delimiter || ',';
+  var lines = [columns.map(function (c) { return csvField_(c.header, d); }).join(d)];
+  var rows = 0;
+  if (opts.layout === 'CELL') {
+    lines.push(columns.map(function (c) { return csvField_(c.text, d); }).join(d));
+    rows = 1;
+  } else {
+    rows = columns.reduce(function (n, c) { return Math.max(n, c.values.length); }, 0);
+    for (var i = 0; i < rows; i++) lines.push(columns.map(function (c) { return csvField_(c.values[i] === undefined ? '' : c.values[i], d); }).join(d));
+  }
+  return { csv: lines.join('\r\n') + '\r\n', rows: rows };
+}
+
+/** Builds the chosen items for a date and their CSV; remembers the choice. */
+function linksCsvFor_(input, dateIso) {
+  var s = normalizeLinkCsvSettings_(input);
+  if (!s.columns.length) fail_('VALIDATION', 'Tick at least one item to export.');
+  var byId = {};
+  loadLinkTemplates_().forEach(function (t) { byId[t.id] = t; });
+  var missing = s.columns.filter(function (c) { return !byId[c.id]; });
+  if (missing.length) fail_('VALIDATION', 'An item in the export no longer exists. Tick the items again.');
+  var heads = s.columns.map(function (c) { return normName_(c.header || byId[c.id].name); });
+  if (heads.some(function (h, i) { return heads.indexOf(h) !== i; })) fail_('VALIDATION', 'Every column needs its own header.');
+  var ctx = linkRunContext_(dateIso), teams = teamsByIdForLinks_(), cache = {};
+  var cols = s.columns.map(function (c) {
+    var r = generateLink_(byId[c.id], ctx, teams, cache);
+    var values = linkOutputValues_(r);
+    var text = r.template.kind === 'LINK' ? r.urls.join('\n') : r.text;
+    return { header: c.header || byId[c.id].name, values: values, text: text };
+  });
+  var out = buildLinksCsv_(cols, s);
+  setConfigValues_({ LINK_CSV_SETTINGS: JSON.stringify(s) });
+  var name = 'Monitoring Links ' + ctx.date + '.csv';
+  return { csv: '﻿' + out.csv, fileName: name, rows: out.rows, columns: cols.length, date: ctx.date }; // BOM: Excel reads it as UTF-8
+}
+
+/** The CSV text, for downloading in the browser. */
+function apiLinksCsv(input, dateIso) {
+  return apiCall_('apiLinksCsv', function () {
+    requireInitialized_();
+    return linksCsvFor_(input, dateIso);
+  });
+}
+
+/** Saves the CSV as a file in your Google Drive (when the browser blocks the download) and returns its link. */
+function apiLinksCsvToDrive(input, dateIso) {
+  return apiCall_('apiLinksCsvToDrive', function () {
+    requireInitialized_();
+    var r = linksCsvFor_(input, dateIso);
+    if (typeof Drive === 'undefined' || !Drive.Files || typeof Drive.Files.create !== 'function') {
+      fail_('DRIVE_SERVICE', 'Saving to Drive needs the Drive advanced service (Apps Script editor → Services → Drive API). Use Download CSV instead.');
+    }
+    var file = Drive.Files.create({ name: r.fileName, mimeType: 'text/csv' }, Utilities.newBlob(r.csv, 'text/csv', r.fileName), { fields: 'id,name,webViewLink' });
+    return { fileName: file.name || r.fileName, url: file.webViewLink || 'https://drive.google.com/file/d/' + file.id + '/view', rows: r.rows, columns: r.columns, date: r.date };
   });
 }
 

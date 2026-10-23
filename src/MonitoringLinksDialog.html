@@ -24,6 +24,7 @@
           <button type="button" class="btn sm" onclick="edit(null, 'PLAN')">+ Daily plan</button>
           <button type="button" class="btn sm" onclick="edit(null, 'LIST')">+ Agent list</button>
           <button type="button" class="btn sm ghost" onclick="openLayout()">Sheet layout…</button>
+          <button type="button" class="btn sm ghost" onclick="openCsv()">Export CSV…</button>
         </div>
       </div>
       <div>
@@ -44,6 +45,22 @@
           </div>
           <p class="hint" id="lyRowsHint">One row per item: row 1 holds the column names (Name, Kind, Date, Updated, Count, Missing, Text, URL, …); a Slack Workflow selects the row by Name.</p>
           <div class="cluster mt-3"><button type="button" class="btn primary" onclick="saveLayout()">Save layout</button></div>
+        </div>
+        <div id="csvPanel" class="hidden">
+          <div class="panel-head"><h2>Export CSV</h2></div>
+          <p class="hint mt-0">Builds the ticked items for the date at the bottom (as <b>Generate all</b> does) into a CSV file: one column per item, with your own header. Nothing in the sheet changes.</p>
+          <div class="table-wrap"><table class="table"><thead><tr><th scope="col">Export</th><th scope="col">Item</th><th scope="col">Column header</th></tr></thead>
+            <tbody id="csvItems"></tbody></table></div>
+          <div class="row mt-3">
+            <div class="field"><label class="label" for="csvLayout">Layout</label><select id="csvLayout"></select></div>
+            <div class="field"><label class="label" for="csvDelimiter">Separator</label><select id="csvDelimiter"></select></div>
+          </div>
+          <div class="cluster mt-3">
+            <button type="button" class="btn primary" onclick="downloadCsv()">Download CSV</button>
+            <button type="button" class="btn" onclick="csvToDrive()">Save to Google Drive</button>
+          </div>
+          <p class="hint">If the browser does not download the file, use <b>Save to Google Drive</b>: the file appears in your Drive and opens from the link.</p>
+          <div id="csvResult"></div>
         </div>
         <div id="placeholder"><div class="empty"><div class="empty-icon" aria-hidden="true">🔗</div><p class="empty-title">Select an item</p>
           <p>Choose one on the left, or add a monitoring link or a daily list plan.</p></div></div>
@@ -253,7 +270,7 @@
       show('deleteBtn', !!current); show('upBtn', !!current); show('downBtn', !!current);
       if (current) { var k = indexOf(current.id); $('upBtn').disabled = k === 0; $('downBtn').disabled = k === data.templates.length - 1; }
       $('previewBox').innerHTML = '';
-      show('placeholder', false); show('layoutPanel', false); show('editor', true);
+      show('placeholder', false); show('layoutPanel', false); show('csvPanel', false); show('editor', true);
       showStatus('', '');
       if (!current) $('name').focus();
     }
@@ -415,7 +432,7 @@
       $('lyLayout').innerHTML = options(kv(data.layouts), 'k', 'l', s.layout);
       $('lyKeyHeader').value = s.keyHeader; $('lyKeyValue').value = s.keyValue; $('lyDateHeader').value = s.dateHeader; $('lyDateFormat').value = s.dateFormat;
       layoutChanged();
-      show('placeholder', false); show('editor', false); show('layoutPanel', true); showStatus('', '');
+      show('placeholder', false); show('editor', false); show('csvPanel', false); show('layoutPanel', true); showStatus('', '');
     }
     function layoutChanged() { var row = $('lyLayout').value === 'ROW'; show('lyRowBox', row); show('lyRowsHint', !row); }
     function saveLayout() {
@@ -426,6 +443,53 @@
         showStatus('ok', 'Click <b>Generate all</b> to rewrite the sheet in this layout.', 'Sheet layout saved');
       });
     }
+    /* ---------- CSV export ---------- */
+    function openCsv() {
+      current = null; renderList();
+      var s = data.csvSettings || { columns: [], layout: 'ROWS', delimiter: ',' };
+      var chosen = {};
+      s.columns.forEach(function (c) { chosen[c.id] = c.header; });
+      $('csvItems').innerHTML = data.templates.map(function (t, i) {
+        var on = Object.prototype.hasOwnProperty.call(chosen, t.id);
+        return '<tr><td><input type="checkbox" data-csv="' + esc(t.id) + '" aria-label="Export ' + esc(t.name) + '"' + (on ? ' checked' : '') + '></td>' +
+          '<td>' + esc(t.name) + '<div class="small muted">' + esc(data.kinds[t.kind]) + '</div></td>' +
+          '<td><input type="text" data-csv-header="' + esc(t.id) + '" aria-label="Column header for ' + esc(t.name) + '" value="' + esc(on && chosen[t.id] ? chosen[t.id] : t.name) + '"></td></tr>';
+      }).join('') || '<tr><td colspan="3">' + emptyHtml('🔗', 'Nothing to export yet', 'Add a link, daily plan or agent list first.') + '</td></tr>';
+      $('csvLayout').innerHTML = options(kv(data.csvLayouts), 'k', 'l', s.layout);
+      $('csvDelimiter').innerHTML = options(kv(data.csvDelimiters), 'k', 'l', s.delimiter);
+      $('csvResult').innerHTML = '';
+      show('placeholder', false); show('editor', false); show('layoutPanel', false); show('csvPanel', true); showStatus('', '');
+    }
+    function readCsv() {
+      // Columns in the order of the item list (also the order of the sheet).
+      var columns = data.templates.filter(function (t) { var b = document.querySelector('[data-csv="' + t.id + '"]'); return b && b.checked; })
+        .map(function (t) { return { id: t.id, header: document.querySelector('[data-csv-header="' + t.id + '"]').value.trim() || t.name }; });
+      return { columns: columns, layout: $('csvLayout').value, delimiter: $('csvDelimiter').value };
+    }
+    function csvDone(r) {
+      data.csvSettings = readCsv();
+      return r.columns + ' column(s), ' + r.rows + ' row(s) for ' + esc(r.date);
+    }
+    function downloadCsv() {
+      var s = readCsv();
+      if (!s.columns.length) { showStatus('warn', 'Tick at least one item.', 'Nothing to export'); return; }
+      call('Building the CSV…', 'apiLinksCsv', s, $('runDate').value).then(function (r) {
+        var url = URL.createObjectURL(new Blob([r.csv], { type: 'text/csv;charset=utf-8' }));
+        var a = document.createElement('a');
+        a.href = url; a.download = r.fileName; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        $('csvResult').innerHTML = alertHtml('success', 'Downloaded "' + r.fileName + '"', csvDone(r) + '. Nothing downloaded? Use Save to Google Drive.');
+      });
+    }
+    function csvToDrive() {
+      var s = readCsv();
+      if (!s.columns.length) { showStatus('warn', 'Tick at least one item.', 'Nothing to export'); return; }
+      call('Saving to Google Drive…', 'apiLinksCsvToDrive', s, $('runDate').value).then(function (r) {
+        $('csvResult').innerHTML = alertHtml('success', 'Saved "' + r.fileName + '" in your Google Drive', csvDone(r) + '.' +
+          '<div class="cluster mt-2"><a class="btn sm primary" href="' + esc(r.url) + '" target="_blank" rel="noopener" style="text-decoration:none">Open it ↗</a></div>');
+      });
+    }
+
     function generateAll() {
       call('Building all links and plans…', 'apiLinksGenerateAll', $('runDate').value).then(function (r) {
         showStatus('ok', r.results.map(function (x) {
