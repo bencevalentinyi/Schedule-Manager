@@ -1201,6 +1201,17 @@ function unitTestsIdImport_() {
       var a = planStaffImport_([['Name', 'Role'], ['Cy Moe', 'Agent']], { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 1, field: 'role' }] }, amb, targets);
       assertEq_([a.items[0].status, a.items[0].suggestions.length], ['AMBIGUOUS', 2], 'two Cy Moe in one sheet: both offered to choose from');
     }],
+    ['Staff import: people with a left-out role get nothing and are not offered as matches', function () {
+      var sh = sheets();
+      sh[0].rows[1].fields.role = 'Shift Lead';            // Bob Ray in Alpha
+      sh[0].rows.push(person(9, 'E9', 'Ann Marie Lee', { role: 'support  shift lead, Trainer' }));
+      var t = [['Name', 'Role'], ['Bob Ray', 'X'], ['Lee Ann Marie', 'Y'], ['Ann Lee', 'Z']];
+      var p = planStaffImport_(t, { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 1, field: 'role' }], excludeRoles: ['Shift Lead', 'Support Shift Lead'] }, sh, targets);
+      assertEq_([p.items[0].status, p.items[0].note], ['EXCLUDED_ROLE', 'Left out: role "Shift Lead".']);
+      assert_(!p.items[1].suggestions.some(function (s) { return s.ref === 'T1|ID:E9'; }), 'Ann Marie Lee (a support shift lead) is never suggested');
+      assertEq_(p.items[2].changes.map(function (c) { return c.teamName; }), ['Alpha', 'Beta'], 'everyone else as usual');
+      assertEq_([p.summary.excluded, p.people.some(function (x) { return x.label.indexOf('Bob Ray') === 0; })], [1, false]);
+    }],
     ['Staff import: a 6000-row file against 300 staff stays fast', function () {
       var staff = [];
       for (var i = 0; i < 300; i++) staff.push(person(4 + i, 'E' + i, 'Person' + i + ' Family' + (i % 37)));

@@ -65,6 +65,9 @@
       </div>
       <fieldset class="mt-3"><legend>Teams <span class="hint" style="display:inline;font-weight:400">none ticked = every team</span></legend>
         <div class="check-grid panel subtle" id="teams"></div></fieldset>
+      <div class="field mt-3"><label class="label" for="excludeRoles">Leave out people whose Role is<span class="optional">optional</span></label>
+        <input type="text" id="excludeRoles" placeholder="Comma-separated, e.g. Shift Lead, Trainee">
+        <p class="hint">From the Role column of the staff sheets (capitals and extra spaces don't matter). Nothing is written for them, and they are not offered as matches.</p></div>
       <label class="check mt-3"><input type="checkbox" id="overwrite"> <span>Replace existing values that are different
         <span class="hint">Off: people who already have another value are left unchanged and listed as "Different value".</span></span></label>
     </section>
@@ -74,7 +77,7 @@
       <h2 id="h-preview" class="sr-only">Preview</h2>
       <div class="stats" id="stats"></div>
       <div class="toolbar mt-3"><div class="field mb-0"><label class="label" for="filter">Show</label>
-        <select id="filter" onchange="renderItems()"><option value="REVIEW">To review (possible matches, your choices)</option><option value="PROBLEMS">Problems and different values</option><option value="NOTFOUND">Not in a staff sheet</option><option value="WRITE">Will be written</option><option value="ALL">All rows</option></select></div></div>
+        <select id="filter" onchange="renderItems()"><option value="REVIEW">To review (possible matches, your choices)</option><option value="PROBLEMS">Problems and different values</option><option value="NOTFOUND">Not in a staff sheet</option><option value="ROLE">Left out by role</option><option value="WRITE">Will be written</option><option value="ALL">All rows</option></select></div></div>
       <div id="items"></div>
     </section>
 
@@ -99,7 +102,7 @@
       IN_USE: ['bad', 'Already used'], INVALID_VALUE: ['bad', 'Invalid value'], DUP_VALUE: ['bad', 'Duplicate value in file'],
       NOT_FOUND: ['warn', 'Not in a staff sheet'], AMBIGUOUS: ['bad', 'Not unique'], NO_KEY: ['bad', 'Nothing to find by'],
       DUPLICATE_IN_FILE: ['bad', 'Duplicate in file'], EMPTY: ['', 'Nothing to fill in'],
-      SUGGESTED: ['warn', 'Possible match: review'], SKIPPED: ['', 'Left out']
+      SUGGESTED: ['warn', 'Possible match: review'], SKIPPED: ['', 'Left out'], EXCLUDED_ROLE: ['', 'Left out (role)']
     };
 
     function init() {
@@ -180,6 +183,7 @@
       $('matchColumn').innerHTML = colOptions(r.mapping.matchColumn);
       $('matchField').value = r.mapping.matchField || 'employeeName';
       fillsState = (r.mapping.fills || []).slice();
+      $('excludeRoles').value = (r.mapping.excludeRoles || []).join(', ');
       if (!fillsState.length) fillsState.push({ column: -1, field: '' });
       renderFills();
     }
@@ -204,7 +208,7 @@
     function collect() {
       return { headerRow: Number($('headerRow').value || 1), matchColumn: Number($('matchColumn').value), matchField: $('matchField').value,
         fills: readFills().filter(function (f) { return f.column >= 0 && f.field; }), overwrite: $('overwrite').checked, teamIds: checkedData('team'),
-        assign: assignState };
+        assign: assignState, excludeRoles: $('excludeRoles').value };
     }
     function check(o) {
       clearFieldErrors();
@@ -229,7 +233,7 @@
       var S = res.summary;
       $('stats').innerHTML = stat('Rows', S.rows) + stat('Found', S.matched, 'good') + stat('Will be filled in', S.set, 'good') + stat('Already set', S.same) +
         stat('Different value', S.conflict, S.conflict ? 'warn' : '') + stat('To review', S.review, S.review ? 'warn' : '') +
-        stat('Not in a staff sheet', S.notFound, S.notFound ? 'warn' : '') + (S.skipped ? stat('Left out', S.skipped) : '') + stat('Problems', S.problems, S.problems ? 'bad' : '');
+        stat('Not in a staff sheet', S.notFound, S.notFound ? 'warn' : '') + (S.skipped ? stat('Left out', S.skipped) : '') + (S.excluded ? stat('Left out by role', S.excluded) : '') + stat('Problems', S.problems, S.problems ? 'bad' : '');
       $('applyBtn').disabled = !S.writes;
       $('applyBtn').textContent = S.writes ? 'Apply (' + S.writes + ' value' + (S.writes === 1 ? '' : 's') + ')' : 'Nothing to apply';
       $('filter').value = filter || (S.review ? 'REVIEW' : S.conflict || S.problems ? 'PROBLEMS' : 'WRITE');
@@ -276,6 +280,7 @@
       if (mode === 'WRITE') return !!(c && writes(c));
       if (mode === 'REVIEW') return first && (it.status === 'SUGGESTED' || it.status === 'AMBIGUOUS' || !!it.choice);
       if (mode === 'NOTFOUND') return it.status === 'NOT_FOUND';
+      if (mode === 'ROLE') return it.status === 'EXCLUDED_ROLE';
       return PROBLEM_STATES.indexOf(st) >= 0; // PROBLEMS
     }
     function renderItems() {
@@ -290,7 +295,7 @@
       var nSug = res.items.filter(function (it) { return it.status === 'SUGGESTED'; }).length;
       var tools = nSug ? '<div class="cluster mb-0 mt-2"><button type="button" class="btn sm primary" onclick="acceptSuggestions()">Accept all ' + nSug + ' suggested match' + (nSug === 1 ? '' : 'es') + '</button>' +
         '<span class="hint">Names that look alike are only suggested; nothing is matched until you accept or choose.</span></div>' : '';
-      var empty = { REVIEW: 'Nothing to review', PROBLEMS: 'No problems', NOTFOUND: 'Everyone was found', WRITE: 'Nothing will be written', ALL: 'No rows' };
+      var empty = { REVIEW: 'Nothing to review', PROBLEMS: 'No problems', NOTFOUND: 'Everyone was found', ROLE: 'No one is left out by role', WRITE: 'Nothing will be written', ALL: 'No rows' };
       if (!rows.length) { $('items').innerHTML = tools + emptyHtml('✓', empty[mode], ''); return; }
       $('items').innerHTML = tools + '<div class="table-wrap tall mt-2"><table class="table"><thead><tr><th scope="col" class="num">Row</th><th scope="col">In the file</th><th scope="col">Staff person</th>' +
         '<th scope="col">Staff sheet</th><th scope="col">Column</th><th scope="col">Now</th><th scope="col">New</th><th scope="col">Result</th><th scope="col">Note</th></tr></thead><tbody>' +

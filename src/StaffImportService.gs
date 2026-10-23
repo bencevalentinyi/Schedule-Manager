@@ -237,6 +237,13 @@ function planStaffImport_(table, opts, sheets, targets) {
     });
   });
 
+  // People with a left-out role (e.g. Shift Lead) never get a value; they are recognised, not offered.
+  var excludedRoles = planRoleList_(opts.excludeRoles).map(normText_);
+  var roleOf = function (r) { return str_(r.fields && r.fields.role); };
+  var roleExcluded = function (r) {
+    return excludedRoles.length > 0 && planCellValues_(roleOf(r)).some(function (v) { return excludedRoles.indexOf(v) >= 0; });
+  };
+
   // Every person by a reference that survives re-sorting the sheet: "<teamId>|ID:<id>" or "<teamId>|NM:<name>".
   var people = {}, peopleList = [];
   use.forEach(function (s, si) {
@@ -244,6 +251,7 @@ function planStaffImport_(table, opts, sheets, targets) {
       var ref = staffPersonRef_(s.teamId, r);
       if (people[ref]) return;
       people[ref] = { si: si, r: r };
+      if (roleExcluded(r)) return; // not offered in the review lists
       peopleList.push({ ref: ref, label: r.employeeName + (r.employeeId ? ' · ' + r.employeeId : ''), teamName: s.teamName });
     });
   });
@@ -299,6 +307,16 @@ function planStaffImport_(table, opts, sheets, targets) {
         found = [people[aliases[aliasKey]]];
         it.note = 'Matched as you chose before.';
       }
+    }
+    // Found, but with a left-out role: nothing is written for them (in a team where they have another role, they still are).
+    if (found.length && excludedRoles.length) {
+      var kept = found.filter(function (f) { return !roleExcluded(f.r); });
+      if (!kept.length) {
+        it.status = 'EXCLUDED_ROLE'; it.label = found[0].r.employeeName || raw;
+        it.note = 'Left out: role "' + roleOf(found[0].r) + '".';
+        return it;
+      }
+      found = kept;
     }
     if (!found.length) {
       it.suggestions = nameIndex ? staffImportNameSuggestions_(raw, nameIndex) : [];
@@ -373,6 +391,7 @@ function planStaffImport_(table, opts, sheets, targets) {
     if (it.status === 'NOT_FOUND') S.notFound++;
     else if (it.status === 'SUGGESTED') S.review++;
     else if (it.status === 'SKIPPED') S.skipped++;
+    else if (it.status === 'EXCLUDED_ROLE') S.excluded++;
     else if (it.status === 'AMBIGUOUS') { S.review++; S.problems++; }
     else if (['NO_KEY', 'DUPLICATE_IN_FILE'].indexOf(it.status) >= 0) S.problems++;
     else S.matched++;
@@ -390,7 +409,7 @@ function planStaffImport_(table, opts, sheets, targets) {
 }
 
 function emptyStaffImportSummary_() {
-  return { rows: 0, matched: 0, notFound: 0, review: 0, skipped: 0, set: 0, same: 0, conflict: 0, problems: 0, writes: 0 };
+  return { rows: 0, matched: 0, notFound: 0, review: 0, skipped: 0, excluded: 0, set: 0, same: 0, conflict: 0, problems: 0, writes: 0 };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -430,6 +449,7 @@ function staffImportOptions_(o) {
     headerRow: Math.max(1, Math.floor(toNumber_(o.headerRow, 1))), matchColumn: Math.floor(toNumber_(o.matchColumn, -1)), matchField: str_(o.matchField),
     fills: (Array.isArray(o.fills) ? o.fills : []).map(function (f) { return { column: Math.floor(toNumber_(f && f.column, -1)), field: str_(f && f.field) }; }),
     overwrite: !!o.overwrite, teamIds: (Array.isArray(o.teamIds) ? o.teamIds : []).map(str_).filter(Boolean),
+    excludeRoles: planRoleList_(o.excludeRoles),
     stripZeros: cfgBool_(getConfig_(), 'STRIP_LEADING_ZEROS'),
     // Choices made in the preview: source row → person reference, or "SKIP".
     assign: (function () {
@@ -626,7 +646,7 @@ function apiStaffImportApply(stageId, opts) {
       try {
         var labels = staffImportColumns_(r.staged.table, r.opts.headerRow).map(function (c) { return c.label; });
         var memory = rememberStaffImportMapping_(loadStaffImportMemory_(), labels,
-          { matchColumn: r.opts.matchColumn, matchField: r.opts.matchField, fills: r.opts.fills });
+          { matchColumn: r.opts.matchColumn, matchField: r.opts.matchField, fills: r.opts.fills, excludeRoles: r.opts.excludeRoles });
         PropertiesService.getScriptProperties().setProperty(STAFF_IMPORT_LAST_PROP_, JSON.stringify(memory));
       } catch (e) { /* only a convenience */ }
       if (written) rebuildStaffMasterSafe_();
