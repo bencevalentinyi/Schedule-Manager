@@ -172,7 +172,8 @@
     function showSource(r) {
       src = r;
       $('facts').innerHTML = '<div><dt>Source</dt><dd>' + esc(r.name) + '</dd></div><div><dt>Rows</dt><dd>' + r.rows + '</dd></div>' +
-        (r.quinyx ? '<div><dt>Recognised</dt><dd>Quinyx Custom report</dd></div>' : '');
+        (r.quinyx ? '<div><dt>Recognised</dt><dd>Quinyx Custom report</dd></div>' : '') +
+        (r.remembered ? '<div><dt>Columns</dt><dd>Set up as last time for this layout</dd></div>' : '');
       $('headerRow').value = r.headerRow;
       $('matchColumn').innerHTML = colOptions(r.mapping.matchColumn);
       $('matchField').value = r.mapping.matchField || 'employeeName';

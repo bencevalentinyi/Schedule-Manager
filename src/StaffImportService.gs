@@ -237,6 +237,21 @@ function planStaffImport_(table, opts, sheets, targets) {
     return it;
   });
 
+  // Two rows of the file that find the same person (e.g. "Ann Lee" and "Lee, Ann") would write
+  // different values into one row: neither is used.
+  var byPerson = {};
+  items.forEach(function (it) {
+    uniq_(it.changes.map(function (c) { return c.teamId + '|' + c.row; })).forEach(function (k) { (byPerson[k] = byPerson[k] || []).push(it); });
+  });
+  Object.keys(byPerson).forEach(function (k) {
+    if (byPerson[k].length < 2) return;
+    var rowsOf = byPerson[k].map(function (it) { return it.row; }).join(', ');
+    byPerson[k].forEach(function (it) {
+      it.status = 'DUPLICATE_IN_FILE'; it.changes = [];
+      it.note = 'Rows ' + rowsOf + ' of the file are the same person; fix them so only one row is left.';
+    });
+  });
+
   var S = emptyStaffImportSummary_();
   S.rows = items.length;
   items.forEach(function (it) {
@@ -314,12 +329,42 @@ function staffImportSourceForClient_(stageId, staged, headerRow) {
   var columns = staffImportColumns_(table, hr);
   var targets = staffImportTargets_();
   var mapping = guessStaffImportMapping_(columns, targets);
-  // Same column names as last time: reuse that mapping.
-  var last = parseJson_(PropertiesService.getScriptProperties().getProperty(STAFF_IMPORT_LAST_PROP_), null);
-  var labels = columns.map(function (c) { return c.label; });
-  if (last && last.labels && last.labels.join('\u0001') === labels.join('\u0001') && last.mapping) mapping = last.mapping;
+  // A layout seen before (same column names, e.g. a Quinyx or an Aircall report): reuse its mapping.
+  var remembered = rememberedStaffImportMapping_(loadStaffImportMemory_(), columns.map(function (c) { return c.label; }));
+  if (remembered) mapping = remembered;
   return { stageId: stageId, name: staged.meta.fileName, headerRow: hr, rows: table.length, columns: columns, mapping: mapping,
-    quinyx: /custom report/i.test(str_((table[0] || [])[0])) };
+    remembered: !!remembered, quinyx: /custom report/i.test(str_((table[0] || [])[0])) };
+}
+
+/* ---------- remembered column choices, one per column layout ---------- */
+
+var STAFF_IMPORT_MEMORY_MAX_ = 20;
+
+/** The layout key of a source: its column names, ignoring capitals and spaces. Pure. */
+function staffImportLayoutKey_(labels) {
+  return labels.map(function (l) { return str_(l).toLowerCase().replace(/\s+/g, ' ').trim(); }).join('\u0001');
+}
+
+/** The mapping remembered for these column names, or null. Pure. */
+function rememberedStaffImportMapping_(memory, labels) {
+  var key = staffImportLayoutKey_(labels);
+  var hit = (memory || []).filter(function (m) { return m.key === key; })[0];
+  return hit ? hit.mapping : null;
+}
+
+/** The memory with this layout's mapping first (newest), at most STAFF_IMPORT_MEMORY_MAX_ layouts. Pure. */
+function rememberStaffImportMapping_(memory, labels, mapping) {
+  var key = staffImportLayoutKey_(labels);
+  return [{ key: key, mapping: mapping }].concat((memory || []).filter(function (m) { return m.key !== key; })).slice(0, STAFF_IMPORT_MEMORY_MAX_);
+}
+
+function loadStaffImportMemory_() {
+  try {
+    var v = parseJson_(PropertiesService.getScriptProperties().getProperty(STAFF_IMPORT_LAST_PROP_), null);
+    if (Array.isArray(v)) return v;
+    // Stored before several layouts were remembered: one {labels, mapping}.
+    return v && v.labels && v.mapping ? [{ key: staffImportLayoutKey_(v.labels), mapping: v.mapping }] : [];
+  } catch (e) { return []; }
 }
 
 /* ---------- client API ---------- */
@@ -426,10 +471,10 @@ function apiStaffImportApply(stageId, opts) {
       });
       clearStaged_(stageId);
       try {
-        PropertiesService.getScriptProperties().setProperty(STAFF_IMPORT_LAST_PROP_, JSON.stringify({
-          labels: staffImportColumns_(r.staged.table, r.opts.headerRow).map(function (c) { return c.label; }),
-          mapping: { matchColumn: r.opts.matchColumn, matchField: r.opts.matchField, fills: r.opts.fills }
-        }));
+        var labels = staffImportColumns_(r.staged.table, r.opts.headerRow).map(function (c) { return c.label; });
+        var memory = rememberStaffImportMapping_(loadStaffImportMemory_(), labels,
+          { matchColumn: r.opts.matchColumn, matchField: r.opts.matchField, fills: r.opts.fills });
+        PropertiesService.getScriptProperties().setProperty(STAFF_IMPORT_LAST_PROP_, JSON.stringify(memory));
       } catch (e) { /* only a convenience */ }
       if (written) rebuildStaffMasterSafe_();
       return { written: written, teams: teams, summary: r.plan.summary };

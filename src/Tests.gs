@@ -1158,6 +1158,25 @@ function unitTestsIdImport_() {
       var only = plan(t, { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 3, field: 'role' }], teamIds: ['T2'] });
       assertEq_(statusOf(only)['Bob Ray'], 'NOT_FOUND', 'only the chosen team is searched');
     }],
+    ['Staff import: an Aircall report (A1 Identifier, C1 Full name) fills an own ID column; each layout keeps its own column choice', function () {
+      var aircall = [['Identifier', 'Email', 'Full name'], ['1234567', 'a@x.com', 'Ann Lee'], ['7654321', '', 'Lee, Ann']];
+      var cols = staffImportColumns_(aircall, detectStaffImportHeader_(aircall));
+      var g = guessStaffImportMapping_(cols, targets);
+      assertEq_([g.matchColumn, g.matchField], [2, 'employeeName'], 'Full name finds the person');
+      assert_(!g.fills.some(function (f) { return f.field === 'employeeId'; }), '"Identifier" is never taken for the Employee ID');
+      var tg = targets.concat([{ key: 'field:aircall', label: 'Aircall ID', kind: 'IDENTIFIER', unique: true, fill: true }]);
+      var sh = sheets(); sh[0].keys.push('field:aircall');
+      var p = planStaffImport_([['Identifier', 'Email', 'Full name'], ['1234567', '', 'Ann Lee']], { headerRow: 1, matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] }, sh, tg);
+      assertEq_(p.items[0].changes.map(function (c) { return c.teamName + ':' + c.status; }), ['Alpha:SET', 'Beta:NO_COLUMN'], 'written into the Aircall ID column of the row found by name');
+      var dup = planStaffImport_(aircall, { headerRow: 1, matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] }, sh, tg);
+      assertEq_(dup.items.map(function (i) { return i.status; }), ['DUPLICATE_IN_FILE', 'DUPLICATE_IN_FILE'], '"Ann Lee" and "Lee, Ann" find the same person: neither is written');
+      assertEq_(dup.summary.writes, 0);
+      var mem = rememberStaffImportMapping_([], ['Badge no.', 'Name'], { matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'employeeId' }] });
+      mem = rememberStaffImportMapping_(mem, ['Identifier', 'Email', 'Full name'], { matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] });
+      assertEq_(rememberedStaffImportMapping_(mem, ['identifier', 'Email', ' Full  name']).fills[0].field, 'field:aircall', 'Aircall layout (capitals and spaces ignored)');
+      assertEq_(rememberedStaffImportMapping_(mem, ['Badge no.', 'Name']).fills[0].field, 'employeeId', 'the Quinyx layout keeps its own');
+      assertEq_(rememberedStaffImportMapping_(mem, ['Other']), null);
+    }],
     ['Staff import: find people by Employee ID or email; values already used by someone else are refused; mapping is checked', function () {
       var byId = plan([['ID', 'Mail'], ['b9', 'bobby@x.com'], ['0123', 'ann@x.com']], { headerRow: 1, matchColumn: 0, matchField: 'employeeId', fills: [{ column: 1, field: 'email' }] });
       assertEq_([statusOf(byId).b9, statusOf(byId)['0123']], ['CONFLICT', 'NO_COLUMN'], 'IDs ignore capitals; Beta has no Email column');
