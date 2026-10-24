@@ -17,16 +17,6 @@ Teams, staff fields and shift and meeting types are configured through the **Sch
 
 > **Not yet verified against real files.** The Daily Schedule parser follows the layout as described; every row and column is configurable, and unreadable values are flagged rather than guessed (see ARCHITECTURE.md §1).
 
-## Updating from 1.1.x to 2.0.0
-
-2.0.0 removes the Slack module, the team type dialog, the import settings dialog and team membership, simplifies the team and import dialogs, and adds multi-team imports, Employee ID import, Monitoring Links and themes (see the changelog). No team, staff or schedule data is deleted.
-
-1. **Delete the removed files** from the Apps Script project: `SlackDialog.html`, `SlackMessageService.gs`, `SlackPayloadService.gs`, `TeamTypeDialog.html`, `MembershipService.gs`.
-   **Add the new files:** `StaffImportService.gs`, `StaffImportDialog.html`, `MonitoringLinkService.gs`, `MonitoringLinksDialog.html`, and optionally `ThemeSky.html` / `ThemeEmber.html`.
-2. **Replace** every other file in `src/`. With clasp: `git pull`, then `clasp push`.
-3. **Check the files:** save, run **`checkInstall`**, then reload the spreadsheet.
-4. **Run the upgrade once:** *Setup / Configure Spreadsheet → **Upgrade*** (other actions show "upgrade required" until you do). It records version 2.0.0, gives every team that still shares a staff sheet its own copy and hides the system sheets.
-5. **Optional clean-up:** the `_SLACK_PAYLOADS` and `_TEAM_MEMBERSHIP` sheets and the `SLACK_PAYLOAD_CONFIG`, `DASHBOARD_URL_CONFIG` and `SLACK_MESSAGE_CONFIG` rows in `_CONFIG` are no longer used. They are ignored, so you can leave them or delete them by hand.
 
 ## Updating an older installation (1.0 or 1.1.0) to 2.0.0
 
@@ -36,7 +26,7 @@ Teams, staff fields and shift and meeting types are configured through the **Sch
    - Until you do, other actions show "upgrade required".
    - The upgrade only *adds* things: the Activity Category, Meetings and Display Order columns.
    - Each team gets explicit settings with **meeting import off**, so imports behave exactly as before.
-   - Existing staff fields such as Converse ID are kept.
+   - Existing staff fields such as Any desired ID are kept.
    - Running it again changes nothing.
 
 ## File manifest
@@ -70,7 +60,7 @@ All files in `src/` belong in **one** Apps Script project bound to the spreadshe
 | `TeamDialog.html` | Five-step team dialog (create and edit) | TeamService |
 | `StaffSidebar.html` | Staff directory sidebar | StaffService |
 | `StaffImportService.gs`, `StaffImportDialog.html` | Import Staff Data: fills staff columns (Employee ID, Email, Role, own columns…) from a file, a sheet tab or another Google Sheet; one column finds each person (Name, Employee ID, Email…). Recognises the Quinyx "Custom report" (Badge no. + Name) | StaffService, StaffFieldService, QuinyxParser, ImportService (staging) |
-| `MonitoringLinkService.gs`, `MonitoringLinksDialog.html` | Monitoring links: dashboard URLs filled with the platform IDs (a staff column such as "Aircall ID") of the people who are working. Templates are stored in `_CONFIG` (LINK_TEMPLATES), never in code | Schedule, Staff, StaffFieldService, Config |
+| `MonitoringLinkService.gs`, `MonitoringLinksDialog.html` | Monitoring links: dashboard URLs filled with the platform IDs (a staff column such as "Any desired ID") of the people who are working. Templates are stored in `_CONFIG` (LINK_TEMPLATES), never in code | Schedule, Staff, StaffFieldService, Config |
 | `Navigator.html` | Schedule Viewer sidebar (date navigation, filters, summary) | ScheduleService |
 | `WebApp.gs`, `WebShell.html`, `WebHome.html` | **Web app** (optional): `doGet` shows every tool as a page in a browser tab, with a navigation bar, a Home page and prefetched data (one round trip per page). The tool pages are the same dialog files. See [docs/WEB_APP.md](docs/WEB_APP.md). | all client APIs |
 | `WebDataService.gs`, `WebSchedule.html`, `WebDashboard.html`, `WebPerson.html`, `WebStaff.html`, `WebLinksOutput.html` | Web app pages of their own: the day's schedule (teams, timeline, headcount), dashboard, a person's week, staff editing, and the Monitoring Links output. Numbers come from `dayView_` (ScheduleService), like the sheets. | ScheduleService, StaffService, MonitoringLinkService |
