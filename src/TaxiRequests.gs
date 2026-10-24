@@ -80,14 +80,21 @@ function normalizeTaxiSettings_(s) {
   };
 }
 
-/** Fills {placeholders} of a message from vars (unknown ones stay as written). Pure. */
+/** A typed "\n" in a message is a line break (a text box cannot hold real ones). Pure. */
+function taxiNl_(s) {
+  return String(s).replace(/\\n/g, '\n');
+}
+
+/** Fills {placeholders} of a message from vars (unknown ones stay as written); "\n" becomes a line break. Pure. */
 function taxiFill_(tpl, vars) {
-  return String(tpl).replace(/\{(\w+)\}/g, function (all, k) { return Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : all; });
+  return taxiNl_(tpl).replace(/\{(\w+)\}/g, function (all, k) { return Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : all; });
 }
 
 /** What follows the "before the failed rules" text: a new line when the rules are on lines, else a space. Pure. */
 function taxiFailPrefix_(s) {
-  return s.failText ? s.failText + (s.separator === 'LINE' ? '\n' : ' ') : '';
+  if (!s.failText) return '';
+  var p = taxiNl_(s.failText);
+  return /\n$/.test(p) ? p : p + (s.separator === 'LINE' ? '\n' : ' ');
 }
 
 function validateTaxiSettings_(s) {
@@ -143,7 +150,7 @@ function taxiEvaluate_(req, sinceByName, s, todayIso, tz) {
   var problems = [];
   if (s.rules.shiftEnd.on) {
     var m = taxiTimeMinutes_(req.shiftEnd, tz);
-    if (m === null) problems.push(s.texts.shiftEndUnknown);
+    if (m === null) problems.push(taxiFill_(s.texts.shiftEndUnknown, {}));
     else if (!taxiInWindow_(m, s.rules.shiftEnd.from, s.rules.shiftEnd.to)) {
       problems.push(taxiFill_(s.texts.shiftEndFail, { end: minutesToHm_(m), from: s.rules.shiftEnd.from, to: s.rules.shiftEnd.to }));
     }
@@ -153,8 +160,8 @@ function taxiEvaluate_(req, sinceByName, s, todayIso, tz) {
   if (s.rules.tenure.on) {
     var ref = isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd') : (cellToIsoDate_(req.arrival, tz) || todayIso);
     var n = taxiMonths_(since, ref);
-    if (!found) problems.push(s.texts.notFound);
-    else if (n < 0) problems.push(s.texts.sinceMissing);
+    if (!found) problems.push(taxiFill_(s.texts.notFound, {}));
+    else if (n < 0) problems.push(taxiFill_(s.texts.sinceMissing, {}));
     else {
       months = n;
       if (n >= s.rules.tenure.months) problems.push(taxiFill_(s.texts.tenureFail, { months: n, max: s.rules.tenure.months }));
@@ -162,7 +169,7 @@ function taxiEvaluate_(req, sinceByName, s, todayIso, tz) {
   }
   return {
     result: problems.length ? 'CHECK' : 'OK', problems: problems, since: since, months: months,
-    message: problems.length ? taxiFailPrefix_(s) + problems.join(TAXI_SEPARATORS[s.separator].text) : s.okText
+    message: problems.length ? taxiFailPrefix_(s) + problems.join(TAXI_SEPARATORS[s.separator].text) : taxiNl_(s.okText)
   };
 }
 
@@ -260,7 +267,7 @@ function buildTaxiFormula_(s, cols, staff) {
     'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
-    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,IF(msg="","OK","CHECK"),IF(msg="",' + taxiText_(s.okText) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + ')),' +
+    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,IF(msg="","OK","CHECK"),IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + ')),' +
       'IF(since="","",TEXT(since,"yyyy-mm-dd")),IF(tenure<0,"",tenure)}',
     'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(SORT(FILTER(out,reqName<>""),1,FALSE),{' +
       headers.map(function () { return '""'; }).join(',') + '}))'
@@ -499,6 +506,11 @@ function taxiUnitTests_() {
       assert_(f.indexOf('"Please check:"&CHAR(10)&LEFT(') > 0 && f.indexOf('LEFT(msg,LEN(msg)-1)') > 0, 'prefix on its own line; one-character separator cut');
       assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
       assertEq_(normalizeTaxiSettings_({ separator: 'NOPE' }).separator, 'SEMI');
+      var nl = normalizeTaxiSettings_({ sinceField: 'x', okText: 'All good\\nBook it', failText: 'Check:\\n', texts: { notFound: 'Unknown\\nperson' } });
+      assertEq_([taxiEvaluate_({ name: 'Ann', shiftEnd: '01:00' }, { ann: '2026-10-01' }, nl, '2026-10-24', tz).message,
+        taxiEvaluate_({ name: 'Zed', shiftEnd: '01:00' }, {}, nl, '2026-10-24', tz).message], ['All good\nBook it', 'Check:\nUnknown\nperson'], 'a typed \\n is a line break');
+      var fn = buildTaxiFormula_(nl, { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
+      assert_(fn.indexOf('"All good"&CHAR(10)&"Book it"') > 0 && fn.indexOf('"Unknown"&CHAR(10)&"person"') > 0, 'also in the sheet formula');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);
