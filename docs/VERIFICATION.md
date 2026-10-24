@@ -164,7 +164,7 @@ Nothing has been tested against a real Quinyx export or a real Slack Workflow.
 **Staff and shared directories**
 
 - [ ] A new team's staff sheet has exactly five columns.
-- [ ] Add "Converse ID" in *Configure Staff Fields*, enter `000123`, rename the field; the value is kept.
+- [ ] Add "Desired ID" in *Configure Staff Fields*, enter `000123`, rename the field; the value is kept.
 - [ ] Create team B sharing team A's staff sheet. The sheet title lists both teams. A's employees are still A's members; B has none.
 - [ ] In *View Staff Directory* for team B, mark one employee as a member of both teams.
 - [ ] Enable routing for A and B and import with *Route by staff directory membership*. The routing table shows that employee as **AMBIGUOUS**; Apply is blocked until a team is chosen.
@@ -227,14 +227,6 @@ Nothing has been verified against a real Quinyx export yet.
 - [ ] **24/7:** I2 shows "24/7" and the headcount has 24 rows. A 23:00–07:00 shift appears on both days (*Overnight* / *From previous day*).
 - [ ] **Custom 18:00–06:00:** a 02:00 shift dated the next day appears as *Starts next day*, and the headcount runs from 18:00 to 06:00.
 - [ ] Edit only the team's description. The hours and shift-type selection are unchanged.
-
-**Staff**
-
-- [ ] A new team's staff sheet has exactly: Employee ID, Employee Name, Converse ID, Aircall ID, AstraID, Active, Role, Notes.
-- [ ] Type `000123` into Converse ID; it stays `000123`.
-- [ ] In *Configure Staff Fields*, rename Converse ID to "CRM ID". The header changes in every team and the values stay.
-- [ ] Hide the field: the column is hidden, not deleted. Un-hide it and the values are back.
-- [ ] Adding a staff member with an existing Converse ID is refused.
 
 **Daily Schedule import**
 
