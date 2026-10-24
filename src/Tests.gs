@@ -593,7 +593,7 @@ function unitTestsV11_() {
     }],
     ['Staff: columns resolve by key note, so renamed fields keep their values', function () {
       var reg = { external_id_1: { displayName: 'CRM ID', fieldType: 'IDENTIFIER' } };
-      var keys = resolveStaffColumns_(['Employee ID', 'Employee Name', 'Converse ID', 'Notes', 'My column'],
+      var keys = resolveStaffColumns_(['Employee ID', 'Employee Name', 'Platform ID', 'Notes', 'My column'],
         ['', '', 'sm-field: field:external_id_1\n…', '', ''], reg);
       assertEq_(keys, ['employeeId', 'employeeName', 'field:external_id_1', 'notes', 'custom:My column']);
       assertEq_(resolveStaffColumns_(['CRM ID'], [''], reg), ['field:external_id_1']);
@@ -605,17 +605,17 @@ function unitTestsV11_() {
       assertEq_([matchEmployee_(idx, '007', '', 'NONE').staff.employeeId, matchEmployee_(idx, '7', '', 'NONE').status,
         matchEmployee_(idx, 'ab-12', '', 'NONE').staff.employeeId], ['E1', 'UNKNOWN', 'E2']);
       var dups = findDuplicateIdentifiers_(rows.concat([{ employeeId: 'E3', employeeName: 'Cy', fields: { 'field:external_id_1': '007' } }]),
-        ['employeeId', 'field:external_id_1'], ['Employee ID', 'Converse ID'], { external_id_1: { fieldType: 'IDENTIFIER' } });
-      assertEq_(dups, { 'Converse ID': ['007'] });
+        ['employeeId', 'field:external_id_1'], ['Employee ID', 'Platform ID'], { external_id_1: { fieldType: 'IDENTIFIER' } });
+      assertEq_(dups, { 'Platform ID': ['007'] });
     }],
     ['Import with an alternative match key stores the internal Employee ID', function () {
       var rows = [{ employeeId: 'E1', employeeName: 'Ann Lee', active: true, fields: { 'field:external_id_1': '0042' } }];
       var idx = buildStaffIndex_(rows, 'field:external_id_1');
-      idx.matchFieldLabel = 'Converse ID';
+      idx.matchFieldLabel = 'Platform ID';
       var p = planFromCsv_('Employee ID,Date,Start,End\n0042,2026-10-15,08:00,12:00\n9999,2026-10-15,08:00,12:00',
         { getStaffIndex: function () { return idx; } });
       var recs = p.actions.map(function (a) { return a.record; });
-      assertEq_([recs[0].employeeId, recs[0].staffMatch, recs[0].extra['Source Converse ID']], ['E1', 'ID', '0042']);
+      assertEq_([recs[0].employeeId, recs[0].staffMatch, recs[0].extra['Source Platform ID']], ['E1', 'ID', '0042']);
       assertEq_([recs[1].employeeId, recs[1].staffMatch], ['', 'UNKNOWN']);
     }],
     ['Team import settings: defaults and normalization', function () {
@@ -1183,22 +1183,22 @@ function unitTestsIdImport_() {
       var only = plan(t, { headerRow: 1, matchColumn: 0, matchField: 'employeeName', fills: [{ column: 3, field: 'role' }], teamIds: ['T2'] });
       assertEq_(statusOf(only)['Bob Ray'], 'NOT_FOUND', 'only the chosen team is searched');
     }],
-    ['Staff import: an Aircall report (A1 Identifier, C1 Full name) fills an own ID column; each layout keeps its own column choice', function () {
-      var aircall = [['Identifier', 'Email', 'Full name'], ['1234567', 'a@x.com', 'Ann Lee'], ['7654321', '', 'Lee, Ann']];
-      var cols = staffImportColumns_(aircall, detectStaffImportHeader_(aircall));
+    ['Staff import: a platform report (A1 Identifier, C1 Full name) fills an own ID column; each layout keeps its own column choice', function () {
+      var platformReport = [['Identifier', 'Email', 'Full name'], ['1234567', 'a@x.com', 'Ann Lee'], ['7654321', '', 'Lee, Ann']];
+      var cols = staffImportColumns_(platformReport, detectStaffImportHeader_(platformReport));
       var g = guessStaffImportMapping_(cols, targets);
       assertEq_([g.matchColumn, g.matchField], [2, 'employeeName'], 'Full name finds the person');
       assert_(!g.fills.some(function (f) { return f.field === 'employeeId'; }), '"Identifier" is never taken for the Employee ID');
-      var tg = targets.concat([{ key: 'field:aircall', label: 'Aircall ID', kind: 'IDENTIFIER', unique: true, fill: true }]);
-      var sh = sheets(); sh[0].keys.push('field:aircall');
-      var p = planStaffImport_([['Identifier', 'Email', 'Full name'], ['1234567', '', 'Ann Lee']], { headerRow: 1, matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] }, sh, tg);
-      assertEq_(p.items[0].changes.map(function (c) { return c.teamName + ':' + c.status; }), ['Alpha:SET', 'Beta:NO_COLUMN'], 'written into the Aircall ID column of the row found by name');
-      var dup = planStaffImport_(aircall, { headerRow: 1, matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] }, sh, tg);
+      var tg = targets.concat([{ key: 'field:platform', label: 'Platform ID', kind: 'IDENTIFIER', unique: true, fill: true }]);
+      var sh = sheets(); sh[0].keys.push('field:platform');
+      var p = planStaffImport_([['Identifier', 'Email', 'Full name'], ['1234567', '', 'Ann Lee']], { headerRow: 1, matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:platform' }] }, sh, tg);
+      assertEq_(p.items[0].changes.map(function (c) { return c.teamName + ':' + c.status; }), ['Alpha:SET', 'Beta:NO_COLUMN'], 'written into the Platform ID column of the row found by name');
+      var dup = planStaffImport_(platformReport, { headerRow: 1, matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:platform' }] }, sh, tg);
       assertEq_(dup.items.map(function (i) { return i.status; }), ['DUPLICATE_IN_FILE', 'DUPLICATE_IN_FILE'], '"Ann Lee" and "Lee, Ann" find the same person: neither is written');
       assertEq_(dup.summary.writes, 0);
       var mem = rememberStaffImportMapping_([], ['Badge no.', 'Name'], { matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'employeeId' }] });
-      mem = rememberStaffImportMapping_(mem, ['Identifier', 'Email', 'Full name'], { matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] });
-      assertEq_(rememberedStaffImportMapping_(mem, ['identifier', 'Email', ' Full  name']).fills[0].field, 'field:aircall', 'Aircall layout (capitals and spaces ignored)');
+      mem = rememberStaffImportMapping_(mem, ['Identifier', 'Email', 'Full name'], { matchColumn: 2, matchField: 'employeeName', fills: [{ column: 0, field: 'field:platform' }] });
+      assertEq_(rememberedStaffImportMapping_(mem, ['identifier', 'Email', ' Full  name']).fills[0].field, 'field:platform', 'Platform layout (capitals and spaces ignored)');
       assertEq_(rememberedStaffImportMapping_(mem, ['Badge no.', 'Name']).fills[0].field, 'employeeId', 'the Quinyx layout keeps its own');
       assertEq_(rememberedStaffImportMapping_(mem, ['Other']), null);
     }],
@@ -1208,10 +1208,10 @@ function unitTestsIdImport_() {
         ['same words, different order', 'middle name differs', 'similar spelling', 'same last name and initial', '']);
       var sh = sheets();
       sh[0].rows.push(person(7, 'E7', 'Ann Marie Lee'));
-      var tg = targets.concat([{ key: 'field:aircall', label: 'Aircall ID', kind: 'IDENTIFIER', unique: true, fill: true }]);
-      sh[0].keys.push('field:aircall');
+      var tg = targets.concat([{ key: 'field:platform', label: 'Platform ID', kind: 'IDENTIFIER', unique: true, fill: true }]);
+      sh[0].keys.push('field:platform');
       var t = [['Identifier', 'Full name'], ['111', 'Lee Ann Marie'], ['222', 'Zed Nobody'], ['333', 'Cy Moe']];
-      var o = { headerRow: 1, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] };
+      var o = { headerRow: 1, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'field:platform' }] };
       var p = planStaffImport_(t, o, sh, tg);
       var it = p.items[0];
       assertEq_([it.status, it.suggestions[0].label, it.changes.length], ['SUGGESTED', 'Ann Marie Lee · E7', 0], 'suggested, nothing written yet');
@@ -1243,9 +1243,9 @@ function unitTestsIdImport_() {
       var big = [['Identifier', 'Full name']];
       for (var j = 0; j < 6000; j++) big.push(['X' + j, j % 20 === 0 ? 'Person' + (j % 300) + ' Family' + ((j % 300) % 37) : 'Someone' + j + ' Else' + (j % 91)]);
       var t0 = new Date().getTime();
-      var p = planStaffImport_(big, { headerRow: 1, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'field:aircall' }] },
-        [{ teamId: 'T1', teamName: 'Alpha', keys: ['employeeId', 'employeeName', 'field:aircall'], rows: staff }],
-        targets.concat([{ key: 'field:aircall', label: 'Aircall ID', kind: 'IDENTIFIER', unique: true, fill: true }]));
+      var p = planStaffImport_(big, { headerRow: 1, matchColumn: 1, matchField: 'employeeName', fills: [{ column: 0, field: 'field:platform' }] },
+        [{ teamId: 'T1', teamName: 'Alpha', keys: ['employeeId', 'employeeName', 'field:platform'], rows: staff }],
+        targets.concat([{ key: 'field:platform', label: 'Platform ID', kind: 'IDENTIFIER', unique: true, fill: true }]));
       var ms = new Date().getTime() - t0;
       assertEq_(p.summary.rows, 6000);
       assert_(ms < 60000, '6000 rows took ' + ms + ' ms');
@@ -1420,7 +1420,7 @@ function runIntegrationTests() {
       var st = readStaff_(team);
       assertEq_(st.keys.filter(Boolean), ['employeeId', 'employeeName', 'role', 'notes']);
       var before = listStaffFields_().length;
-      var f = saveStaffField_({ displayName: IT_PREFIX_ + 'Converse ID', fieldType: 'IDENTIFIER' }).field;
+      var f = saveStaffField_({ displayName: IT_PREFIX_ + 'Platform ID', fieldType: 'IDENTIFIER' }).field;
       ctx.fieldKeys = (ctx.fieldKeys || []).concat([f.fieldKey]);
       assertEq_(listStaffFields_().length, before + 1);
       setStaffFieldTeams_(f.fieldKey, [team.teamId]);
