@@ -1,7 +1,7 @@
 /**
  * StaffFieldService.gs
  * Registry of configurable staff fields in _STAFF_FIELDS: external identifiers
- * (e.g. Converse ID, Aircall ID, AstraID) and custom text fields.
+ * (e.g. Desired ID1, Desired ID2, Desired ID3) and custom text fields.
  *
  *  - Field Key is permanent (external_id_1, field_2, …). Teams reference fields
  *    as "field:<key>" in team.settings.staffFields.
@@ -16,7 +16,7 @@
 
 /**
  * No fields are created automatically. Administrators add identifier
- * fields (e.g. Converse ID, CRM ID) under Configure Staff Fields when needed.
+ * fields (e.g. Desired ID, CRM ID) under Configure Staff Fields when needed.
  * Fields created by v1.1.0 installations are kept as ordinary user data.
  */
 var SEED_STAFF_FIELDS_ = [];
