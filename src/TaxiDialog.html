@@ -50,8 +50,10 @@
         <div class="field"><label class="label" for="checksTab">Checks tab (created and rebuilt by Save)</label><input type="text" id="checksTab" maxlength="90"></div>
       </div>
       <div>
-        <h2>Preview <span class="small">— the newest requests with these rules</span></h2>
-        <div id="previewBox"></div>
+        <h2>Requests <span class="small">— the newest, checked with these rules</span></h2>
+        <div class="cluster"><label class="sr-only" for="limit">How many</label><select id="limit" onchange="preview()" style="width:auto"><option value="25">Newest 25</option><option value="100">Newest 100</option><option value="500">Newest 500</option></select>
+          <label class="check"><input type="checkbox" id="onlyCheck" onchange="preview()"> <span>Only requests to check</span></label></div>
+        <div id="previewBox" class="mt-2"></div>
         <details class="mt-3" open>
           <summary><b>Slack workflow steps</b></summary>
           <ol class="steps mt-2">
@@ -142,17 +144,17 @@
     function renderPreview(p) {
       var warn = (p.errors || []).length ? alertHtml('warn', 'Not ready to save', '', p.errors) : '';
       if (p.missingTeams.length) warn += alertHtml('warn', 'Not checked against these teams', 'Their staff sheet has no such column:', p.missingTeams);
-      if (!p.rows.length) { $('previewBox').innerHTML = warn + emptyHtml('🚕', 'No requests yet', 'The newest 25 requests show here.'); return; }
-      $('previewBox').innerHTML = warn + '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Row</th><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Shift end</th><th scope="col">Months</th><th scope="col">Result</th></tr></thead><tbody>' +
+      if (!p.rows.length) { $('previewBox').innerHTML = warn + emptyHtml('🚕', $('onlyCheck').checked ? 'Nothing to check' : 'No requests yet', $('onlyCheck').checked ? 'Every request in this range meets the rules.' : 'The newest requests show here.'); return; }
+      $('previewBox').innerHTML = warn + '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Row</th><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Taxi arrives</th><th scope="col">Shift end</th><th scope="col">Months</th><th scope="col">Result</th></tr></thead><tbody>' +
         p.rows.map(function (r) {
-          return '<tr><td>' + r.row + '</td><td class="small">' + esc(r.id) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.shiftEnd) + '</td><td>' + esc(r.months) + '</td><td class="msg-cell">' +
+          return '<tr><td>' + r.row + '</td><td class="small">' + esc(r.id) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.arrival) + '</td><td>' + esc(r.shiftEnd) + '</td><td>' + esc(r.months) + '</td><td class="msg-cell">' +
             badge(r.result === 'OK' ? 'ok' : 'warn', r.result) + ' <span class="small">' + esc(r.message) + '</span></td></tr>';
         }).join('') + '</tbody></table></div>';
     }
 
     function preview() {
       showStatus('');
-      call('Checking…', 'apiTaxiPreview', collect()).then(renderPreview);
+      call('Checking…', 'apiTaxiPreview', collect(), { limit: $('limit').value, onlyCheck: $('onlyCheck').checked }).then(renderPreview);
     }
 
     function save() {

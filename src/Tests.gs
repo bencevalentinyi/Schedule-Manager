@@ -1075,7 +1075,8 @@ function unitTestsWebApp_() {
     ['Web app: every page has a file and a title; the nav marks the current page (or the page it belongs to)', function () {
       Object.keys(WEB_PAGES).forEach(function (k) { assert_(WEB_PAGES[k].file && WEB_PAGES[k].title, k); });
       var nav = webNav_('team', 'https://x/exec');
-      assertEq_(nav.map(function (n) { return n.key; }), ['home', 'schedule', 'dashboard', 'import', 'teams', 'staff', 'links', 'settings']);
+      // Extension pages (when their files are present) come after the built-in ones.
+      assertEq_(nav.map(function (n) { return n.key; }).filter(function (k) { return WEB_PAGES[k]; }), ['home', 'schedule', 'dashboard', 'import', 'teams', 'staff', 'links', 'settings']);
       assertEq_(nav.filter(function (n) { return n.current; }).map(function (n) { return n.key; }), ['teams'], 'Team editor belongs to Teams');
       assertEq_(nav[3].href, 'https://x/exec?page=import');
       assertEq_(WEB_PAGES.setup.init, false, 'Setup opens before initialization');

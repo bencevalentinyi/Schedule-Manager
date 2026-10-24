@@ -50,6 +50,14 @@ var WEB_PAGES = {
   help: { file: 'ReportDialog', title: 'About / Help', init: false, boot: function () { return { title: APP.NAME + ' ' + APP.VERSION, help: true }; } }
 };
 
+/** WEB_PAGES plus the pages of the extension files that are present (their `webPages`, see smExtensions_). */
+function webPages_() {
+  var all = {};
+  Object.keys(WEB_PAGES).forEach(function (k) { all[k] = WEB_PAGES[k]; });
+  smExtensions_().forEach(function (e) { Object.keys(e.webPages || {}).forEach(function (k) { if (!all[k]) all[k] = e.webPages[k]; }); });
+  return all;
+}
+
 /** A yyyy-MM-dd URL parameter, or '' (the page then uses today). Pure. */
 function webDateParam_(v) { v = str_(v); return isIsoDate_(v) ? v : ''; }
 /** A comma-separated URL parameter as a list. Pure. */
@@ -119,11 +127,12 @@ function withFavicon_(out) {
 /** Web app entry point (GET). */
 function doGet(e) {
   var params = (e && e.parameter) || {};
-  var key = WEB_PAGES[params.page] ? params.page : 'home';
+  var pages = webPages_();
+  var key = pages[params.page] ? params.page : 'home';
   try {
-    var page = WEB_PAGES[key];
+    var page = pages[key];
     // Before setup only Home, Setup and Help open; the others need the system sheets.
-    if (page.init !== false && !isInitialized_()) { key = 'setup'; page = WEB_PAGES.setup; }
+    if (page.init !== false && !isInitialized_()) { key = 'setup'; page = pages.setup; }
     return renderWebPage_(key, params);
   } catch (err) {
     logError_('doGet', err);
@@ -133,7 +142,7 @@ function doGet(e) {
 
 /** The page's HTML: the dialog file evaluated with its BOOT data, plus the navigation bar. */
 function renderWebPage_(key, params) {
-  var page = WEB_PAGES[key];
+  var page = webPages_()[key];
   var t = HtmlService.createTemplateFromFile(page.file);
   var data = page.boot ? page.boot(params) : {};
   if (data.title === undefined) data.title = page.title;
@@ -179,8 +188,9 @@ function webPageHeader_(html, title) {
 
 /** Navigation items in order, with the current one marked. Pure apart from the URL passed in. */
 function webNav_(current, url) {
-  return Object.keys(WEB_PAGES).filter(function (k) { return WEB_PAGES[k].nav; }).map(function (k) {
-    return { key: k, label: WEB_PAGES[k].nav, href: url + '?page=' + k, current: k === current || WEB_PAGES[current].back === k };
+  var pages = webPages_();
+  return Object.keys(pages).filter(function (k) { return pages[k].nav; }).map(function (k) {
+    return { key: k, label: pages[k].nav, href: url + '?page=' + k, current: k === current || pages[current].back === k };
   });
 }
 

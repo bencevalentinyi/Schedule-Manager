@@ -21,6 +21,8 @@ var SM_EXTENSIONS = (typeof SM_EXTENSIONS !== 'undefined' && SM_EXTENSIONS) || [
 SM_EXTENSIONS.push({
   id: 'taxi', title: 'Taxi Requests',
   menu: [{ label: 'Taxi Request Rules', fn: 'menuTaxiRules' }],
+  // Web app page (only while this file is present): the same page as the dialog, with the request list.
+  webPages: { taxi: { file: 'TaxiDialog', title: 'Taxi Requests', nav: 'Taxi', prefetch: function () { return [['apiTaxiBootstrap']]; } } },
   tests: function () { return taxiUnitTests_(); }
 });
 
@@ -329,21 +331,28 @@ function apiTaxiCreateRequestTab(tab) {
 }
 
 /** The newest requests against the (unsaved) settings, checked here — what the sheet formula will show. */
-function apiTaxiPreview(settings) {
+/**
+ * @param {Object} settings the (unsaved) settings
+ * @param {{limit?: number, onlyCheck?: boolean}=} opts how many of the newest requests (25 by default, at most 500)
+ */
+function apiTaxiPreview(settings, opts) {
   return apiCall_('apiTaxiPreview', function () {
+    opts = opts || {};
+    var limit = Math.min(500, Math.max(1, Math.floor(toNumber_(opts.limit, 25))));
     var s = normalizeTaxiSettings_(settings);
     var cols = taxiRequestColumns_(s);
     var staff = taxiStaffSources_(s);
     var sh = getSs_().getSheetByName(s.requestTab), tz = getTz_(), today = todayIso_(tz);
     var last = sh.getLastRow(), rows = [];
     if (last >= 2) {
-      var first = Math.max(2, last - 24);
+      var first = Math.max(2, last - limit + 1);
       var values = sh.getRange(first, 1, last - first + 1, sh.getLastColumn()).getValues();
       var at = function (row, letter) { return row[columnNumber_(letter) - 1]; };
       for (var i = values.length - 1; i >= 0; i--) {
         var req = { name: str_(at(values[i], cols.name)), shiftEnd: at(values[i], cols.shiftEnd), arrival: at(values[i], cols.arrival) };
         if (!req.name) continue;
         var e = taxiEvaluate_(req, staff.sinceByName, s, today, tz);
+        if (opts.onlyCheck && e.result !== 'CHECK') continue;
         var idv = cols.id ? at(values[i], cols.id) : '';
         rows.push({ row: first + i, id: isDate_(idv) ? Utilities.formatDate(idv, tz, 'yyyy-MM-dd HH:mm:ss') : str_(idv), name: req.name, shiftEnd: isDate_(req.shiftEnd) ? Utilities.formatDate(req.shiftEnd, tz, 'HH:mm') : str_(req.shiftEnd),
           arrival: isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd HH:mm') : str_(req.arrival),
@@ -419,6 +428,11 @@ function taxiUnitTests_() {
       var none = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', idColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
       assert_(none.indexOf('reqId') < 0 && none.indexOf('{"Row","Name",') > 0, 'no ID column: search by Name');
       assertEq_(taxiCheckHeaders_(s).length, 7);
+    }],
+    ['Taxi: a web app page and nav link only while this file is present', function () {
+      var p = webPages_().taxi;
+      assertEq_([p.file, p.nav, WEB_PAGES.taxi], ['TaxiDialog', 'Taxi', undefined]);
+      assertEq_(p.prefetch({}, {}), [['apiTaxiBootstrap']], 'same call as load() in the page');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);
