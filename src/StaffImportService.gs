@@ -492,7 +492,7 @@ function staffImportSourceForClient_(stageId, staged, headerRow) {
   var columns = staffImportColumns_(table, hr);
   var targets = staffImportTargets_();
   var mapping = guessStaffImportMapping_(columns, targets);
-  // A layout seen before (same column names, e.g. a Quinyx or an Aircall report): reuse its mapping.
+  // A layout seen before (same column names, e.g. a Quinyx report): reuse its mapping.
   var remembered = rememberedStaffImportMapping_(loadStaffImportMemory_(), columns.map(function (c) { return c.label; }));
   if (remembered) mapping = remembered;
   return { stageId: stageId, name: staged.meta.fileName, headerRow: hr, rows: table.length, columns: columns, mapping: mapping,
