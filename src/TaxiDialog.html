@@ -7,7 +7,7 @@
   <style>
     .steps { margin: 0; padding-left: 20px; }
     .steps li { margin-bottom: 6px; }
-    .msg-cell { max-width: 420px; }
+    .msg-cell { max-width: 420px; white-space: pre-line; }
   </style>
 </head>
 <body>
@@ -47,6 +47,12 @@
         <h2 class="mt-3">Message</h2>
         <div class="field"><label class="label" for="okText">When every rule is met</label><input type="text" id="okText" maxlength="200"></div>
         <div class="field"><label class="label" for="failText">Before the failed rules</label><input type="text" id="failText" maxlength="200"></div>
+        <div class="field"><label class="label" for="separator">Several failed rules</label><select id="separator"></select></div>
+        <details class="mt-2">
+          <summary><b>Message per failed rule</b></summary>
+          <p class="hint">Words in braces are filled in, e.g. <code>{end}</code> the shift end. Leave a box empty for the default text.</p>
+          <div id="textsBox"></div>
+        </details>
         <div class="field"><label class="label" for="checksTab">Checks tab (created and rebuilt by Save)</label><input type="text" id="checksTab" maxlength="90"></div>
       </div>
       <div>
@@ -107,6 +113,14 @@
         $('seOn').checked = s.rules.shiftEnd.on; $('seFrom').value = s.rules.shiftEnd.from; $('seTo').value = s.rules.shiftEnd.to;
         $('teOn').checked = s.rules.tenure.on; $('teMonths').value = s.rules.tenure.months;
         $('okText').value = s.okText; $('failText').value = s.failText; $('checksTab').value = s.checksTab;
+        $('separator').innerHTML = Object.keys(d.separators).map(function (k) {
+          return '<option value="' + k + '"' + (k === s.separator ? ' selected' : '') + '>' + esc(d.separators[k].label) + '</option>';
+        }).join('');
+        $('textsBox').innerHTML = Object.keys(d.texts).map(function (k) {
+          var t = d.texts[k], vars = t.vars.length ? ' <span class="hint">' + t.vars.map(function (v) { return '<code>{' + esc(v) + '}</code>'; }).join(' ') + '</span>' : '';
+          return '<div class="field"><label class="label" for="tx_' + k + '">' + esc(t.label) + vars + '</label>' +
+            '<input type="text" id="tx_' + k + '" data-text="' + k + '" maxlength="300" placeholder="' + esc(t.text) + '" value="' + esc(s.texts[k] === t.text ? '' : s.texts[k]) + '"></div>';
+        }).join('');
         $('hintChecks').textContent = s.checksTab;
         if (!d.headers.length) showStatus('info', 'The tab "' + esc(s.requestTab) + '" does not exist yet. Choose the tab your Slack workflow writes to, or create a new one.', 'Choose the requests tab');
         else preview();
@@ -137,7 +151,8 @@
         nameColumn: $('nameColumn').value, shiftEndColumn: $('shiftEndColumn').value, arrivalColumn: $('arrivalColumn').value,
         staffMatch: $('staffMatch').value, sinceField: $('sinceField').value,
         rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value } },
-        okText: $('okText').value, failText: $('failText').value
+        okText: $('okText').value, failText: $('failText').value, separator: $('separator').value,
+        texts: Array.prototype.reduce.call(document.querySelectorAll('[data-text]'), function (o, el) { o[el.getAttribute('data-text')] = el.value; return o; }, {})
       };
     }
 

@@ -35,6 +35,20 @@ function taxiCheckHeaders_(s) {
   return ['Row'].concat(s.idColumn ? [s.idColumn] : []).concat(['Name', 'Result', 'Message', 'Employee since', 'Months']);
 }
 
+/** The failed-rule messages: default text and the {placeholders} it can use. */
+var TAXI_TEXTS = {
+  shiftEndFail: { label: 'Shift ends outside the window', text: 'Shift ends {end} (taxi only for shifts ending {from}–{to})', vars: ['end', 'from', 'to'] },
+  shiftEndUnknown: { label: 'Shift end not readable', text: 'Shift end not understood', vars: [] },
+  tenureFail: { label: 'Employed too long', text: 'Employed {months} months (taxi only under {max} months)', vars: ['months', 'max'] },
+  notFound: { label: 'Not in any staff sheet', text: 'Not found in the staff sheets', vars: [] },
+  sinceMissing: { label: 'No employee-since date', text: 'Employee since date missing', vars: [] }
+};
+/** How several failed rules are joined (LINE: each on its own line). */
+var TAXI_SEPARATORS = {
+  SEMI: { label: 'Semicolon ( ; )', text: '; ' }, LINE: { label: 'Each on a new line', text: '\n' },
+  DOT: { label: 'Dot ( · )', text: ' · ' }, COMMA: { label: 'Comma ( , )', text: ', ' }
+};
+
 /* ------------------------------------------------------------------------ */
 /* Settings (pure)                                                           */
 /* ------------------------------------------------------------------------ */
@@ -42,7 +56,7 @@ function taxiCheckHeaders_(s) {
 /** Settings with defaults. Pure. */
 function normalizeTaxiSettings_(s) {
   s = s || {};
-  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {};
+  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {}, t = s.texts || {};
   var hm = function (v, d) { var m = hmToMinutes_(str_(v)); return m === null ? d : minutesToHm_(m % 1440); };
   return {
     requestTab: str_(s.requestTab) || 'Taxi Requests',
@@ -59,8 +73,21 @@ function normalizeTaxiSettings_(s) {
       tenure: { on: te.on !== false, months: Math.max(1, Math.floor(toNumber_(te.months, 3))) }
     },
     okText: s.okText !== undefined ? str_(s.okText) : '✅ All taxi rules are met.',
-    failText: s.failText !== undefined ? str_(s.failText) : '⚠️ Check before approving:'
+    failText: s.failText !== undefined ? str_(s.failText) : '⚠️ Check before approving:',
+    // One message per failed rule; {placeholders} are filled in (see TAXI_TEXTS). Empty = the default.
+    texts: Object.keys(TAXI_TEXTS).reduce(function (o, k) { o[k] = str_(t[k]) || TAXI_TEXTS[k].text; return o; }, {}),
+    separator: TAXI_SEPARATORS[s.separator] ? s.separator : 'SEMI'
   };
+}
+
+/** Fills {placeholders} of a message from vars (unknown ones stay as written). Pure. */
+function taxiFill_(tpl, vars) {
+  return String(tpl).replace(/\{(\w+)\}/g, function (all, k) { return Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : all; });
+}
+
+/** What follows the "before the failed rules" text: a new line when the rules are on lines, else a space. Pure. */
+function taxiFailPrefix_(s) {
+  return s.failText ? s.failText + (s.separator === 'LINE' ? '\n' : ' ') : '';
 }
 
 function validateTaxiSettings_(s) {
@@ -116,9 +143,9 @@ function taxiEvaluate_(req, sinceByName, s, todayIso, tz) {
   var problems = [];
   if (s.rules.shiftEnd.on) {
     var m = taxiTimeMinutes_(req.shiftEnd, tz);
-    if (m === null) problems.push('Shift end not understood');
+    if (m === null) problems.push(s.texts.shiftEndUnknown);
     else if (!taxiInWindow_(m, s.rules.shiftEnd.from, s.rules.shiftEnd.to)) {
-      problems.push('Shift ends ' + minutesToHm_(m) + ' (taxi only for shifts ending ' + s.rules.shiftEnd.from + '–' + s.rules.shiftEnd.to + ')');
+      problems.push(taxiFill_(s.texts.shiftEndFail, { end: minutesToHm_(m), from: s.rules.shiftEnd.from, to: s.rules.shiftEnd.to }));
     }
   }
   var key = normText_(req.name), found = Object.prototype.hasOwnProperty.call(sinceByName, key);
@@ -126,16 +153,16 @@ function taxiEvaluate_(req, sinceByName, s, todayIso, tz) {
   if (s.rules.tenure.on) {
     var ref = isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd') : (cellToIsoDate_(req.arrival, tz) || todayIso);
     var n = taxiMonths_(since, ref);
-    if (!found) problems.push('Not found in the staff sheets');
-    else if (n < 0) problems.push('Employee since date missing');
+    if (!found) problems.push(s.texts.notFound);
+    else if (n < 0) problems.push(s.texts.sinceMissing);
     else {
       months = n;
-      if (n >= s.rules.tenure.months) problems.push('Employed ' + n + ' months (taxi only under ' + s.rules.tenure.months + ' months)');
+      if (n >= s.rules.tenure.months) problems.push(taxiFill_(s.texts.tenureFail, { months: n, max: s.rules.tenure.months }));
     }
   }
   return {
     result: problems.length ? 'CHECK' : 'OK', problems: problems, since: since, months: months,
-    message: problems.length ? (s.failText ? s.failText + ' ' : '') + problems.join('; ') : s.okText
+    message: problems.length ? taxiFailPrefix_(s) + problems.join(TAXI_SEPARATORS[s.separator].text) : s.okText
   };
 }
 
@@ -149,6 +176,33 @@ function taxiSheetRef_(name) {
 
 function taxiText_(s) {
   return '"' + String(s).replace(/"/g, '""') + '"';
+}
+
+/** A text as a formula expression; line breaks become CHAR(10). Pure. */
+function taxiLit_(s) {
+  var parts = [];
+  String(s).split('\n').forEach(function (line, i) {
+    if (i) parts.push('CHAR(10)');
+    if (line) parts.push(taxiText_(line));
+  });
+  return parts.length ? parts.join('&') : '""';
+}
+
+/**
+ * A message as a formula expression: {placeholders} in `fixed` are written in, those in `live` become
+ * formula parts (e.g. {end} → TEXT(endT,"hh:mm")). Pure.
+ */
+function taxiTextExpr_(tpl, fixed, live) {
+  var text = taxiFill_(tpl, fixed), parts = [], re = /\{(\w+)\}/g, last = 0, m;
+  var lit = function (s) { if (s) parts.push(taxiLit_(s)); };
+  while ((m = re.exec(text))) {
+    if (!live[m[1]]) continue;
+    lit(text.slice(last, m.index));
+    parts.push(live[m[1]]);
+    last = m.index + m[0].length;
+  }
+  lit(text.slice(last));
+  return parts.length ? parts.join('&') : '""';
 }
 
 function taxiTimeExpr_(hm) {
@@ -171,24 +225,28 @@ function buildTaxiFormula_(s, cols, staff) {
       return q + '!' + x.key + x.firstRow + ':' + x.key + ',' + q + '!' + x.since + x.firstRow + ':' + x.since;
     }).join(';') + '}'
     : '{"",""}';
+  // Each failed rule ends with the separator; the last one is cut off at the end.
+  var sepText = TAXI_SEPARATORS[s.separator].text, sep = taxiLit_(sepText);
   var parts = [];
   if (s.rules.shiftEnd.on) {
     var f = taxiTimeExpr_(s.rules.shiftEnd.from), t = taxiTimeExpr_(s.rules.shiftEnd.to);
     var inside = hmToMinutes_(s.rules.shiftEnd.from) <= hmToMinutes_(s.rules.shiftEnd.to)
       ? '(endT>=' + f + ')*(endT<=' + t + ')' : '(endT>=' + f + ')+(endT<=' + t + ')';
-    parts.push('IF(endT<0,' + taxiText_('Shift end not understood; ') + ',IF(' + inside + ',"",' + taxiText_('Shift ends ') +
-      '&TEXT(endT,"hh:mm")&' + taxiText_(' (taxi only for shifts ending ' + s.rules.shiftEnd.from + '–' + s.rules.shiftEnd.to + '); ') + '))');
+    parts.push('IF(endT<0,' + taxiTextExpr_(s.texts.shiftEndUnknown, {}, {}) + '&' + sep + ',IF(' + inside + ',"",' +
+      taxiTextExpr_(s.texts.shiftEndFail, { from: s.rules.shiftEnd.from, to: s.rules.shiftEnd.to }, { end: 'TEXT(endT,"hh:mm")' }) + '&' + sep + '))');
   }
   if (s.rules.tenure.on) {
     var n = s.rules.tenure.months;
-    parts.push('IF(NOT(found),' + taxiText_('Not found in the staff sheets; ') + ',IF(tenure<0,' + taxiText_('Employee since date missing; ') +
-      ',IF(tenure<' + n + ',"",' + taxiText_('Employed ') + '&tenure&' + taxiText_(' months (taxi only under ' + n + ' months); ') + ')))');
+    parts.push('IF(NOT(found),' + taxiTextExpr_(s.texts.notFound, {}, {}) + '&' + sep + ',IF(tenure<0,' + taxiTextExpr_(s.texts.sinceMissing, {}, {}) + '&' + sep +
+      ',IF(tenure<' + n + ',"",' + taxiTextExpr_(s.texts.tenureFail, { max: n }, { months: 'tenure' }) + '&' + sep + ')))');
   }
   var msg = parts.length ? parts.join('&') : '""';
-  var fail = s.failText ? taxiText_(s.failText + ' ') + '&' : '';
+  var fail = s.failText ? taxiLit_(taxiFailPrefix_(s)) + '&' : '';
+  // The ID as text, exactly as the request tab shows it (a date the workflow wrote stays "2026-10-25 22:15:03", never a number),
+  // so "Select a spreadsheet row" finds the value the workflow searches for.
   var withId = !!(s.idColumn && cols.id);
   var headers = taxiCheckHeaders_(withId ? s : { idColumn: '' });
-  return '=ARRAYFORMULA(LET(' + [].concat(withId ? ['reqId,' + col(cols.id)] : []).concat([
+  return '=ARRAYFORMULA(LET(' + [].concat(withId ? ['reqId,TO_TEXT(' + col(cols.id) + ')'] : []).concat([
     'reqName,' + col(cols.name),
     'shiftEnd,' + col(cols.shiftEnd),
     'arrival,' + col(cols.arrival),
@@ -202,7 +260,7 @@ function buildTaxiFormula_(s, cols, staff) {
     'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
-    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,IF(msg="","OK","CHECK"),IF(msg="",' + taxiText_(s.okText) + ',' + fail + 'LEFT(msg,LEN(msg)-2)),' +
+    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,IF(msg="","OK","CHECK"),IF(msg="",' + taxiText_(s.okText) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + ')),' +
       'IF(since="","",TEXT(since,"yyyy-mm-dd")),IF(tenure<0,"",tenure)}',
     'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(SORT(FILTER(out,reqName<>""),1,FALSE),{' +
       headers.map(function () { return '""'; }).join(',') + '}))'
@@ -282,12 +340,6 @@ function applyTaxiChecks_(s) {
   sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   sh.setFrozenRows(1);
   sh.setColumnWidth(headers.indexOf('Message') + 1, 420);
-  if (cols.id) {
-    // Same display as in the request tab, so the workflow finds the row with the exact value it wrote.
-    var req = ss.getSheetByName(s.requestTab);
-    var fmt = req.getLastRow() >= 2 ? req.getRange(2, columnNumber_(cols.id)).getNumberFormat() : '';
-    if (fmt) sh.getRange(2, 2, Math.max(1, sh.getMaxRows() - 1), 1).setNumberFormat(fmt);
-  }
   return { sheetUrl: sheetLink_(sh), teams: staff.sources.length, missingTeams: staff.missing };
 }
 
@@ -307,7 +359,8 @@ function apiTaxiBootstrap() {
     var fields = [{ key: 'employeeName', label: 'Employee Name' }].concat(staff.fields.filter(function (f) { return f.key !== 'employeeName'; }));
     return {
       settings: s, tabs: getSs_().getSheets().map(function (x) { return x.getName(); }).filter(function (n) { return n.charAt(0) !== '_'; }),
-      headers: taxiHeaders_(s.requestTab) || [], staffFields: fields, requestHeaders: TAXI_REQUEST_HEADERS, checkHeaders: taxiCheckHeaders_(s)
+      headers: taxiHeaders_(s.requestTab) || [], staffFields: fields, requestHeaders: TAXI_REQUEST_HEADERS, checkHeaders: taxiCheckHeaders_(s),
+      texts: TAXI_TEXTS, separators: TAXI_SEPARATORS
     };
   });
 }
@@ -423,7 +476,7 @@ function taxiUnitTests_() {
     }],
     ['Taxi: the request ID (Date ID) is copied next to Row, so the workflow finds the exact request', function () {
       var f = buildTaxiFormula_(s, { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
-      assert_(f.indexOf("=ARRAYFORMULA(LET(reqId,'Taxi Requests'!A2:A,") === 0 && f.indexOf('out,{rowNo,reqId,reqName,') > 0, 'ID column in the output');
+      assert_(f.indexOf("=ARRAYFORMULA(LET(reqId,TO_TEXT('Taxi Requests'!A2:A),") === 0 && f.indexOf('out,{rowNo,reqId,reqName,') > 0, 'ID column in the output');
       assert_(f.indexOf('{"Row","Date ID","Name","Result","Message","Employee since","Months"}') > 0, 'headed like the request tab');
       var none = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', idColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
       assert_(none.indexOf('reqId') < 0 && none.indexOf('{"Row","Name",') > 0, 'no ID column: search by Name');
@@ -433,6 +486,19 @@ function taxiUnitTests_() {
       var p = webPages_().taxi;
       assertEq_([p.file, p.nav, WEB_PAGES.taxi], ['TaxiDialog', 'Taxi', undefined]);
       assertEq_(p.prefetch({}, {}), [['apiTaxiBootstrap']], 'same call as load() in the page');
+    }],
+    ['Taxi: own messages per rule with {placeholders}, joined by the chosen separator', function () {
+      var own = normalizeTaxiSettings_({ sinceField: 'x', separator: 'LINE', failText: 'Please check:',
+        texts: { shiftEndFail: 'Ends at {end}, needs {from}-{to}', tenureFail: '{months} months "in" (max {max})', notFound: '' } });
+      assertEq_(own.texts.notFound, 'Not found in the staff sheets', 'an empty message falls back to the default');
+      var e = taxiEvaluate_({ name: 'Bob', shiftEnd: '22:00' }, { bob: '2025-01-01' }, own, '2026-10-24', tz);
+      assertEq_(e.message, 'Please check:\nEnds at 22:00, needs 00:00-06:00\n21 months "in" (max 3)');
+      var f = buildTaxiFormula_(own, { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
+      assert_(f.indexOf('"Ends at "&TEXT(endT,"hh:mm")&", needs 00:00-06:00"&CHAR(10)') > 0, 'live {end}, fixed {from}/{to}, new line');
+      assert_(f.indexOf('tenure&" months ""in"" (max 3)"') > 0, 'live {months}, quotes escaped');
+      assert_(f.indexOf('"Please check:"&CHAR(10)&LEFT(') > 0 && f.indexOf('LEFT(msg,LEN(msg)-1)') > 0, 'prefix on its own line; one-character separator cut');
+      assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
+      assertEq_(normalizeTaxiSettings_({ separator: 'NOPE' }).separator, 'SEMI');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);
