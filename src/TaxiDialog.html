@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .steps { margin: 0; padding-left: 20px; }
+    .steps li { margin-bottom: 6px; }
+    .msg-cell { max-width: 420px; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Taxi Request Rules</h1>
+    <p class="subtitle">Rules a taxi request is checked against. The result is a live formula in the checks tab: the Slack workflow reads it and posts it in the request's thread. No Slack app, no trigger.</p>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div class="split">
+      <div>
+        <h2>Requests</h2>
+        <div class="field"><label class="label" for="requestTab">Tab the Slack workflow writes to</label>
+          <select id="requestTab" onchange="tabChanged()"></select>
+          <div class="cluster mt-2"><label class="sr-only" for="newTab">New tab name</label><input type="text" id="newTab" value="Taxi Requests" maxlength="90" style="width:auto">
+            <button type="button" class="btn sm ghost" onclick="createTab()">Create this tab with the usual columns</button></div></div>
+        <div class="row">
+          <div class="field"><label class="label" for="nameColumn">Requester column</label><select id="nameColumn"></select></div>
+          <div class="field"><label class="label" for="staffMatch">…matches this staff column</label><select id="staffMatch"></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label class="label" for="shiftEndColumn">Shift end column</label><select id="shiftEndColumn"></select></div>
+          <div class="field"><label class="label" for="arrivalColumn">Taxi arrival column</label><select id="arrivalColumn"></select></div>
+        </div>
+
+        <h2 class="mt-3">Rules</h2>
+        <label class="check"><input type="checkbox" id="seOn"> <span>Shift ends between
+          <input type="time" id="seFrom" style="width:auto"> and <input type="time" id="seTo" style="width:auto">
+          <span class="hint">The window may cross midnight, e.g. 23:00 – 06:00.</span></span></label>
+        <label class="check mt-2"><input type="checkbox" id="teOn"> <span>Employed for less than
+          <input type="number" id="teMonths" min="1" max="120" style="width:70px"> months
+          <span class="hint">Counted to the taxi date, from the staff column below. People not in any staff sheet are always flagged.</span></span></label>
+        <div class="field mt-2"><label class="label" for="sinceField">Employee-since column (staff sheets)</label><select id="sinceField"></select></div>
+
+        <h2 class="mt-3">Message</h2>
+        <div class="field"><label class="label" for="okText">When every rule is met</label><input type="text" id="okText" maxlength="200"></div>
+        <div class="field"><label class="label" for="failText">Before the failed rules</label><input type="text" id="failText" maxlength="200"></div>
+        <div class="field"><label class="label" for="checksTab">Checks tab (created and rebuilt by Save)</label><input type="text" id="checksTab" maxlength="90"></div>
+      </div>
+      <div>
+        <h2>Preview <span class="small">— the newest requests with these rules</span></h2>
+        <div id="previewBox"></div>
+        <details class="mt-3" open>
+          <summary><b>Slack workflow steps</b></summary>
+          <ol class="steps mt-2">
+            <li><b>Add a row to a spreadsheet</b> (as now) → the requests tab.</li>
+            <li><b>Send a message to the channel</b> (as now, with Prebooked / Deny).</li>
+            <li>Add <b>Google Sheets → Select a spreadsheet row</b>: this spreadsheet, tab <b id="hintChecks">Taxi Checks</b>, where <b>Name</b> is the same value the workflow wrote into the requester column. The newest request is the first row, so this finds the one just added.</li>
+            <li>Add <b>Send a message</b> as a <b>reply in the thread</b> of step 2's message, with the selected row's <b>Message</b>.
+              Optional: if your workflow can branch, post only when <b>Result</b> is <code>CHECK</code>.</li>
+          </ol>
+          <p class="hint">Change the rules here at any time: Save rewrites the formula, and the workflow keeps working. Save again after adding a team or moving staff columns.</p>
+        </details>
+      </div>
+    </div>
+  </main>
+  <footer class="app-footer">
+    <button type="button" class="btn" onclick="closeDialog()">Close</button>
+    <span class="spacer"></span>
+    <a class="btn hidden" id="checksLink" target="_blank" style="text-decoration:none">Open checks tab</a>
+    <button type="button" class="btn" onclick="preview()">Preview</button>
+    <button type="button" class="btn primary" onclick="save()">Save and apply</button>
+  </footer>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null;
+
+    function headerOptions(headers, selected) {
+      var list = headers.slice();
+      if (selected && list.indexOf(selected) < 0) list.unshift(selected);
+      return list.map(function (h) { return '<option' + (h === selected ? ' selected' : '') + '>' + esc(h) + '</option>'; }).join('');
+    }
+
+    function fillColumns(headers, s) {
+      $('nameColumn').innerHTML = headerOptions(headers, s.nameColumn);
+      $('shiftEndColumn').innerHTML = headerOptions(headers, s.shiftEndColumn);
+      $('arrivalColumn').innerHTML = headerOptions(headers, s.arrivalColumn);
+    }
+
+    function load() {
+      call('Loading…', 'apiTaxiBootstrap').then(function (d) {
+        data = d;
+        var s = d.settings;
+        var tabs = d.tabs.indexOf(s.requestTab) < 0 ? [s.requestTab].concat(d.tabs) : d.tabs;
+        $('requestTab').innerHTML = tabs.map(function (t) { return '<option' + (t === s.requestTab ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
+        fillColumns(d.headers.length ? d.headers : d.requestHeaders, s);
+        $('staffMatch').innerHTML = options(d.staffFields, 'key', 'label', s.staffMatch);
+        $('sinceField').innerHTML = options(d.staffFields, 'key', 'label', s.sinceField, '— choose —');
+        $('seOn').checked = s.rules.shiftEnd.on; $('seFrom').value = s.rules.shiftEnd.from; $('seTo').value = s.rules.shiftEnd.to;
+        $('teOn').checked = s.rules.tenure.on; $('teMonths').value = s.rules.tenure.months;
+        $('okText').value = s.okText; $('failText').value = s.failText; $('checksTab').value = s.checksTab;
+        $('hintChecks').textContent = s.checksTab;
+        if (!d.headers.length) showStatus('info', 'The tab "' + esc(s.requestTab) + '" does not exist yet. Choose the tab your Slack workflow writes to, or create a new one.', 'Choose the requests tab');
+        else preview();
+      });
+    }
+
+    function tabChanged() {
+      call('Reading columns…', 'apiTaxiHeaders', $('requestTab').value).then(function (h) {
+        fillColumns(h, collect());
+        if (!h.length) showStatus('warn', 'This tab has no header row (row 1).', 'No columns');
+      });
+    }
+
+    function createTab() {
+      var name = $('newTab').value.trim();
+      if (!name) return;
+      call('Creating…', 'apiTaxiCreateRequestTab', name).then(function (r) {
+        $('requestTab').innerHTML += '<option>' + esc(r.tab) + '</option>';
+        $('requestTab').value = r.tab;
+        fillColumns(r.headers, collect());
+        showStatus('ok', 'Point the Slack workflow\'s "Add a row to a spreadsheet" step at this tab.', 'Tab "' + esc(r.tab) + '" created');
+      });
+    }
+
+    function collect() {
+      return {
+        requestTab: $('requestTab').value, checksTab: $('checksTab').value,
+        nameColumn: $('nameColumn').value, shiftEndColumn: $('shiftEndColumn').value, arrivalColumn: $('arrivalColumn').value,
+        staffMatch: $('staffMatch').value, sinceField: $('sinceField').value,
+        rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value } },
+        okText: $('okText').value, failText: $('failText').value
+      };
+    }
+
+    function renderPreview(p) {
+      var warn = (p.errors || []).length ? alertHtml('warn', 'Not ready to save', '', p.errors) : '';
+      if (p.missingTeams.length) warn += alertHtml('warn', 'Not checked against these teams', 'Their staff sheet has no such column:', p.missingTeams);
+      if (!p.rows.length) { $('previewBox').innerHTML = warn + emptyHtml('🚕', 'No requests yet', 'The newest 25 requests show here.'); return; }
+      $('previewBox').innerHTML = warn + '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Row</th><th scope="col">Name</th><th scope="col">Shift end</th><th scope="col">Months</th><th scope="col">Result</th></tr></thead><tbody>' +
+        p.rows.map(function (r) {
+          return '<tr><td>' + r.row + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.shiftEnd) + '</td><td>' + esc(r.months) + '</td><td class="msg-cell">' +
+            badge(r.result === 'OK' ? 'ok' : 'warn', r.result) + ' <span class="small">' + esc(r.message) + '</span></td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    function preview() {
+      showStatus('');
+      call('Checking…', 'apiTaxiPreview', collect()).then(renderPreview);
+    }
+
+    function save() {
+      showStatus('');
+      call('Saving…', 'apiTaxiSave', collect()).then(function (r) {
+        $('hintChecks').textContent = r.settings.checksTab;
+        $('checksLink').href = r.sheetUrl; show('checksLink', true);
+        var extra = r.missingTeams.length ? ' Not checked against: ' + esc(r.missingTeams.join(', ')) + '.' : '';
+        showStatus('ok', 'The checks tab now holds the formula for ' + r.teams + ' staff sheet(s).' + extra, 'Saved');
+        preview();
+      });
+    }
+
+    load();
+  </script>
+</body>
+</html>

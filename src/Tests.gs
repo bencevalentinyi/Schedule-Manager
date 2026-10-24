@@ -1267,7 +1267,12 @@ function unitTestsIdImport_() {
 
 function runUnitTests() {
   return runTestList_('Unit tests', unitTests_().concat(unitTestsV11_()).concat(unitTestsV111_()).concat(unitTestsV112_())
-    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()).concat(unitTestsSplitShifts_()).concat(unitTestsLinks_()).concat(unitTestsWebApp_()));
+    .concat(unitTestsStaffRouting_()).concat(unitTestsThemes_()).concat(unitTestsIdImport_()).concat(unitTestsSplitShifts_()).concat(unitTestsLinks_()).concat(unitTestsWebApp_()).concat(extensionUnitTests_()));
+}
+
+/** Tests of the extension files that are present (see smExtensions_). */
+function extensionUnitTests_() {
+  return smExtensions_().reduce(function (all, e) { return e.tests ? all.concat(e.tests()) : all; }, []);
 }
 
 /** Formula of a conditional-format rule (real Sheets rule or the test mock's record). */

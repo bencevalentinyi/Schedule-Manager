@@ -8,7 +8,7 @@
 
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
-  ui.createMenu(APP.MENU)
+  var menu = ui.createMenu(APP.MENU)
     .addSubMenu(ui.createMenu('Setup & Configuration')
       .addItem('Setup / Configure Spreadsheet', 'menuSetup')
       .addItem('Create New Team', 'menuCreateTeam')
@@ -36,8 +36,26 @@ function onOpen() {
       .addItem('Open System Configuration', 'menuOpenConfig')
       .addSeparator()
       .addItem('Open Web App', 'menuOpenWebApp')
-      .addItem('About / Help', 'menuHelp'))
-    .addToUi();
+      .addItem('About / Help', 'menuHelp'));
+  addExtensionsMenu_(ui, menu);
+  menu.addToUi();
+}
+
+/**
+ * Optional extension files (e.g. TaxiRequests.gs) register themselves in SM_EXTENSIONS: {id, title, menu: [{label, fn}], tests}.
+ * Without such a file there is no Extensions menu and nothing else changes.
+ */
+function smExtensions_() {
+  return typeof SM_EXTENSIONS !== 'undefined' && Array.isArray(SM_EXTENSIONS) ? SM_EXTENSIONS : [];
+}
+
+function addExtensionsMenu_(ui, menu) {
+  var items = [];
+  smExtensions_().forEach(function (e) { (e.menu || []).forEach(function (m) { items.push(m); }); });
+  if (!items.length) return;
+  var sub = ui.createMenu('Extensions');
+  items.forEach(function (m) { sub.addItem(m.label, m.fn); });
+  menu.addSubMenu(sub);
 }
 
 /**
