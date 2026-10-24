@@ -28,7 +28,6 @@ Removed features and settings that were hard to understand (so they can be rebui
 - **More staff columns for links, plans and agent lists:** the ID / Value column choice now also offers Email, Role, Notes, Team and Skills, besides Employee ID and your own columns.
 - **Import Staff Data** (replaces *Import Employee IDs*): *Schedule Management → Import Staff Data*, "Import data…" in the staff sidebar, or the web app's Staff page.
   - **Sources:** an uploaded file (CSV/XLSX), a tab of this spreadsheet, or **another Google Sheet** by its link (choose the tab).
-  - **Columns:** pick the column that finds each person (Name with "Last, First" tried too, Employee ID, Email or any staff column) and which source columns fill which staff columns (Employee ID, Email, Role, Notes, Team, Skills, own columns), several at once. Columns named like a staff column are pre-filled, and the column choice is remembered per column layout (up to 20), so e.g. a Quinyx report and an Aircall export (A1 "Identifier", C1 "Full name") each set themselves up after their first import.
   - **Checks:** emails must look like emails; IDs and identifier columns follow their rules and must stay unique within a staff sheet; a value given to several people in the file is refused, and so are rows that find the same person (e.g. "Ann Lee" and "Lee, Ann"); empty cells never clear anything; different existing values are only replaced when ticked; teams can be limited.
   - **Review who is who:** names that are not found but look alike (same words in another order, a middle name more or less, one name inside the other, small spelling differences, same last name and initial) are offered as *possible matches*, never used on their own. Every row to review, not found, or not unique gets a *Staff person* choice (or *Leave out*); *Accept all suggested matches* confirms the suggestions at once. Your choices are remembered (`_CONFIG` STAFF_IMPORT_MATCHES, up to 500), so the next import of the same names matches them by itself. Built for big exports (thousands of rows): names are compared only with staff sharing a word, and the preview lists rows to review first.
   - **Leave out by role:** people whose staff-sheet Role is in *Leave out people whose Role is* (e.g. Shift Lead) get nothing written and are not offered as matches; remembered per layout.
@@ -54,7 +53,7 @@ Removed features and settings that were hard to understand (so they can be rebui
 - **Monitoring Links sheet: one-row layout** (new, default): A1 "Key" / A2 "DAILY", B1 "Header_Date" / B2 the date, then one column per item (its name in row 1, its link or plan text in row 2), so a Slack Workflow selects the row where Key = DAILY and uses every column as a variable. The texts and the date format are set under *Sheet layout…*; "one row per item" remains available.
 - **Daily plan sections and extra text by time** (new): a plan has any number of **sections**, each with its own heading (or none) and one or more roles from the staff sheet's Role column (e.g. "🎧 Shift leads" = Support Shift Lead; "⭐ Seniors" = Senior Agent, Team Lead), then everyone else (optional, with its own heading), and roles to leave out. **Extra text by time** rules add text after the name, or at `{TAGS}`, when a shift works during part of a window, the whole window, starts before / at or after a time, or ends after a time. A section can be set to "No extra text" (e.g. shift leads), so the time rules skip its people. `{ROLE}` and `{TAGS}` placeholders. Plans saved with the earlier role settings are converted automatically.
 - **Monitoring Links: Slack-readable sheet, daily list plans, reordering, trigger** (new): the "Monitoring Links" sheet now has its column names in row 1 (Name · Kind · Date · Updated · Count · Missing · Text · URL · URL 2 …) and one row per item in the saved order, so a Slack Workflow can look a row up by Name; URL cells are the plain link text and clickable. New item kind **Daily list plan**: lines from the schedule with a line format ({START} {END} {NAME} {TYPE} {TEAM} {ID} {EMPLOYEE_ID}; {ID} takes any staff column, e.g. a Slack ID for `<@{ID}>` mentions), shifts and/or meetings, optional grouping by team, written to the Text column. Items can be moved up/down. `generateMonitoringLinks()` rebuilds everything for a time-driven trigger you add yourself (Apps Script → Triggers); the code never creates triggers.
-- **Monitoring Links** (new): *Schedule Management → Monitoring Links*. Each link has a base URL with `{IDS}` (or IDs appended at the end), the staff column holding the platform ID (Employee ID or any own column, e.g. "Aircall ID"), a separator, optional text before/after each ID, URL-encoding and a max number of IDs per link. People: working now, at a time, during a window or the whole day (overnight shifts count; optionally without people in a meeting at that time), for chosen teams or all. Preview in the dialog; "Generate all links" writes the themed "Monitoring Links" sheet with clickable links and who is missing an ID. URLs and settings live in the spreadsheet only, so nothing company-specific is in the repository.
+- **Monitoring Links** (new): *Schedule Management → Monitoring Links*. Each link has a base URL with `{IDS}` (or IDs appended at the end), the staff column holding the platform ID (Employee ID or any own column, e.g. "Desired ID"), a separator, optional text before/after each ID, URL-encoding and a max number of IDs per link. People: working now, at a time, during a window or the whole day (overnight shifts count; optionally without people in a meeting at that time), for chosen teams or all. Preview in the dialog; "Generate all links" writes the themed "Monitoring Links" sheet with clickable links and who is missing an ID. URLs and settings live in the spreadsheet only, so nothing company-specific is in the repository.
 - **Whole shifts around meetings** (new): Quinyx splits a shift around a meeting or training (e.g. 08:00–15:00, Training 15:00–16:00, 16:00–16:20). The import now joins the pieces into the real shift (08:00–16:20) for everyone (also people not yet in a staff sheet), when the gap is empty or fully covered by their meeting/training rows (types ticked as meeting types; joined even if meeting import is off). The meeting stays its own row; a meeting or training touching the start or end of a shift is part of it (e.g. 09:00–14:15 + Training 14:15–15:00 → shift 09:00–15:00). Pieces stored by an earlier import are replaced by the whole shift. Scheduled hours of the joined shift include the meeting time, so it is not flagged "Hours differ".
 - **Import Employee IDs** (new): *Schedule Management → Import Employee IDs* (or "Import IDs…" in the staff sidebar) reads a Quinyx "Custom report" (A1 "Custom report", A2 "Badge no.", B2 the name) and fills in the Employee ID of each person found by name in any staff sheet ("First Last"; "Last, First" as a fallback). Preview first; existing different IDs are only replaced when "Replace existing IDs" is ticked; a badge already used by someone else, duplicate names or badges in the file, and names that are not unique in a staff sheet are refused. IDs are written as text (leading zeros kept).
 - **Held people can go to any team**: in the review list every active team can be chosen, so rows of people who belong to other teams are filled into those teams' schedules in the same import. Teams whose staff sheet lists the person are marked "(in its staff sheet)", and "Use the staff-sheet team for N person(s)" applies those suggestions at once. "Skip the rest" skips only people without a decision.
@@ -75,7 +74,7 @@ The logic of the earlier "daily plan" script (`daily_wf`), rebuilt on the normal
 |---|---|
 | Fixed text | Exactly what you type, e.g. `DAILY` |
 | Date | The run date ± days, in any `Utilities.formatDate` format (e.g. `yyyy. MM. dd`) |
-| Schedule list | One line per person, sorted by start time, e.g. `08:00 - 16:00 — @Ann Lee :aircall:` |
+| Schedule list | One line per person, sorted by start time, e.g. `08:00 - 16:00 — @Ann Lee ` |
 | Dashboard link | One URL with the identifiers of everyone who matches, e.g. `…users=1%2C2%2C3` or `…&userIds=1&userIds=2` |
 
 - **Filters for lists and links:**
@@ -97,18 +96,6 @@ The logic of the earlier "daily plan" script (`daily_wf`), rebuilt on the normal
   - encoding;
   - each ID appears once;
   - people without an ID are left out and listed in a warning, never guessed.
-
-### Mapping the old script
-
-| Old `daily_wf` column | New column setting |
-|---|---|
-| NOR_SL / NOR_Agents / SWE_Agents / LUX_Agents | Schedule list; team; People = only / except "Shift Lead" |
-| NOR_Aircall_Tag | Schedule list; except Shift Lead; Works across a time 14:00; line `{DISPLAY}` |
-| NOR_Late_Shifts / NOR_Yesterday_Late_Shifts | Schedule list; Ends after 24:30; Day = today / yesterday; line `{DISPLAY}` |
-| NOR_Tomorrow_Aircall_Agents | Schedule list; Day = tomorrow; Starts before 14:00; line `{DISPLAY}` |
-| Meetings_Trainings | Schedule list; Include = meetings (add training types under Activity types); per assignment; line `… ({ACTIVITY})` |
-| `:aircall:` suffix | Tag `:aircall:`, with a time rule |
-| *_Converse / *_Aircall / *_Astra URLs | Dashboard link with `{IDS}`; identifier field = your Aircall/Converse/Astra staff field; separator `%2C` or prefix `&userIds=`; time filter (e.g. 08:00–14:00) and roles as needed |
 
 ### Running it
 
@@ -236,7 +223,6 @@ A UI release. The scheduling engine, import rules, data model and stored configu
 ### Staff sheet and custom fields
 
 - **Default staff sheet:** Employee ID, Employee Name, Active, Role, Notes.
-- **No automatic identifier fields.** Converse ID, Aircall ID and AstraID are no longer created; administrators add any field under *Configure Staff Fields*.
 - **Field settings:** each field has a permanent key, display name, type, visibility, required flag, the teams that use it, and a new **Display Order**.
 - **Delete field.** Removes the field from all teams. By default its column and values stay in the sheets as an ordinary column. Clearing the values permanently requires typing the field name.
 - **Existing installations:** fields and columns created by 1.1.0 are kept as user data. Teams keep their current columns; only an untouched starter team type moves to the five-column default.
@@ -326,7 +312,6 @@ v1.0 teams kept their `workdayStart`/`workdayEnd` values; the upgrade converts t
 
 ### Staff sheet and configurable identifiers
 
-- **New default columns:** Employee ID, Employee Name, Converse ID, Aircall ID, AstraID, Active, Role, Notes. Email is no longer a default column.
 - **New `_STAFF_FIELDS` registry.** Identifier and custom fields have a permanent key (`external_id_1`, …) and a display name that can be renamed.
 - **Columns are linked to field keys** through a header note (`sm-field: …`). Renaming a field only changes the header text, so no values are lost.
 - **Unticked or hidden fields** are hidden columns; values are never deleted.
