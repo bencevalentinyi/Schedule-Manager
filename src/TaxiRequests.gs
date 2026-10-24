@@ -5,9 +5,11 @@
  *  - The Slack workflow adds each request to the request tab ("Add a row to a spreadsheet"), as it does today.
  *  - The rules (e.g. shift ends between 00:00 and 06:00; employed for less than 3 months, from the staff sheets'
  *    "employee since" column) are written as ONE live formula into the checks tab. It recalculates the moment the
- *    row is added; newest request first, one row per request: Row, Name, Result (OK / CHECK), Message, Employee since, Months.
- *  - The workflow reads it back with "Select a spreadsheet row" (checks tab, Name = the requester) and posts the
- *    Message in the request's thread, so the approver sees it before clicking Prebooked / Deny.
+ *    row is added; newest request first, one row per request: Row, the request ID (e.g. "Date ID"), Name,
+ *    Result (OK / CHECK), Message, Employee since, Months.
+ *  - The workflow reads it back with "Select a spreadsheet row" (checks tab, the ID column = the value it wrote, e.g.
+ *    "Time when workflow started") and posts the Message in the request's thread, so the approver sees it before
+ *    clicking Prebooked / Deny. Without an ID column it searches by Name (the newest request of that person).
  *  - The request tab is never written to; the checks tab is rebuilt by "Save and apply" (and after staff
  *    sheets are added or their columns move).
  *
@@ -23,9 +25,13 @@ SM_EXTENSIONS.push({
 });
 
 var TAXI_SETTINGS_KEY_ = 'TAXI_SETTINGS';
-var TAXI_REQUEST_HEADERS = ['Date', 'SA Name', 'Team Lead', 'Address', 'Phone Number', 'Shift end', 'When the taxi should arrive',
+var TAXI_REQUEST_HEADERS = ['Date ID', 'Date', 'SA Name', 'Team Lead', 'Address', 'Phone Number', 'Shift end', 'When the taxi should arrive',
   'Pet friendly', 'Booking done', 'Made by / Denied by', 'Reason'];
-var TAXI_CHECK_HEADERS = ['Row', 'Name', 'Result', 'Message', 'Employee since', 'Months'];
+
+/** The checks tab's headers: Row, the ID column (named as in the request tab) when there is one, Name, … Pure. */
+function taxiCheckHeaders_(s) {
+  return ['Row'].concat(s.idColumn ? [s.idColumn] : []).concat(['Name', 'Result', 'Message', 'Employee since', 'Months']);
+}
 
 /* ------------------------------------------------------------------------ */
 /* Settings (pure)                                                           */
@@ -39,6 +45,8 @@ function normalizeTaxiSettings_(s) {
   return {
     requestTab: str_(s.requestTab) || 'Taxi Requests',
     checksTab: str_(s.checksTab) || 'Taxi Checks',
+    // The column that identifies one request (the workflow writes "Time when workflow started"); '' = none.
+    idColumn: s.idColumn === undefined ? 'Date ID' : str_(s.idColumn),
     nameColumn: str_(s.nameColumn) || 'SA Name',
     shiftEndColumn: str_(s.shiftEndColumn) || 'Shift end',
     arrivalColumn: str_(s.arrivalColumn) || 'When the taxi should arrive',
@@ -149,7 +157,7 @@ function taxiTimeExpr_(hm) {
 /**
  * The checks tab's formula (cell A1; English function names, as Apps Script writes formulas). Pure.
  * @param {Object} s normalized settings
- * @param {{name: string, shiftEnd: string, arrival: string}} cols column letters in the request tab
+ * @param {{id?: string, name: string, shiftEnd: string, arrival: string}} cols column letters in the request tab
  * @param {Array<{sheet: string, key: string, since: string, firstRow: number}>} staff staff sheets and their column letters
  */
 function buildTaxiFormula_(s, cols, staff) {
@@ -176,7 +184,9 @@ function buildTaxiFormula_(s, cols, staff) {
   }
   var msg = parts.length ? parts.join('&') : '""';
   var fail = s.failText ? taxiText_(s.failText + ' ') + '&' : '';
-  return '=ARRAYFORMULA(LET(' + [
+  var withId = !!(s.idColumn && cols.id);
+  var headers = taxiCheckHeaders_(withId ? s : { idColumn: '' });
+  return '=ARRAYFORMULA(LET(' + [].concat(withId ? ['reqId,' + col(cols.id)] : []).concat([
     'reqName,' + col(cols.name),
     'shiftEnd,' + col(cols.shiftEnd),
     'arrival,' + col(cols.arrival),
@@ -190,11 +200,11 @@ function buildTaxiFormula_(s, cols, staff) {
     'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
-    'out,{rowNo,reqName,IF(msg="","OK","CHECK"),IF(msg="",' + taxiText_(s.okText) + ',' + fail + 'LEFT(msg,LEN(msg)-2)),' +
+    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,IF(msg="","OK","CHECK"),IF(msg="",' + taxiText_(s.okText) + ',' + fail + 'LEFT(msg,LEN(msg)-2)),' +
       'IF(since="","",TEXT(since,"yyyy-mm-dd")),IF(tenure<0,"",tenure)}',
-    'VSTACK({' + TAXI_CHECK_HEADERS.map(taxiText_).join(',') + '},IFERROR(SORT(FILTER(out,reqName<>""),1,FALSE),{' +
-      TAXI_CHECK_HEADERS.map(function () { return '""'; }).join(',') + '}))'
-  ].join(',') + '))';
+    'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(SORT(FILTER(out,reqName<>""),1,FALSE),{' +
+      headers.map(function () { return '""'; }).join(',') + '}))'
+  ]).join(',') + '))';
 }
 
 /** Header text → column letter in a header row (exact, ignoring case/punctuation), or ''. Pure. */
@@ -247,6 +257,10 @@ function taxiRequestColumns_(s) {
   if (!headers) fail_('NOT_FOUND', 'The tab "' + s.requestTab + '" does not exist or has no header row.');
   var cols = { name: taxiColumnLetter_(headers, s.nameColumn), shiftEnd: taxiColumnLetter_(headers, s.shiftEndColumn), arrival: taxiColumnLetter_(headers, s.arrivalColumn) };
   var missing = [];
+  if (s.idColumn) {
+    cols.id = taxiColumnLetter_(headers, s.idColumn);
+    if (!cols.id) missing.push(s.idColumn);
+  }
   if (!cols.name) missing.push(s.nameColumn);
   if (!cols.shiftEnd) missing.push(s.shiftEndColumn);
   if (!cols.arrival) missing.push(s.arrivalColumn);
@@ -260,11 +274,18 @@ function applyTaxiChecks_(s) {
   var staff = taxiStaffSources_(s);
   var ss = getSs_();
   var sh = ss.getSheetByName(s.checksTab) || ss.insertSheet(s.checksTab);
+  var headers = taxiCheckHeaders_(s);
   sh.clear();
   sh.getRange(1, 1).setFormula(buildTaxiFormula_(s, cols, staff.sources));
-  sh.getRange(1, 1, 1, TAXI_CHECK_HEADERS.length).setFontWeight('bold');
+  sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   sh.setFrozenRows(1);
-  sh.setColumnWidth(4, 420);
+  sh.setColumnWidth(headers.indexOf('Message') + 1, 420);
+  if (cols.id) {
+    // Same display as in the request tab, so the workflow finds the row with the exact value it wrote.
+    var req = ss.getSheetByName(s.requestTab);
+    var fmt = req.getLastRow() >= 2 ? req.getRange(2, columnNumber_(cols.id)).getNumberFormat() : '';
+    if (fmt) sh.getRange(2, 2, Math.max(1, sh.getMaxRows() - 1), 1).setNumberFormat(fmt);
+  }
   return { sheetUrl: sheetLink_(sh), teams: staff.sources.length, missingTeams: staff.missing };
 }
 
@@ -284,7 +305,7 @@ function apiTaxiBootstrap() {
     var fields = [{ key: 'employeeName', label: 'Employee Name' }].concat(staff.fields.filter(function (f) { return f.key !== 'employeeName'; }));
     return {
       settings: s, tabs: getSs_().getSheets().map(function (x) { return x.getName(); }).filter(function (n) { return n.charAt(0) !== '_'; }),
-      headers: taxiHeaders_(s.requestTab) || [], staffFields: fields, requestHeaders: TAXI_REQUEST_HEADERS, checkHeaders: TAXI_CHECK_HEADERS
+      headers: taxiHeaders_(s.requestTab) || [], staffFields: fields, requestHeaders: TAXI_REQUEST_HEADERS, checkHeaders: taxiCheckHeaders_(s)
     };
   });
 }
@@ -323,7 +344,8 @@ function apiTaxiPreview(settings) {
         var req = { name: str_(at(values[i], cols.name)), shiftEnd: at(values[i], cols.shiftEnd), arrival: at(values[i], cols.arrival) };
         if (!req.name) continue;
         var e = taxiEvaluate_(req, staff.sinceByName, s, today, tz);
-        rows.push({ row: first + i, name: req.name, shiftEnd: isDate_(req.shiftEnd) ? Utilities.formatDate(req.shiftEnd, tz, 'HH:mm') : str_(req.shiftEnd),
+        var idv = cols.id ? at(values[i], cols.id) : '';
+        rows.push({ row: first + i, id: isDate_(idv) ? Utilities.formatDate(idv, tz, 'yyyy-MM-dd HH:mm:ss') : str_(idv), name: req.name, shiftEnd: isDate_(req.shiftEnd) ? Utilities.formatDate(req.shiftEnd, tz, 'HH:mm') : str_(req.shiftEnd),
           arrival: isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd HH:mm') : str_(req.arrival),
           result: e.result, message: e.message, since: e.since, months: e.months });
       }
@@ -390,8 +412,16 @@ function taxiUnitTests_() {
       var opens = (f.match(/\(/g) || []).length, closes = (f.match(/\)/g) || []).length;
       assertEq_(opens, closes, 'balanced parentheses');
     }],
+    ['Taxi: the request ID (Date ID) is copied next to Row, so the workflow finds the exact request', function () {
+      var f = buildTaxiFormula_(s, { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
+      assert_(f.indexOf("=ARRAYFORMULA(LET(reqId,'Taxi Requests'!A2:A,") === 0 && f.indexOf('out,{rowNo,reqId,reqName,') > 0, 'ID column in the output');
+      assert_(f.indexOf('{"Row","Date ID","Name","Result","Message","Employee since","Months"}') > 0, 'headed like the request tab');
+      var none = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', idColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
+      assert_(none.indexOf('reqId') < 0 && none.indexOf('{"Row","Name",') > 0, 'no ID column: search by Name');
+      assertEq_(taxiCheckHeaders_(s).length, 7);
+    }],
     ['Taxi: request columns found by header text', function () {
-      assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['B', 'G', '']);
+      assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);
     }]
   ];
 }

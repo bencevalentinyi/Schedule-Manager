@@ -24,6 +24,8 @@
           <select id="requestTab" onchange="tabChanged()"></select>
           <div class="cluster mt-2"><label class="sr-only" for="newTab">New tab name</label><input type="text" id="newTab" value="Taxi Requests" maxlength="90" style="width:auto">
             <button type="button" class="btn sm ghost" onclick="createTab()">Create this tab with the usual columns</button></div></div>
+        <div class="field"><label class="label" for="idColumn">Request ID column</label><select id="idColumn"></select>
+          <p class="hint">The column the workflow fills with <b>Time when workflow started</b> (e.g. "Date ID"). It is copied to the checks tab so the workflow finds exactly this request.</p></div>
         <div class="row">
           <div class="field"><label class="label" for="nameColumn">Requester column</label><select id="nameColumn"></select></div>
           <div class="field"><label class="label" for="staffMatch">…matches this staff column</label><select id="staffMatch"></select></div>
@@ -54,9 +56,10 @@
           <summary><b>Slack workflow steps</b></summary>
           <ol class="steps mt-2">
             <li><b>Add a row to a spreadsheet</b> (as now) → the requests tab.</li>
-            <li><b>Send a message to the channel</b> (as now, with Prebooked / Deny).</li>
-            <li>Add <b>Google Sheets → Select a spreadsheet row</b>: this spreadsheet, tab <b id="hintChecks">Taxi Checks</b>, where <b>Name</b> is the same value the workflow wrote into the requester column. The newest request is the first row, so this finds the one just added.</li>
-            <li>Add <b>Send a message</b> as a <b>reply in the thread</b> of step 2's message, with the selected row's <b>Message</b>.
+            <li>Add <b>Google Sheets → Select a spreadsheet row</b>: this spreadsheet, tab <b id="hintChecks">Taxi Checks</b>, column <b>Date ID</b> (your request ID column) = <b>Time when workflow started</b>, the same variable step 1 wrote. Without an ID column: <b>Name</b> = the requester (the newest request is the first row).</li>
+            <li><b>Send a message to the channel</b> (as now, information only).</li>
+            <li>Add <b>Send a message</b> as a <b>reply in the thread</b> of step 3's message, with the selected row's <b>Message</b> and the <b>Prebooked / Deny</b> buttons (a message with buttons waits for the click, so they belong here).
+              To record the decision, <b>Update a spreadsheet row</b> in the requests tab where Date ID = Time when workflow started.
               Optional: if your workflow can branch, post only when <b>Result</b> is <code>CHECK</code>.</li>
           </ol>
           <p class="hint">Change the rules here at any time: Save rewrites the formula, and the workflow keeps working. Save again after adding a team or moving staff columns.</p>
@@ -84,6 +87,7 @@
     }
 
     function fillColumns(headers, s) {
+      $('idColumn').innerHTML = '<option value=""' + (s.idColumn ? '' : ' selected') + '>(none: find by name)</option>' + headerOptions(headers, s.idColumn);
       $('nameColumn').innerHTML = headerOptions(headers, s.nameColumn);
       $('shiftEndColumn').innerHTML = headerOptions(headers, s.shiftEndColumn);
       $('arrivalColumn').innerHTML = headerOptions(headers, s.arrivalColumn);
@@ -127,7 +131,7 @@
 
     function collect() {
       return {
-        requestTab: $('requestTab').value, checksTab: $('checksTab').value,
+        requestTab: $('requestTab').value, checksTab: $('checksTab').value, idColumn: $('idColumn').value,
         nameColumn: $('nameColumn').value, shiftEndColumn: $('shiftEndColumn').value, arrivalColumn: $('arrivalColumn').value,
         staffMatch: $('staffMatch').value, sinceField: $('sinceField').value,
         rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value } },
@@ -139,9 +143,9 @@
       var warn = (p.errors || []).length ? alertHtml('warn', 'Not ready to save', '', p.errors) : '';
       if (p.missingTeams.length) warn += alertHtml('warn', 'Not checked against these teams', 'Their staff sheet has no such column:', p.missingTeams);
       if (!p.rows.length) { $('previewBox').innerHTML = warn + emptyHtml('🚕', 'No requests yet', 'The newest 25 requests show here.'); return; }
-      $('previewBox').innerHTML = warn + '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Row</th><th scope="col">Name</th><th scope="col">Shift end</th><th scope="col">Months</th><th scope="col">Result</th></tr></thead><tbody>' +
+      $('previewBox').innerHTML = warn + '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Row</th><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Shift end</th><th scope="col">Months</th><th scope="col">Result</th></tr></thead><tbody>' +
         p.rows.map(function (r) {
-          return '<tr><td>' + r.row + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.shiftEnd) + '</td><td>' + esc(r.months) + '</td><td class="msg-cell">' +
+          return '<tr><td>' + r.row + '</td><td class="small">' + esc(r.id) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.shiftEnd) + '</td><td>' + esc(r.months) + '</td><td class="msg-cell">' +
             badge(r.result === 'OK' ? 'ok' : 'warn', r.result) + ' <span class="small">' + esc(r.message) + '</span></td></tr>';
         }).join('') + '</tbody></table></div>';
     }
