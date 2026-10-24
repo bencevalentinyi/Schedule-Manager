@@ -100,8 +100,6 @@ Configuration lives in tables (`_CONFIG`, `_TEAMS`, `_TEAM_TYPES`, `_IMPORT_MAPP
 ### Configurable staff fields (v1.1)
 
 - **Built-in fields** live in code (`STAFF_FIELD_DEFS`): Employee ID, Employee Name, Role, Notes, Email, Team, Skills, Last Updated. (Active is retired: hidden in older sheets, everyone counts as active.)
-- **Configurable fields** live in `_STAFF_FIELDS`, e.g. `external_id_1` = "Converse ID". Teams reference them as `field:<key>` in `settings.staffFields`.
-- **Column linking.** Every managed staff-sheet header carries the note `sm-field: <key>`. Columns are resolved by note first, then by header text, so renaming "Converse ID" to "CRM ID" changes only the header.
 - **Unselected or hidden fields** are hidden columns; values are never deleted.
 - **Employee ID** is always the internal key. An identifier field is used for import matching only when a team explicitly selects it as its match key. Matched records then store the staff member's internal Employee ID, and the source value is kept in Extra JSON.
 
@@ -303,7 +301,6 @@ Status flags: `OK`, Overnight, Overlap, Unknown employee, Name match, Long shift
 | Row 3 | Headers, linked to field keys by header notes (`sm-field: …`) |
 | Row 4 onward | Data (default columns below) |
 
-- **Default columns:** Employee ID, Employee Name, Role, Notes (v1.1 also had Converse ID, Aircall ID, AstraID and Active).
 - **Identifier columns** are plain text, and duplicates are highlighted.
 - **Active** is a dropdown (`Active`/`Inactive`, blank = Active).
 - A basic filter supports searching.
