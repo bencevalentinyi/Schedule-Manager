@@ -4,7 +4,7 @@
  * (or a person) reads. Each saved item is one row, looked up by its Name.
  *
  *  - LINK: a dashboard URL filled with the IDs of the employees who are working. Base URL,
- *    the staff column holding the platform ID (e.g. "Aircall ID"), separator, optional text
+ *    the staff column holding the platform ID (e.g. "Desired ID"), separator, optional text
  *    before/after each ID, URL encoding, max IDs per link.
  *  - PLAN: a text list built from the schedule ("08:00 - 16:00 Ann Lee"), one line per shift
  *    and/or meeting, with a configurable line format ({START} {END} {NAME} {TYPE} {TEAM} {ID} {ROLE} {TAGS}),
@@ -422,7 +422,7 @@ function planSectionFieldOptions_() {
 
 /**
  * Staff columns an item can write for each person: Employee ID, the standard columns (Email, Role,
- * Notes, Team, Skills) and every own column (e.g. "Aircall ID", "Slack ID").
+ * Notes, Team, Skills) and every own column (e.g. "Desired ID1", "Desired ID2").
  */
 function linkIdFieldOptions_() {
   var opts = [{ key: 'employeeId', label: 'Employee ID' }];
