@@ -5,7 +5,7 @@
  *
  * Column linking: every managed header cell carries a note
  * "sm-field: <key>". Columns are resolved by that key first and by header text
- * only as a fallback, so renaming a field (e.g. "Converse ID" -> "CRM ID") changes
+ * only as a fallback, so renaming a field (e.g. "Desired ID" -> "CRM ID") changes
  * the header but never loses values. Unknown/user columns are left untouched.
  *
  * Matching rules:
