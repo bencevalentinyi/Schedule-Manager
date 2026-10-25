@@ -496,13 +496,54 @@ function formatTaxiChecks_(sh, s, headers, cols) {
   sh.setConditionalFormatRules(rules); // the checks tab holds only the formula, so its rules are all ours
 }
 
+/** Marks this file's color rules in the request tab, so a restyle replaces them and keeps the tab's other rules. */
+var TAXI_RULE_MARK_ = 'N("sm-taxi")=0';
+
+/**
+ * Theme look of the request tab (the workflow writes it; only its look changes, never a value): header row, font,
+ * tab color, and requests not decided yet colored, in the warning color when the checks tab says CHECK.
+ * The rows are not reordered (that needs a trigger and could clash with the workflow adding a row); Taxi Checks is the sorted view.
+ */
+function formatTaxiRequestTab_(s, cols) {
+  var sh = getSs_().getSheetByName(s.requestTab);
+  if (!sh) return;
+  var th = sheetTheme_(), width = Math.max(1, sh.getLastColumn());
+  applySheetFont_(sh, th);
+  sh.getRange(1, 1, 1, width).setBackground(th.header).setFontColor(th.headerText).setFontWeight('bold');
+  sh.setTabColor(th.accent);
+  sh.setFrozenRows(1);
+  var keep = sh.getConditionalFormatRules().filter(function (r) {
+    var b = r.getBooleanCondition();
+    return !(b && String((b.getCriteriaValues() || [])[0] || '').indexOf(TAXI_RULE_MARK_) >= 0);
+  });
+  if (!cols.booking) { sh.setConditionalFormatRules(keep); return; }
+  var f = taxiRequestColorFormulas_(s, cols);
+  var range = sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), width);
+  var rule = function (formula, color) { return SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setBackground(color).setRanges([range]).build(); };
+  sh.setConditionalFormatRules([rule(f.check, th.warn), rule(f.open, th.soft)].concat(keep));
+}
+
+/** The request tab's color rules: not decided yet and CHECK in the checks tab; not decided yet. Pure. */
+function taxiRequestColorFormulas_(s, cols) {
+  var name = '$' + cols.name + '2', b = '$' + cols.booking + '2', open = 'OR(' + b + '="",' + b + '=FALSE)';
+  // The checks tab's Row column (A) holds the request's row number; its Result column says OK / CHECK.
+  // Conditional formatting reaches another tab only through INDIRECT.
+  var checks = taxiCheckHeaders_(s, cols), q = taxiSheetRef_(s.checksTab).replace(/"/g, '""');
+  var res = columnLetter_(checks.indexOf('Result') + 1);
+  var isCheck = 'IFERROR(INDEX(INDIRECT("' + q + '!' + res + ':' + res + '"),MATCH(ROW(),INDIRECT("' + q + '!A:A"),0))="CHECK",FALSE)';
+  return {
+    check: '=AND(' + TAXI_RULE_MARK_ + ',' + name + '<>"",' + open + ',' + isCheck + ')',
+    open: '=AND(' + TAXI_RULE_MARK_ + ',' + name + '<>"",' + open + ')'
+  };
+}
+
 /** Repair Formatting / theme change: the checks tab again (only when the rules were saved and the tab exists). */
 function taxiRepairFormatting_() {
   if (!getConfig_()[TAXI_SETTINGS_KEY_]) return '';
   var s = getTaxiSettings_();
   if (!getSs_().getSheetByName(s.checksTab)) return '';
   applyTaxiChecks_(s);
-  return 'Repaired "' + s.checksTab + '".';
+  return 'Repaired "' + s.checksTab + '" and "' + s.requestTab + '".';
 }
 
 /** Writes the formula into the checks tab (created when missing; it holds nothing else). */
@@ -515,6 +556,7 @@ function applyTaxiChecks_(s) {
   sh.clear();
   sh.getRange(1, 1).setFormula(buildTaxiFormula_(s, cols, staff.sources));
   formatTaxiChecks_(sh, s, headers, cols);
+  formatTaxiRequestTab_(s, cols);
   return { sheetUrl: sheetLink_(sh), teams: staff.sources.length, missingTeams: staff.missing, warnings: cols.warnings };
 }
 
@@ -739,6 +781,12 @@ function taxiUnitTests_() {
       assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
       var none = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
       assert_(none.indexOf('booked') < 0 && none.indexOf('SORT(FILTER(out,keep),1,FALSE)') > 0, 'without a booking column: newest first');
+    }],
+    ['Taxi: the request tab colors undecided requests, and those the checks tab flags', function () {
+      var f = taxiRequestColorFormulas_(normalizeTaxiSettings_({ sinceField: 'x', checksTab: "Ann's Checks" }), { id: 'A', name: 'C', booking: 'J' });
+      assertEq_(f.open, '=AND(N("sm-taxi")=0,$C2<>"",OR($J2="",$J2=FALSE))');
+      assertEq_(f.check, '=AND(N("sm-taxi")=0,$C2<>"",OR($J2="",$J2=FALSE),IFERROR(INDEX(INDIRECT("\'Ann\'\'s Checks\'!E:E"),' +
+        'MATCH(ROW(),INDIRECT("\'Ann\'\'s Checks\'!A:A"),0))="CHECK",FALSE))', 'Result is column E (Row, Date ID, Name, Booking done, Result)');
     }],
     ['Taxi: email text for one date — sorted by time, denied left out, any column as {placeholder}', function () {
       assertEq_(['2026-10-25 19:20', '25.10.2026 19:20', '10/25/2026', 'soon'].map(function (v) { return taxiDateIso_(v, tz); }), ['2026-10-25', '2026-10-25', '2026-10-25', '']);
