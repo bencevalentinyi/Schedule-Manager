@@ -483,17 +483,32 @@ function formatTaxiChecks_(sh, s, headers, cols) {
   sh.getRange(1, headers.indexOf('Message') + 1, sh.getMaxRows(), 1).setWrap(true);
   var L = function (h) { return '$' + columnLetter_(headers.indexOf(h) + 1) + '2'; };
   var range = sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), headers.length);
-  var rule = function (formula, color) { return SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setBackground(color).setRanges([range]).build(); };
+  var st = taxiRowStyles_(th);
+  var rule = function (formula, style) { return taxiColorRule_(formula, style, range); };
   var name = L('Name'), result = L('Result');
   var rules = [];
   if (cols.booking) {
     var b = L(s.bookingColumn), open = '(' + b + '="",' + b + '=FALSE)';
-    rules.push(rule('=AND(' + name + '<>"",OR' + open + ',' + result + '="CHECK")', th.warn));
-    rules.push(rule('=AND(' + name + '<>"",OR' + open + ')', th.soft));
+    rules.push(rule('=AND(' + name + '<>"",OR' + open + ',' + result + '="CHECK")', st.check));
+    rules.push(rule('=AND(' + name + '<>"",OR' + open + ')', st.open));
   } else {
-    rules.push(rule('=AND(' + name + '<>"",' + result + '="CHECK")', th.warn));
+    rules.push(rule('=AND(' + name + '<>"",' + result + '="CHECK")', st.check));
   }
   sh.setConditionalFormatRules(rules); // the checks tab holds only the formula, so its rules are all ours
+}
+
+/**
+ * Colors of undecided requests, from the theme: to check = the theme's error tint with dark red bold text,
+ * all rules met = the theme's light tint with dark text. The text color is set too, so a row stays readable
+ * whatever the tab's own text color is. Pure.
+ */
+function taxiRowStyles_(th) {
+  return { check: { bg: th.error, text: '#8c1d18', bold: true }, open: { bg: th.soft, text: '#1f1f1f', bold: false } };
+}
+
+function taxiColorRule_(formula, style, range) {
+  return SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula)
+    .setBackground(style.bg).setFontColor(style.text).setBold(style.bold).setRanges([range]).build();
 }
 
 /** Marks this file's color rules in the request tab, so a restyle replaces them and keeps the tab's other rules. */
@@ -519,8 +534,9 @@ function formatTaxiRequestTab_(s, cols) {
   if (!cols.booking) { sh.setConditionalFormatRules(keep); return; }
   var f = taxiRequestColorFormulas_(s, cols);
   var range = sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), width);
-  var rule = function (formula, color) { return SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setBackground(color).setRanges([range]).build(); };
-  sh.setConditionalFormatRules([rule(f.check, th.warn), rule(f.open, th.soft)].concat(keep));
+  var st = taxiRowStyles_(th);
+  var rule = function (formula, style) { return taxiColorRule_(formula, style, range); };
+  sh.setConditionalFormatRules([rule(f.check, st.check), rule(f.open, st.open)].concat(keep));
 }
 
 /** The request tab's color rules: not decided yet and CHECK in the checks tab; not decided yet. Pure. */
