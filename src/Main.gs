@@ -126,7 +126,7 @@ function checkInstall() {
       var themeKey = '';
       try { themeKey = g.getConfig_().UI_THEME; } catch (e) { themeKey = '(not set up)'; }
       var accepted = 'accepted';
-      try { HtmlService.createHtmlOutput('').setFaviconUrl(icon); } catch (e) { accepted = 'REFUSED: ' + e.message; }
+      try { HtmlService.createHtmlOutput('').setFaviconUrl(icon); } catch (e) { accepted = 'REFUSED: ' + e.message + '. Use a link that ends in .png or .ico; until then the default icon is shown'; }
       console.log('Web app tab icon (theme ' + themeKey + '): ' + icon + ' (' + accepted + ')');
       console.log('Web app URL: ' + (g.webAppUrl_() || 'not deployed') + '. The deployed version only changes with Deploy → Manage deployments → Edit → New version.');
     } catch (e) { console.log('PROBLEM: the web app tab icon could not be checked: ' + e.message); }

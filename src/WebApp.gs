@@ -118,9 +118,16 @@ function themeFaviconUrl_() {
   return WEB_DEFAULT_FAVICON_;
 }
 
-/** Sets the tab icon; an icon Apps Script refuses never stops the page from opening. */
+/**
+ * Sets the tab icon; an icon Apps Script refuses (it takes only links ending in an image type such as .png or .ico)
+ * falls back to the default icon, and never stops the page from opening.
+ */
 function withFavicon_(out) {
-  try { out.setFaviconUrl(themeFaviconUrl_()); } catch (e) { logError_('withFavicon_', e); }
+  var url = themeFaviconUrl_();
+  try { out.setFaviconUrl(url); } catch (e) {
+    logError_('withFavicon_', e);
+    if (url !== WEB_DEFAULT_FAVICON_) { try { out.setFaviconUrl(WEB_DEFAULT_FAVICON_); } catch (e2) { /* no icon */ } }
+  }
   return out;
 }
 
