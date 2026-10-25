@@ -25,8 +25,6 @@ SM_EXTENSIONS.push({
   webPages: { taxi: { file: 'TaxiDialog', title: 'Taxi Requests', nav: 'Taxi', prefetch: function () { return [['apiTaxiBootstrap']]; } } },
   // Repair Formatting and a theme change restyle the checks tab too.
   repairFormatting: function () { return taxiRepairFormatting_(); },
-  // The web app's Home card: undecided requests and those to check.
-  homeCard: function () { return taxiHomeCard_(); },
   tests: function () { return taxiUnitTests_(); }
 });
 
@@ -626,34 +624,6 @@ function taxiRequestColorFormulas_(s, cols) {
   };
 }
 
-/** Counts in the checks tab's values (header row first): requests not decided yet, and those of them to check. Pure. */
-function taxiHomeCounts_(values, bookingHeader, deniedWords) {
-  var h = (values[0] || []).map(str_), iName = h.indexOf('Name'), iRes = h.indexOf('Result'), iB = bookingHeader ? h.indexOf(bookingHeader) : -1;
-  var out = { total: 0, open: 0, check: 0 };
-  if (iName < 0) return out;
-  values.slice(1).forEach(function (r) {
-    if (!str_(r[iName])) return;
-    out.total++;
-    if (iB >= 0 && taxiBookingStatus_(r[iB], deniedWords) !== 'PENDING') return;
-    out.open++;
-    if (str_(r[iRes]) === 'CHECK') out.check++;
-  });
-  return out;
-}
-
-function taxiHomeCard_() {
-  var card = { title: 'Taxi requests', text: '', stats: [], links: [{ page: 'taxi', label: 'Open taxi requests' }], sheets: [] };
-  if (!getConfig_()[TAXI_SETTINGS_KEY_]) { card.text = 'Not set up yet: open it, choose the requests tab and click Save and apply.'; return card; }
-  var s = getTaxiSettings_(), ss = getSs_();
-  var checks = ss.getSheetByName(s.checksTab), day = s.dayTab ? ss.getSheetByName(s.dayTab) : null;
-  if (!checks) { card.text = 'The checks tab is missing: open it and click Save and apply.'; return card; }
-  var c = taxiHomeCounts_(checks.getDataRange().getValues(), s.bookingColumn, s.deniedWords);
-  card.stats = [{ label: 'Not decided', value: c.open, cls: c.open ? 'warn' : 'good' }, { label: 'To check', value: c.check, cls: c.check ? 'bad' : '' }, { label: 'All requests', value: c.total, cls: '' }];
-  if (day) card.sheets.push({ url: sheetLink_(day).url, label: 'Day view' });
-  card.sheets.push({ url: sheetLink_(checks).url, label: 'Checks tab' });
-  return card;
-}
-
 /** Repair Formatting / theme change: the checks tab again (only when the rules were saved and the tab exists). */
 function taxiRepairFormatting_() {
   if (!getConfig_()[TAXI_SETTINGS_KEY_]) return '';
@@ -675,7 +645,7 @@ function applyTaxiChecks_(s) {
   formatTaxiChecks_(sh, s, headers, cols);
   formatTaxiRequestTab_(s, cols);
   var day = s.dayTab ? applyTaxiDayTab_(s, cols) : null;
-  return { sheetUrl: sheetLink_(sh).url, dayUrl: day ? sheetLink_(day).url : '', teams: staff.sources.length, missingTeams: staff.missing, warnings: cols.warnings };
+  return { sheetUrl: sheetLink_(sh), dayUrl: day ? sheetLink_(day) : '', teams: staff.sources.length, missingTeams: staff.missing, warnings: cols.warnings };
 }
 
 /**
@@ -992,12 +962,6 @@ function taxiUnitTests_() {
       assertEq_([c.open, c.check], ['=AND($B5<>"",OR($C5="",$C5=FALSE))', '=AND($B5<>"",OR($C5="",$C5=FALSE),$D5="CHECK")']);
       var plain = buildTaxiDayFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H', booking: '' }, []);
       assert_(plain.indexOf('booked') < 0 && plain.indexOf('pend,(nm<>"")') > 0, 'without a decision column everything counts as not decided');
-    }],
-    ['Taxi: the Home card counts undecided requests and those to check', function () {
-      var v = [['Row', 'Date ID', 'Name', 'Booking done', 'Result'], [5, 'x', 'Ann', '', 'CHECK'], [4, 'y', 'Bob', '', 'OK'], [3, 'z', 'Cid', 'Prebooked', 'CHECK'], [2, 'w', 'Dan', 'Denied', 'OK'], ['', '', '', '', '']];
-      assertEq_(taxiHomeCounts_(v, 'Booking done', s.deniedWords), { total: 4, open: 2, check: 1 });
-      assertEq_(taxiHomeCounts_([['Row', 'Name', 'Result'], [2, 'Ann', 'CHECK']], '', s.deniedWords), { total: 1, open: 1, check: 1 }, 'without a decision column every request is open');
-      assertEq_(typeof smExtensions_().filter(function (e) { return e.id === 'taxi'; })[0].homeCard, 'function');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);
