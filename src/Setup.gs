@@ -339,6 +339,14 @@ function repairAllFormatting_() {
   });
   var d = rebuildDashboardSafe_();
   if (d) rep.info.push(d);
+  // Sheets of extension files (e.g. Taxi Checks) take the theme too.
+  smExtensions_().forEach(function (e) {
+    if (!e.repairFormatting) return;
+    try { var m = e.repairFormatting(); if (m) rep.info.push(m); } catch (err) {
+      logError_('repairAllFormatting_.' + e.id, err);
+      rep.warnings.push(e.title + ': ' + toUserError_(err).message);
+    }
+  });
   return rep;
 }
 

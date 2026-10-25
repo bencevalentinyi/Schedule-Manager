@@ -23,6 +23,8 @@ SM_EXTENSIONS.push({
   menu: [{ label: 'Taxi Request Rules', fn: 'menuTaxiRules' }],
   // Web app page (only while this file is present): the same page as the dialog, with the request list.
   webPages: { taxi: { file: 'TaxiDialog', title: 'Taxi Requests', nav: 'Taxi', prefetch: function () { return [['apiTaxiBootstrap']]; } } },
+  // Repair Formatting and a theme change restyle the checks tab too.
+  repairFormatting: function () { return taxiRepairFormatting_(); },
   tests: function () { return taxiUnitTests_(); }
 });
 
@@ -30,10 +32,29 @@ var TAXI_SETTINGS_KEY_ = 'TAXI_SETTINGS';
 var TAXI_REQUEST_HEADERS = ['Date ID', 'Date', 'SA Name', 'Team Lead', 'Address', 'Phone Number', 'Shift end', 'When the taxi should arrive',
   'Pet friendly', 'Booking done', 'Made by / Denied by', 'Reason'];
 
-/** The checks tab's headers: Row, the ID column (named as in the request tab) when there is one, Name, … Pure. */
-function taxiCheckHeaders_(s) {
-  return ['Row'].concat(s.idColumn ? [s.idColumn] : []).concat(['Name', 'Result', 'Message', 'Employee since', 'Months']);
+/**
+ * The checks tab's headers: Row, the ID column (named as in the request tab), Name, the booking column, Result, … Pure.
+ * @param {{id?: string, booking?: string}=} cols the columns found in the request tab (default: the ones set)
+ */
+function taxiCheckHeaders_(s, cols) {
+  var withId = cols ? !!cols.id : !!s.idColumn, withBooking = cols ? !!cols.booking : !!s.bookingColumn;
+  return ['Row'].concat(withId ? [s.idColumn] : []).concat(['Name']).concat(withBooking ? [s.bookingColumn] : [])
+    .concat(['Result', 'Message', 'Employee since', 'Months']);
 }
+
+/** A booking cell → PENDING (empty or an unticked box), DENIED (contains one of the denied words) or BOOKED. Pure. */
+function taxiBookingStatus_(v, deniedWords) {
+  var t = normText_(v === false ? '' : v);
+  if (!t || t === 'false') return 'PENDING';
+  var words = String(deniedWords || '').split(',').map(normText_).filter(Boolean);
+  return words.some(function (w) { return (' ' + t + ' ').indexOf(' ' + w) >= 0; }) ? 'DENIED' : 'BOOKED';
+}
+
+var TAXI_EMAIL_DEFAULTS = {
+  intro: 'Hi,\n\nPlease book the following taxis for {date}:\n',
+  item: '{n}. {time} – {SA Name}\nAddress: {Address}\nPhone: {Phone Number}\nPet friendly: {Pet friendly}',
+  outro: '\nThank you!'
+};
 
 /** The failed-rule messages: default text and the {placeholders} it can use. */
 var TAXI_TEXTS = {
@@ -58,7 +79,7 @@ var TAXI_SEPARATORS = {
 /** Settings with defaults. Pure. */
 function normalizeTaxiSettings_(s) {
   s = s || {};
-  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {}, ar = r.arrival || {}, t = s.texts || {};
+  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {}, ar = r.arrival || {}, t = s.texts || {}, em = s.email || {};
   var hm = function (v, d) { var m = hmToMinutes_(str_(v)); return m === null ? d : minutesToHm_(m % 1440); };
   var mins = function (v, d) { return Math.min(720, Math.max(0, Math.floor(toNumber_(v, d)))); };
   return {
@@ -71,6 +92,16 @@ function normalizeTaxiSettings_(s) {
     arrivalColumn: str_(s.arrivalColumn) || 'When the taxi should arrive',
     staffMatch: str_(s.staffMatch) || 'employeeName',
     sinceField: str_(s.sinceField),
+    // Empty = not decided yet: those come first in the checks tab, colored. '' = no booking column.
+    bookingColumn: s.bookingColumn === undefined ? 'Booking done' : str_(s.bookingColumn),
+    deniedWords: str_(s.deniedWords) || 'deny, denied, rejected',
+    // The email text: intro, one block per taxi, outro. {Any column name} and {date} {count} {n} {time} are filled in.
+    email: {
+      include: em.include === 'BOOKED' ? 'BOOKED' : 'NOT_DENIED',
+      intro: em.intro !== undefined ? String(em.intro) : TAXI_EMAIL_DEFAULTS.intro,
+      item: str_(em.item) ? String(em.item) : TAXI_EMAIL_DEFAULTS.item,
+      outro: em.outro !== undefined ? String(em.outro) : TAXI_EMAIL_DEFAULTS.outro
+    },
     rules: {
       shiftEnd: { on: se.on !== false, from: hm(se.from, '00:00'), to: hm(se.to, '06:00') },
       tenure: { on: te.on !== false, months: Math.max(1, Math.floor(toNumber_(te.months, 3))) },
@@ -294,9 +325,14 @@ function buildTaxiFormula_(s, cols, staff) {
   var fail = s.failText ? taxiLit_(taxiFailPrefix_(s)) + '&' : '';
   // The ID as text, exactly as the request tab shows it (a date the workflow wrote stays "2026-10-25 22:15:03", never a number),
   // so "Select a spreadsheet row" finds the value the workflow searches for.
-  var withId = !!(s.idColumn && cols.id);
-  var headers = taxiCheckHeaders_(withId ? s : { idColumn: '' });
-  return '=ARRAYFORMULA(LET(' + [].concat(withId ? ['reqId,TO_TEXT(' + col(cols.id) + ')'] : []).concat([
+  var withId = !!(s.idColumn && cols.id), withBooking = !!(s.bookingColumn && cols.booking);
+  var headers = taxiCheckHeaders_(s, { id: withId, booking: withBooking });
+  // Not decided yet (booking empty or an unticked box) first, then newest first.
+  var sorted = withBooking
+    ? 'SORT(FILTER(out,keep),FILTER(IF((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE"),0,1),keep),TRUE,FILTER(rowNo,keep),FALSE)'
+    : 'SORT(FILTER(out,keep),1,FALSE)';
+  return '=ARRAYFORMULA(LET(' + [].concat(withId ? ['reqId,TO_TEXT(' + col(cols.id) + ')'] : [])
+    .concat(withBooking ? ['booked,' + col(cols.booking)] : []).concat([
     'reqName,' + col(cols.name),
     'shiftEnd,' + col(cols.shiftEnd),
     'arrival,' + col(cols.arrival),
@@ -312,11 +348,63 @@ function buildTaxiFormula_(s, cols, staff) {
     'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
-    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,IF(msg="","OK","CHECK"),IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + ')),' +
+    'keep,reqName<>""',
+    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,' + (withBooking ? 'booked,' : '') + 'IF(msg="","OK","CHECK"),IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + ')),' +
       'IF(since="","",TEXT(since,"yyyy-mm-dd")),IF(tenure<0,"",tenure)}',
-    'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(SORT(FILTER(out,reqName<>""),1,FALSE),{' +
+    'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(' + sorted + ',{' +
       headers.map(function () { return '""'; }).join(',') + '}))'
   ]).join(',') + '))';
+}
+
+/* ------------------------------------------------------------------------ */
+/* Email text (pure)                                                         */
+/* ------------------------------------------------------------------------ */
+
+/** A taxi arrival cell → its date "yyyy-MM-dd" or '' (yyyy-MM-dd…, dd.MM.yyyy…, dd/MM/yyyy…; MM/dd when the day > 12). Pure. */
+function taxiDateIso_(v, tz) {
+  if (isDate_(v)) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  var s = str_(v);
+  if (isIsoDate_(s.substr(0, 10))) return s.substr(0, 10);
+  var m = /^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/.exec(s);
+  if (!m) return '';
+  var d = +m[1], mo = +m[2];
+  if (mo > 12 && d <= 12) { var x = d; d = mo; mo = x; }
+  return isValidYmd_(+m[3], mo, d) ? ymd_(+m[3], mo, d) : '';
+}
+
+/** Fills {Any column name} (case and punctuation ignored) and the other {placeholders}; "\n" is a line break. Pure. */
+function taxiFillColumns_(tpl, values) {
+  var byKey = {};
+  Object.keys(values).forEach(function (k) { byKey[normText_(k)] = values[k]; });
+  return taxiNl_(tpl).replace(/\{([^{}\n]+)\}/g, function (all, k) {
+    var n = normText_(k);
+    return Object.prototype.hasOwnProperty.call(byKey, n) ? String(byKey[n]) : all;
+  });
+}
+
+/**
+ * The email text for one taxi date. Pure.
+ * @param {Array<{values: Object<string,string>, time: string, status: string}>} rows request rows of that date (header → shown value)
+ * @return {{text: string, count: number, denied: number, pending: number}}
+ */
+function buildTaxiEmail_(rows, email, dateIso) {
+  var out = { denied: 0, pending: 0 };
+  var list = rows.filter(function (r) {
+    if (r.status === 'DENIED') { out.denied++; return false; }
+    if (r.status === 'PENDING') { out.pending++; if (email.include === 'BOOKED') return false; }
+    return true;
+  }).sort(function (a, b) { return (a.time || '99:99').localeCompare(b.time || '99:99'); });
+  var common = { date: dateIso, count: list.length };
+  var items = list.map(function (r, i) {
+    var v = {};
+    Object.keys(r.values).forEach(function (k) { v[k] = r.values[k]; });
+    v.n = i + 1; v.time = r.time; v.date = dateIso; v.count = list.length;
+    return taxiFillColumns_(email.item, v);
+  });
+  out.count = list.length;
+  out.text = [taxiFillColumns_(email.intro, common)].concat(items.length ? [items.join('\n\n')] : []).concat([taxiFillColumns_(email.outro, common)])
+    .filter(function (p) { return p !== ''; }).join('\n');
+  return out;
 }
 
 /** Header text → column letter in a header row (exact, ignoring case/punctuation), or ''. Pure. */
@@ -377,7 +465,44 @@ function taxiRequestColumns_(s) {
   if (!cols.shiftEnd) missing.push(s.shiftEndColumn);
   if (!cols.arrival) missing.push(s.arrivalColumn);
   if (missing.length) fail_('VALIDATION', 'The tab "' + s.requestTab + '" has no column ' + missing.map(function (m) { return '"' + m + '"'; }).join(', ') + '.');
+  // The booking column is optional: without it nothing is sorted or colored by decision.
+  cols.booking = s.bookingColumn ? taxiColumnLetter_(headers, s.bookingColumn) : '';
+  cols.warnings = s.bookingColumn && !cols.booking
+    ? ['The tab "' + s.requestTab + '" has no column "' + s.bookingColumn + '", so requests are not sorted or colored by decision.'] : [];
   return cols;
+}
+
+/** Theme colors and font on the checks tab: header row, and undecided requests colored (those to check in the warning color). */
+function formatTaxiChecks_(sh, s, headers, cols) {
+  var th = sheetTheme_();
+  applySheetFont_(sh, th);
+  sh.getRange(1, 1, 1, headers.length).setBackground(th.header).setFontColor(th.headerText).setFontWeight('bold');
+  sh.setTabColor(th.accent);
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(headers.indexOf('Message') + 1, 420);
+  sh.getRange(1, headers.indexOf('Message') + 1, sh.getMaxRows(), 1).setWrap(true);
+  var L = function (h) { return '$' + columnLetter_(headers.indexOf(h) + 1) + '2'; };
+  var range = sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), headers.length);
+  var rule = function (formula, color) { return SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setBackground(color).setRanges([range]).build(); };
+  var name = L('Name'), result = L('Result');
+  var rules = [];
+  if (cols.booking) {
+    var b = L(s.bookingColumn), open = '(' + b + '="",' + b + '=FALSE)';
+    rules.push(rule('=AND(' + name + '<>"",OR' + open + ',' + result + '="CHECK")', th.warn));
+    rules.push(rule('=AND(' + name + '<>"",OR' + open + ')', th.soft));
+  } else {
+    rules.push(rule('=AND(' + name + '<>"",' + result + '="CHECK")', th.warn));
+  }
+  sh.setConditionalFormatRules(rules); // the checks tab holds only the formula, so its rules are all ours
+}
+
+/** Repair Formatting / theme change: the checks tab again (only when the rules were saved and the tab exists). */
+function taxiRepairFormatting_() {
+  if (!getConfig_()[TAXI_SETTINGS_KEY_]) return '';
+  var s = getTaxiSettings_();
+  if (!getSs_().getSheetByName(s.checksTab)) return '';
+  applyTaxiChecks_(s);
+  return 'Repaired "' + s.checksTab + '".';
 }
 
 /** Writes the formula into the checks tab (created when missing; it holds nothing else). */
@@ -386,13 +511,11 @@ function applyTaxiChecks_(s) {
   var staff = taxiStaffSources_(s);
   var ss = getSs_();
   var sh = ss.getSheetByName(s.checksTab) || ss.insertSheet(s.checksTab);
-  var headers = taxiCheckHeaders_(s);
+  var headers = taxiCheckHeaders_(s, cols);
   sh.clear();
   sh.getRange(1, 1).setFormula(buildTaxiFormula_(s, cols, staff.sources));
-  sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
-  sh.setFrozenRows(1);
-  sh.setColumnWidth(headers.indexOf('Message') + 1, 420);
-  return { sheetUrl: sheetLink_(sh), teams: staff.sources.length, missingTeams: staff.missing };
+  formatTaxiChecks_(sh, s, headers, cols);
+  return { sheetUrl: sheetLink_(sh), teams: staff.sources.length, missingTeams: staff.missing, warnings: cols.warnings };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -411,7 +534,7 @@ function apiTaxiBootstrap() {
     var fields = [{ key: 'employeeName', label: 'Employee Name' }].concat(staff.fields.filter(function (f) { return f.key !== 'employeeName'; }));
     return {
       settings: s, tabs: getSs_().getSheets().map(function (x) { return x.getName(); }).filter(function (n) { return n.charAt(0) !== '_'; }),
-      headers: taxiHeaders_(s.requestTab) || [], staffFields: fields, requestHeaders: TAXI_REQUEST_HEADERS, checkHeaders: taxiCheckHeaders_(s),
+      headers: taxiHeaders_(s.requestTab) || [], staffFields: fields, requestHeaders: TAXI_REQUEST_HEADERS, checkHeaders: taxiCheckHeaders_(s), emailDefaults: TAXI_EMAIL_DEFAULTS, today: todayIso_(),
       texts: TAXI_TEXTS, separators: TAXI_SEPARATORS
     };
   });
@@ -458,13 +581,46 @@ function apiTaxiPreview(settings, opts) {
         if (!req.name) continue;
         var e = taxiEvaluate_(req, staff.sinceByName, s, today, tz);
         if (opts.onlyCheck && e.result !== 'CHECK') continue;
-        var idv = cols.id ? at(values[i], cols.id) : '';
+        var idv = cols.id ? at(values[i], cols.id) : '', bk = cols.booking ? at(values[i], cols.booking) : '';
         rows.push({ row: first + i, id: isDate_(idv) ? Utilities.formatDate(idv, tz, 'yyyy-MM-dd HH:mm:ss') : str_(idv), name: req.name, shiftEnd: isDate_(req.shiftEnd) ? Utilities.formatDate(req.shiftEnd, tz, 'HH:mm') : str_(req.shiftEnd),
           arrival: isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd HH:mm') : str_(req.arrival),
+          booking: bk === false ? '' : str_(bk), status: cols.booking ? taxiBookingStatus_(bk, s.deniedWords) : '',
           result: e.result, message: e.message, since: e.since, months: e.months });
       }
     }
-    return { rows: rows, rules: taxiRuleTexts_(s), missingTeams: staff.missing, errors: validateTaxiSettings_(s) };
+    // As the checks tab: not decided yet first (then newest first).
+    if (cols.booking) rows.sort(function (a, b) { return (a.status === 'PENDING' ? 0 : 1) - (b.status === 'PENDING' ? 0 : 1) || b.row - a.row; });
+    return { rows: rows, rules: taxiRuleTexts_(s), missingTeams: staff.missing, errors: validateTaxiSettings_(s), warnings: cols.warnings };
+  });
+}
+
+/**
+ * The email text for the taxis of one date (from the request tab; denied requests are left out, and with
+ * include BOOKED also those not decided yet). Nothing is sent; the page shows the text to copy.
+ */
+function apiTaxiEmailText(settings, dateIso) {
+  return apiCall_('apiTaxiEmailText', function () {
+    var s = normalizeTaxiSettings_(settings), tz = getTz_();
+    var date = isIsoDate_(str_(dateIso)) ? str_(dateIso) : todayIso_(tz);
+    var cols = taxiRequestColumns_(s);
+    var sh = getSs_().getSheetByName(s.requestTab);
+    var rows = [];
+    if (sh.getLastRow() >= 2) {
+      var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
+      var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
+      var ia = columnNumber_(cols.arrival) - 1, ib = cols.booking ? columnNumber_(cols.booking) - 1 : -1, iname = columnNumber_(cols.name) - 1;
+      for (var r = 1; r < values.length; r++) {
+        if (!str_(values[r][iname]) || taxiDateIso_(values[r][ia], tz) !== date) continue;
+        var v = {};
+        headers.forEach(function (h, i) { if (h) v[h] = shown[r][i]; });
+        var min = taxiArrivalMinutes_(values[r][ia], tz);
+        rows.push({ values: v, time: min === null ? '' : minutesToHm_(min), status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
+      }
+    }
+    var out = buildTaxiEmail_(rows, s.email, date);
+    out.date = date;
+    out.warnings = cols.warnings;
+    return out;
   });
 }
 
@@ -532,7 +688,7 @@ function taxiUnitTests_() {
       assert_(f.indexOf('{"Row","Date ID","Name","Result","Message","Employee since","Months"}') > 0, 'headed like the request tab');
       var none = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', idColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
       assert_(none.indexOf('reqId') < 0 && none.indexOf('{"Row","Name",') > 0, 'no ID column: search by Name');
-      assertEq_(taxiCheckHeaders_(s).length, 7);
+      assertEq_(taxiCheckHeaders_(s), ['Row', 'Date ID', 'Name', 'Booking done', 'Result', 'Message', 'Employee since', 'Months']);
     }],
     ['Taxi: a web app page and nav link only while this file is present', function () {
       var p = webPages_().taxi;
@@ -572,6 +728,28 @@ function taxiUnitTests_() {
       assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
       var off = normalizeTaxiSettings_({ sinceField: 'x', rules: { arrival: { on: false } } });
       assertEq_(msgOf('00:01', '19:20', off), [], 'rule switched off');
+    }],
+    ['Taxi: undecided requests (booking empty) come first in the checks tab', function () {
+      assertEq_(['', false, 'FALSE', 'Prebooked', 'Denied by Anna', 'deny', 'TRUE', 'Rejected'].map(function (v) { return taxiBookingStatus_(v, s.deniedWords); }),
+        ['PENDING', 'PENDING', 'PENDING', 'BOOKED', 'DENIED', 'DENIED', 'BOOKED', 'DENIED']);
+      var f = buildTaxiFormula_(s, { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' }, []);
+      assert_(f.indexOf("booked,'Taxi Requests'!J2:J") > 0 && f.indexOf('out,{rowNo,reqId,reqName,booked,') > 0, 'booking column after Name');
+      assert_(f.indexOf('SORT(FILTER(out,keep),FILTER(IF((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE"),0,1),keep),TRUE,FILTER(rowNo,keep),FALSE)') > 0, 'undecided first, then newest');
+      assert_(f.indexOf('{"Row","Date ID","Name","Booking done","Result"') > 0, 'headers');
+      assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
+      var none = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
+      assert_(none.indexOf('booked') < 0 && none.indexOf('SORT(FILTER(out,keep),1,FALSE)') > 0, 'without a booking column: newest first');
+    }],
+    ['Taxi: email text for one date — sorted by time, denied left out, any column as {placeholder}', function () {
+      assertEq_(['2026-10-25 19:20', '25.10.2026 19:20', '10/25/2026', 'soon'].map(function (v) { return taxiDateIso_(v, tz); }), ['2026-10-25', '2026-10-25', '2026-10-25', '']);
+      var row = function (name, time, status) { return { values: { 'SA Name': name, 'Address': name + ' street 1', 'Phone Number': '123', 'Pet friendly': 'No' }, time: time, status: status }; };
+      var rows = [row('Bob', '23:30', 'BOOKED'), row('Ann', '22:10', 'PENDING'), row('Cid', '21:00', 'DENIED')];
+      var e = buildTaxiEmail_(rows, s.email, '2026-10-25');
+      assertEq_([e.count, e.denied, e.pending], [2, 1, 1]);
+      assertEq_(e.text, 'Hi,\n\nPlease book the following taxis for 2026-10-25:\n\n1. 22:10 – Ann\nAddress: Ann street 1\nPhone: 123\nPet friendly: No\n\n' +
+        '2. 23:30 – Bob\nAddress: Bob street 1\nPhone: 123\nPet friendly: No\n\nThank you!');
+      var booked = buildTaxiEmail_(rows, normalizeTaxiSettings_({ email: { include: 'BOOKED', intro: '{count} taxi(s) on {date}', item: '{time} {sa name} {Unknown}', outro: '' } }).email, '2026-10-25');
+      assertEq_(booked.text, '1 taxi(s) on 2026-10-25\n23:30 Bob {Unknown}', 'only booked; names in any case; unknown placeholders stay');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);

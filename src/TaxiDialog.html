@@ -34,6 +34,12 @@
           <div class="field"><label class="label" for="shiftEndColumn">Shift end column</label><select id="shiftEndColumn"></select></div>
           <div class="field"><label class="label" for="arrivalColumn">Taxi arrival column</label><select id="arrivalColumn"></select></div>
         </div>
+        <div class="row">
+          <div class="field"><label class="label" for="bookingColumn">Decision column</label><select id="bookingColumn"></select>
+            <p class="hint">E.g. "Booking done". Empty = not decided yet: shown first and colored in the checks tab.</p></div>
+          <div class="field"><label class="label" for="deniedWords">…counts as denied when it contains</label><input type="text" id="deniedWords" maxlength="200">
+            <p class="hint">Comma separated, e.g. <code>deny, denied, rejected</code>. Anything else counts as booked.</p></div>
+        </div>
 
         <h2 class="mt-3">Rules</h2>
         <label class="check"><input type="checkbox" id="seOn"> <span>Shift ends between
@@ -64,7 +70,29 @@
         <div class="cluster"><label class="sr-only" for="limit">How many</label><select id="limit" onchange="preview()" style="width:auto"><option value="25">Newest 25</option><option value="100">Newest 100</option><option value="500">Newest 500</option></select>
           <label class="check"><input type="checkbox" id="onlyCheck" onchange="preview()"> <span>Only requests to check</span></label></div>
         <div id="previewBox" class="mt-2"></div>
-        <details class="mt-3" open>
+        <h2 class="mt-3">Email text</h2>
+        <p class="hint mt-0">Builds a text of the taxis for one day to copy into an email. Nothing is sent. Denied requests are always left out.</p>
+        <div class="cluster">
+          <label class="sr-only" for="emailDate">Taxi date</label><input type="date" id="emailDate" style="width:auto">
+          <label class="sr-only" for="emailInclude">Which requests</label><select id="emailInclude" style="width:auto">
+            <option value="NOT_DENIED">Booked and not decided yet</option><option value="BOOKED">Booked only</option></select>
+          <button type="button" class="btn" onclick="buildEmail()">Build text</button>
+        </div>
+        <details class="mt-2">
+          <summary><b>Email layout</b></summary>
+          <p class="hint">Any column of the requests tab in braces, e.g. <code>{Address}</code> <code>{Phone Number}</code> <code>{Pet friendly}</code>, and
+            <code>{date}</code> <code>{count}</code> <code>{n}</code> (number of the taxi) <code>{time}</code> (arrival time).</p>
+          <div class="field"><label class="label" for="emIntro">Start</label><textarea id="emIntro" rows="3"></textarea></div>
+          <div class="field"><label class="label" for="emItem">For each taxi</label><textarea id="emItem" rows="4"></textarea></div>
+          <div class="field"><label class="label" for="emOutro">End</label><textarea id="emOutro" rows="2"></textarea></div>
+          <p class="hint">Saved with <b>Save and apply</b>.</p>
+        </details>
+        <div id="emailBox" class="hidden mt-2">
+          <textarea id="emailText" rows="10" readonly></textarea>
+          <div class="cluster mt-2"><button type="button" class="btn primary" onclick="copyEmail()">Copy text</button><span class="small" id="emailInfo"></span></div>
+        </div>
+
+        <details class="mt-3">
           <summary><b>Slack workflow steps</b></summary>
           <ol class="steps mt-2">
             <li><b>Add a row to a spreadsheet</b> (as now) → the requests tab.</li>
@@ -103,6 +131,7 @@
       $('nameColumn').innerHTML = headerOptions(headers, s.nameColumn);
       $('shiftEndColumn').innerHTML = headerOptions(headers, s.shiftEndColumn);
       $('arrivalColumn').innerHTML = headerOptions(headers, s.arrivalColumn);
+      $('bookingColumn').innerHTML = '<option value=""' + (s.bookingColumn ? '' : ' selected') + '>(none)</option>' + headerOptions(headers, s.bookingColumn);
     }
 
     function load() {
@@ -126,6 +155,9 @@
           return '<div class="field"><label class="label" for="tx_' + k + '">' + esc(t.label) + vars + '</label>' +
             '<input type="text" id="tx_' + k + '" data-text="' + k + '" maxlength="300" placeholder="' + esc(t.text) + '" value="' + esc(s.texts[k] === t.text ? '' : s.texts[k]) + '"></div>';
         }).join('');
+        $('deniedWords').value = s.deniedWords;
+        $('emailDate').value = d.today; $('emailInclude').value = s.email.include;
+        $('emIntro').value = s.email.intro; $('emItem').value = s.email.item; $('emOutro').value = s.email.outro;
         $('hintChecks').textContent = s.checksTab;
         if (!d.headers.length) showStatus('info', 'The tab "' + esc(s.requestTab) + '" does not exist yet. Choose the tab your Slack workflow writes to, or create a new one.', 'Choose the requests tab');
         else preview();
@@ -157,6 +189,8 @@
         staffMatch: $('staffMatch').value, sinceField: $('sinceField').value,
         rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value },
           arrival: { on: $('arOn').checked, before: $('arBefore').value, after: $('arAfter').value } },
+        bookingColumn: $('bookingColumn').value, deniedWords: $('deniedWords').value,
+        email: { include: $('emailInclude').value, intro: $('emIntro').value, item: $('emItem').value, outro: $('emOutro').value },
         okText: $('okText').value, failText: $('failText').value, separator: $('separator').value,
         texts: Array.prototype.reduce.call(document.querySelectorAll('[data-text]'), function (o, el) { o[el.getAttribute('data-text')] = el.value; return o; }, {})
       };
@@ -165,10 +199,12 @@
     function renderPreview(p) {
       var warn = (p.errors || []).length ? alertHtml('warn', 'Not ready to save', '', p.errors) : '';
       if (p.missingTeams.length) warn += alertHtml('warn', 'Not checked against these teams', 'Their staff sheet has no such column:', p.missingTeams);
+      if ((p.warnings || []).length) warn += alertHtml('warn', 'Decision column not found', '', p.warnings);
       if (!p.rows.length) { $('previewBox').innerHTML = warn + emptyHtml('🚕', $('onlyCheck').checked ? 'Nothing to check' : 'No requests yet', $('onlyCheck').checked ? 'Every request in this range meets the rules.' : 'The newest requests show here.'); return; }
-      $('previewBox').innerHTML = warn + '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Row</th><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Taxi arrives</th><th scope="col">Shift end</th><th scope="col">Months</th><th scope="col">Result</th></tr></thead><tbody>' +
+      $('previewBox').innerHTML = warn + '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Row</th><th scope="col">ID</th><th scope="col">Name</th><th scope="col">Decision</th><th scope="col">Taxi arrives</th><th scope="col">Shift end</th><th scope="col">Months</th><th scope="col">Result</th></tr></thead><tbody>' +
         p.rows.map(function (r) {
-          return '<tr><td>' + r.row + '</td><td class="small">' + esc(r.id) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.arrival) + '</td><td>' + esc(r.shiftEnd) + '</td><td>' + esc(r.months) + '</td><td class="msg-cell">' +
+          var decision = r.status === 'PENDING' ? badge('', 'Not decided') : r.status === 'DENIED' ? badge('bad', r.booking) : r.status === 'BOOKED' ? badge('ok', r.booking) : esc(r.booking);
+          return '<tr><td>' + r.row + '</td><td class="small">' + esc(r.id) + '</td><td>' + esc(r.name) + '</td><td>' + decision + '</td><td>' + esc(r.arrival) + '</td><td>' + esc(r.shiftEnd) + '</td><td>' + esc(r.months) + '</td><td class="msg-cell">' +
             badge(r.result === 'OK' ? 'ok' : 'warn', r.result) + ' <span class="small">' + esc(r.message) + '</span></td></tr>';
         }).join('') + '</tbody></table></div>';
     }
@@ -183,10 +219,29 @@
       call('Saving…', 'apiTaxiSave', collect()).then(function (r) {
         $('hintChecks').textContent = r.settings.checksTab;
         $('checksLink').href = r.sheetUrl; show('checksLink', true);
-        var extra = r.missingTeams.length ? ' Not checked against: ' + esc(r.missingTeams.join(', ')) + '.' : '';
+        var extra = (r.missingTeams.length ? ' Not checked against: ' + esc(r.missingTeams.join(', ')) + '.' : '') +
+          ((r.warnings || []).length ? ' ' + esc(r.warnings.join(' ')) : '');
         showStatus('ok', 'The checks tab now holds the formula for ' + r.teams + ' staff sheet(s).' + extra, 'Saved');
         preview();
       });
+    }
+
+    function buildEmail() {
+      showStatus('');
+      call('Building…', 'apiTaxiEmailText', collect(), $('emailDate').value).then(function (r) {
+        $('emailText').value = r.text;
+        $('emailInfo').textContent = r.count + ' taxi(s)' + (r.denied ? ' · ' + r.denied + ' denied left out' : '') +
+          (r.pending ? ' · ' + r.pending + ' not decided yet' + ($('emailInclude').value === 'BOOKED' ? ' (left out)' : ' (included)') : '');
+        show('emailBox', true);
+      });
+    }
+
+    function copyEmail() {
+      var box = $('emailText');
+      var done = function () { $('emailInfo').textContent = 'Copied.'; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(box.value).then(done, function () { box.select(); document.execCommand('copy'); done(); });
+      } else { box.select(); document.execCommand('copy'); done(); }
     }
 
     load();
