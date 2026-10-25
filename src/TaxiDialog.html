@@ -39,6 +39,10 @@
         <label class="check"><input type="checkbox" id="seOn"> <span>Shift ends between
           <input type="time" id="seFrom" style="width:auto"> and <input type="time" id="seTo" style="width:auto">
           <span class="hint">The window may cross midnight, e.g. 23:00 – 06:00.</span></span></label>
+        <label class="check mt-2"><input type="checkbox" id="arOn"> <span>Taxi arrives from
+          <input type="number" id="arBefore" min="0" max="720" style="width:70px"> min before to
+          <input type="number" id="arAfter" min="0" max="720" style="width:70px"> min after the shift end
+          <span class="hint">Times only, across midnight: a shift ending 00:01 with the taxi at 00:20 is fine, a taxi at 19:20 is not.</span></span></label>
         <label class="check mt-2"><input type="checkbox" id="teOn"> <span>Employed for less than
           <input type="number" id="teMonths" min="1" max="120" style="width:70px"> months
           <span class="hint">Counted to the taxi date, from the staff column below. People not in any staff sheet are always flagged.</span></span></label>
@@ -112,6 +116,7 @@
         $('sinceField').innerHTML = options(d.staffFields, 'key', 'label', s.sinceField, '— choose —');
         $('seOn').checked = s.rules.shiftEnd.on; $('seFrom').value = s.rules.shiftEnd.from; $('seTo').value = s.rules.shiftEnd.to;
         $('teOn').checked = s.rules.tenure.on; $('teMonths').value = s.rules.tenure.months;
+        $('arOn').checked = s.rules.arrival.on; $('arBefore').value = s.rules.arrival.before; $('arAfter').value = s.rules.arrival.after;
         $('okText').value = s.okText; $('failText').value = s.failText; $('checksTab').value = s.checksTab;
         $('separator').innerHTML = Object.keys(d.separators).map(function (k) {
           return '<option value="' + k + '"' + (k === s.separator ? ' selected' : '') + '>' + esc(d.separators[k].label) + '</option>';
@@ -150,7 +155,8 @@
         requestTab: $('requestTab').value, checksTab: $('checksTab').value, idColumn: $('idColumn').value,
         nameColumn: $('nameColumn').value, shiftEndColumn: $('shiftEndColumn').value, arrivalColumn: $('arrivalColumn').value,
         staffMatch: $('staffMatch').value, sinceField: $('sinceField').value,
-        rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value } },
+        rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value },
+          arrival: { on: $('arOn').checked, before: $('arBefore').value, after: $('arAfter').value } },
         okText: $('okText').value, failText: $('failText').value, separator: $('separator').value,
         texts: Array.prototype.reduce.call(document.querySelectorAll('[data-text]'), function (o, el) { o[el.getAttribute('data-text')] = el.value; return o; }, {})
       };

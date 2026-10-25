@@ -39,6 +39,8 @@ function taxiCheckHeaders_(s) {
 var TAXI_TEXTS = {
   shiftEndFail: { label: 'Shift ends outside the window', text: 'Shift ends {end} (taxi only for shifts ending {from}–{to})', vars: ['end', 'from', 'to'] },
   shiftEndUnknown: { label: 'Shift end not readable', text: 'Shift end not understood', vars: [] },
+  arrivalFail: { label: 'Taxi not right after the shift', text: 'Taxi at {arrival} but the shift ends {end} (taxi up to {after} min after the shift end)', vars: ['arrival', 'end', 'before', 'after'] },
+  arrivalUnknown: { label: 'Taxi time not readable', text: 'Taxi arrival time not understood', vars: [] },
   tenureFail: { label: 'Employed too long', text: 'Employed {months} months (taxi only under {max} months)', vars: ['months', 'max'] },
   notFound: { label: 'Not in any staff sheet', text: 'Not found in the staff sheets', vars: [] },
   sinceMissing: { label: 'No employee-since date', text: 'Employee since date missing', vars: [] }
@@ -56,8 +58,9 @@ var TAXI_SEPARATORS = {
 /** Settings with defaults. Pure. */
 function normalizeTaxiSettings_(s) {
   s = s || {};
-  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {}, t = s.texts || {};
+  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {}, ar = r.arrival || {}, t = s.texts || {};
   var hm = function (v, d) { var m = hmToMinutes_(str_(v)); return m === null ? d : minutesToHm_(m % 1440); };
+  var mins = function (v, d) { return Math.min(720, Math.max(0, Math.floor(toNumber_(v, d)))); };
   return {
     requestTab: str_(s.requestTab) || 'Taxi Requests',
     checksTab: str_(s.checksTab) || 'Taxi Checks',
@@ -70,7 +73,9 @@ function normalizeTaxiSettings_(s) {
     sinceField: str_(s.sinceField),
     rules: {
       shiftEnd: { on: se.on !== false, from: hm(se.from, '00:00'), to: hm(se.to, '06:00') },
-      tenure: { on: te.on !== false, months: Math.max(1, Math.floor(toNumber_(te.months, 3))) }
+      tenure: { on: te.on !== false, months: Math.max(1, Math.floor(toNumber_(te.months, 3))) },
+      // The taxi arrives from `before` minutes before to `after` minutes after the shift end (across midnight too).
+      arrival: { on: ar.on !== false, before: mins(ar.before, 0), after: mins(ar.after, 60) }
     },
     okText: s.okText !== undefined ? str_(s.okText) : '✅ All taxi rules are met.',
     failText: s.failText !== undefined ? str_(s.failText) : '⚠️ Check before approving:',
@@ -109,6 +114,7 @@ function taxiRuleTexts_(s) {
   var out = [];
   if (s.rules.shiftEnd.on) out.push('Shift ends between ' + s.rules.shiftEnd.from + ' and ' + s.rules.shiftEnd.to);
   if (s.rules.tenure.on) out.push('Employed for less than ' + s.rules.tenure.months + ' months');
+  if (s.rules.arrival.on) out.push('Taxi arrives ' + s.rules.arrival.before + ' min before to ' + s.rules.arrival.after + ' min after the shift end');
   return out;
 }
 
@@ -126,6 +132,27 @@ function taxiTimeMinutes_(v, tz) {
   if (ap === 'am' && h === 12) h = 0;
   if (h > 24 || mi > 59) return null;
   return (h * 60 + mi) % 1440;
+}
+
+/**
+ * Taxi arrival (a date/time cell or text) → minutes after 00:00, or null. Takes the hh:mm part, so the date in
+ * "25.10.2026 19:20" or "2026-10-25 19:20" is never read as a time. Pure.
+ */
+function taxiArrivalMinutes_(v, tz) {
+  if (isDate_(v)) return hmToMinutes_(Utilities.formatDate(v, tz, 'HH:mm')) % 1440;
+  var s = str_(v).toLowerCase(), m = /(\d{1,2}):(\d{2})\s*(am|pm)?/.exec(s);
+  if (!m) return null;
+  var h = +m[1], mi = +m[2];
+  if (m[3] === 'pm' && h < 12) h += 12;
+  if (m[3] === 'am' && h === 12) h = 0;
+  if (h > 24 || mi > 59) return null;
+  return (h * 60 + mi) % 1440;
+}
+
+/** The taxi comes from `before` minutes before to `after` minutes after the shift end; times only, across midnight. Pure. */
+function taxiArrivalOk_(arrMin, endMin, before, after) {
+  var gap = ((arrMin - endMin) % 1440 + 1440) % 1440;
+  return gap <= after || (before > 0 && gap >= 1440 - before);
 }
 
 function taxiInWindow_(min, fromHm, toHm) {
@@ -153,6 +180,14 @@ function taxiEvaluate_(req, sinceByName, s, todayIso, tz) {
     if (m === null) problems.push(taxiFill_(s.texts.shiftEndUnknown, {}));
     else if (!taxiInWindow_(m, s.rules.shiftEnd.from, s.rules.shiftEnd.to)) {
       problems.push(taxiFill_(s.texts.shiftEndFail, { end: minutesToHm_(m), from: s.rules.shiftEnd.from, to: s.rules.shiftEnd.to }));
+    }
+  }
+  if (s.rules.arrival.on) {
+    var a = taxiArrivalMinutes_(req.arrival, tz), e = taxiTimeMinutes_(req.shiftEnd, tz), ra = s.rules.arrival;
+    if (a === null) problems.push(taxiFill_(s.texts.arrivalUnknown, {}));
+    else if (e === null) { if (!s.rules.shiftEnd.on) problems.push(taxiFill_(s.texts.shiftEndUnknown, {})); }
+    else if (!taxiArrivalOk_(a, e, ra.before, ra.after)) {
+      problems.push(taxiFill_(s.texts.arrivalFail, { arrival: minutesToHm_(a), end: minutesToHm_(e), before: ra.before, after: ra.after }));
     }
   }
   var key = normText_(req.name), found = Object.prototype.hasOwnProperty.call(sinceByName, key);
@@ -242,6 +277,14 @@ function buildTaxiFormula_(s, cols, staff) {
     parts.push('IF(endT<0,' + taxiTextExpr_(s.texts.shiftEndUnknown, {}, {}) + '&' + sep + ',IF(' + inside + ',"",' +
       taxiTextExpr_(s.texts.shiftEndFail, { from: s.rules.shiftEnd.from, to: s.rules.shiftEnd.to }, { end: 'TEXT(endT,"hh:mm")' }) + '&' + sep + '))');
   }
+  if (s.rules.arrival.on) {
+    var ra = s.rules.arrival, gap = 'MOD(arrT-endT,1)';
+    // A second of slack so equal times count as inside (times are fractions of a day).
+    var ok = '(' + gap + '<=' + ra.after + '/1440+1/86400)' + (ra.before > 0 ? '+(' + gap + '>=1-' + ra.before + '/1440-1/86400)' : '');
+    parts.push('IF(arrT<0,' + taxiTextExpr_(s.texts.arrivalUnknown, {}, {}) + '&' + sep + ',IF(endT<0,' +
+      (s.rules.shiftEnd.on ? '""' : taxiTextExpr_(s.texts.shiftEndUnknown, {}, {}) + '&' + sep) + ',IF(' + ok + ',"",' +
+      taxiTextExpr_(s.texts.arrivalFail, { before: ra.before, after: ra.after }, { arrival: 'TEXT(arrT,"hh:mm")', end: 'TEXT(endT,"hh:mm")' }) + '&' + sep + ')))');
+  }
   if (s.rules.tenure.on) {
     var n = s.rules.tenure.months;
     parts.push('IF(NOT(found),' + taxiTextExpr_(s.texts.notFound, {}, {}) + '&' + sep + ',IF(tenure<0,' + taxiTextExpr_(s.texts.sinceMissing, {}, {}) + '&' + sep +
@@ -264,6 +307,8 @@ function buildTaxiFormula_(s, cols, staff) {
     'found,ISNUMBER(MATCH(reqKey,staffKey,0))',
     'since,IFERROR(VLOOKUP(reqKey,{staffKey,INDEX(staffTbl,,2)},2,FALSE),"")',
     'endT,IFERROR(MOD(IF(ISNUMBER(shiftEnd),shiftEnd,TIMEVALUE(SUBSTITUTE(shiftEnd,".",":"))),1),-1)',
+    // Only the hh:mm part of a text arrival (as taxiArrivalMinutes_), so a date like 25.10.2026 is never read as a time.
+    'arrT,IFERROR(MOD(IF(ISNUMBER(arrival),arrival,TIMEVALUE(REGEXEXTRACT(TO_TEXT(arrival),"\\d{1,2}:\\d{2}(?:\\s*[AaPp][Mm])?"))),1),-1)',
     'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
@@ -465,9 +510,9 @@ function taxiUnitTests_() {
       var since = { 'ann lee': '2026-09-01', 'bob': '2025-01-01', 'cid': '' };
       var ok = taxiEvaluate_({ name: 'Ann  Lee', shiftEnd: '00:30', arrival: '2026-10-25 00:45' }, since, s, '2026-10-24', tz);
       assertEq_([ok.result, ok.message, ok.months], ['OK', '✅ All taxi rules are met.', 1]);
-      var bad = taxiEvaluate_({ name: 'Bob', shiftEnd: '22:00', arrival: '' }, since, s, '2026-10-24', tz);
+      var bad = taxiEvaluate_({ name: 'Bob', shiftEnd: '22:00', arrival: '22:30' }, since, s, '2026-10-24', tz);
       assertEq_([bad.result, bad.message], ['CHECK', '⚠️ Check before approving: Shift ends 22:00 (taxi only for shifts ending 00:00–06:00); Employed 21 months (taxi only under 3 months)']);
-      assertEq_([taxiEvaluate_({ name: 'Dan', shiftEnd: '01:00' }, since, s, '2026-10-24', tz).problems, taxiEvaluate_({ name: 'cid', shiftEnd: '01:00' }, since, s, '2026-10-24', tz).problems],
+      assertEq_([taxiEvaluate_({ name: 'Dan', shiftEnd: '01:00', arrival: '01:15' }, since, s, '2026-10-24', tz).problems, taxiEvaluate_({ name: 'cid', shiftEnd: '01:00', arrival: '01:15' }, since, s, '2026-10-24', tz).problems],
         [['Not found in the staff sheets'], ['Employee since date missing']]);
     }],
     ['Taxi: the sheet formula uses the chosen columns, staff sheets and rules', function () {
@@ -498,7 +543,7 @@ function taxiUnitTests_() {
       var own = normalizeTaxiSettings_({ sinceField: 'x', separator: 'LINE', failText: 'Please check:',
         texts: { shiftEndFail: 'Ends at {end}, needs {from}-{to}', tenureFail: '{months} months "in" (max {max})', notFound: '' } });
       assertEq_(own.texts.notFound, 'Not found in the staff sheets', 'an empty message falls back to the default');
-      var e = taxiEvaluate_({ name: 'Bob', shiftEnd: '22:00' }, { bob: '2025-01-01' }, own, '2026-10-24', tz);
+      var e = taxiEvaluate_({ name: 'Bob', shiftEnd: '22:00', arrival: '22:10' }, { bob: '2025-01-01' }, own, '2026-10-24', tz);
       assertEq_(e.message, 'Please check:\nEnds at 22:00, needs 00:00-06:00\n21 months "in" (max 3)');
       var f = buildTaxiFormula_(own, { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
       assert_(f.indexOf('"Ends at "&TEXT(endT,"hh:mm")&", needs 00:00-06:00"&CHAR(10)') > 0, 'live {end}, fixed {from}/{to}, new line');
@@ -507,10 +552,26 @@ function taxiUnitTests_() {
       assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
       assertEq_(normalizeTaxiSettings_({ separator: 'NOPE' }).separator, 'SEMI');
       var nl = normalizeTaxiSettings_({ sinceField: 'x', okText: 'All good\\nBook it', failText: 'Check:\\n', texts: { notFound: 'Unknown\\nperson' } });
-      assertEq_([taxiEvaluate_({ name: 'Ann', shiftEnd: '01:00' }, { ann: '2026-10-01' }, nl, '2026-10-24', tz).message,
-        taxiEvaluate_({ name: 'Zed', shiftEnd: '01:00' }, {}, nl, '2026-10-24', tz).message], ['All good\nBook it', 'Check:\nUnknown\nperson'], 'a typed \\n is a line break');
+      assertEq_([taxiEvaluate_({ name: 'Ann', shiftEnd: '01:00', arrival: '01:10' }, { ann: '2026-10-01' }, nl, '2026-10-24', tz).message,
+        taxiEvaluate_({ name: 'Zed', shiftEnd: '01:00', arrival: '01:10' }, {}, nl, '2026-10-24', tz).message], ['All good\nBook it', 'Check:\nUnknown\nperson'], 'a typed \\n is a line break');
       var fn = buildTaxiFormula_(nl, { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
       assert_(fn.indexOf('"All good"&CHAR(10)&"Book it"') > 0 && fn.indexOf('"Unknown"&CHAR(10)&"person"') > 0, 'also in the sheet formula');
+    }],
+    ['Taxi: the taxi must come right after the shift end (also across midnight)', function () {
+      var since = { ann: '2026-10-01' };
+      var msgOf = function (end, arr, st) { return taxiEvaluate_({ name: 'Ann', shiftEnd: end, arrival: arr }, since, st || s, '2026-10-24', tz).problems; };
+      assertEq_(msgOf('00:01', '2026-10-25 19:20'), ['Taxi at 19:20 but the shift ends 00:01 (taxi up to 60 min after the shift end)'], 'the reported bug: taxi long before the shift end');
+      assertEq_([msgOf('00:01', '2026-10-25 00:20'), msgOf('23:50', '26.10.2026 00:30', normalizeTaxiSettings_({ sinceField: 'x', rules: { shiftEnd: { from: '23:00', to: '06:00' } } })), msgOf('00:30', '12:45 AM')], [[], [], []], 'after the end, across midnight, dotted dates and am/pm');
+      assertEq_(msgOf('01:00', '2026-10-25 00:50'), ['Taxi at 00:50 but the shift ends 01:00 (taxi up to 60 min after the shift end)'], 'before the end is not allowed by default');
+      var early = normalizeTaxiSettings_({ sinceField: 'x', rules: { arrival: { before: 15, after: 30 } } });
+      assertEq_([msgOf('01:00', '00:50', early).length, msgOf('01:00', '01:45', early).length, msgOf('01:00', 'soon', early)], [0, 1, ['Taxi arrival time not understood']]);
+      assertEq_([taxiArrivalOk_(5, 1435, 0, 60), taxiArrivalOk_(1435, 5, 0, 60), taxiArrivalOk_(1435, 5, 15, 60)], [true, false, true]);
+      var f = buildTaxiFormula_(early, { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
+      assert_(f.indexOf('(MOD(arrT-endT,1)<=30/1440+1/86400)+(MOD(arrT-endT,1)>=1-15/1440-1/86400)') > 0, 'the same window in the sheet');
+      assert_(f.indexOf('REGEXEXTRACT(TO_TEXT(arrival),"\\d{1,2}:\\d{2}') > 0, 'the sheet reads only the hh:mm part');
+      assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
+      var off = normalizeTaxiSettings_({ sinceField: 'x', rules: { arrival: { on: false } } });
+      assertEq_(msgOf('00:01', '19:20', off), [], 'rule switched off');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);
