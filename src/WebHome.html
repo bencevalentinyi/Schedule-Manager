@@ -5,20 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
   <style>
-    .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s3); align-items: start; margin-bottom: var(--s3); }
+    .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s3); align-items: start; }
     .home-grid .panel { margin: 0; }
     .home-grid .wide { grid-column: 1 / -1; }
     a.btn { text-decoration: none; }
-    .start { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s2); margin-bottom: var(--s3); }
-    .start a { display: block; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: var(--radius);
-      background: var(--surface); color: var(--text); text-decoration: none; }
-    .start a:hover { border-color: var(--primary); }
-    .start b { display: block; font-size: 15px; }
-    .start span { display: block; color: var(--text-2); font-size: var(--fs-small); margin-top: 2px; }
-    .group-title { font-size: var(--fs-small); text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); margin: var(--s4) 0 var(--s2); }
-    .tool-list { display: flex; flex-direction: column; gap: 6px; }
-    .tool-list a.btn { justify-content: flex-start; }
-    details.maint > summary { cursor: pointer; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -87,52 +77,26 @@
         }).join('') + '</tbody></table></div>'
         : emptyHtml('▦', 'No teams yet', 'A team gets its own daily schedule sheet and staff sheet.', pageLink('team', 'Create the first team', 'primary'));
 
-      var start = function (page, title, text) { return '<a href="' + esc(webHref(page)) + '" target="_top"><b>' + esc(title) + '</b><span>' + esc(text) + '</span></a>'; };
-      var tools = function (title, items) { return '<section class="panel"><div class="panel-head"><h2>' + esc(title) + '</h2></div><div class="tool-list">' + items.join('') + '</div></section>'; };
-
-      // 1. Start here: the daily work.
-      var html = '<div class="start">' +
-        start('schedule', 'Today\'s schedule', 'Who works when, per team') +
-        start('dashboard', 'Dashboard', 'Totals, overlaps, unknown staff') +
-        start('import', 'Import schedule', 'Quinyx export → schedules') +
-        start('staff', 'Staff', 'Staff sheets, add and edit people') + '</div>';
-
-      // 2. Status: last import, Monitoring Links and extension cards (e.g. Taxi requests).
-      html += '<div class="home-grid">' +
-        '<section class="panel"><div class="panel-head"><h2>Last import</h2><span class="spacer"></span>' + pageLink('history', 'History / Undo', 'sm') + '</div>' + lastHtml + '</section>' +
+      $('home').innerHTML = '<div class="home-grid">' +
+        '<section class="panel"><div class="panel-head"><h2>Quick actions</h2></div><div class="cluster">' +
+          pageLink('schedule', 'Today\'s schedule', 'primary') + pageLink('dashboard', 'Dashboard') + pageLink('import', 'Import Quinyx export') +
+          '<button type="button" class="btn" onclick="generateLinks()"' + (d.linkItems ? '' : ' disabled title="No monitoring links or plans saved yet"') + '>Generate monitoring links</button>' +
+          pageLink('history', 'Import history / Undo') + '</div></section>' +
+        '<section class="panel"><div class="panel-head"><h2>Last import</h2></div>' + lastHtml + '</section>' +
+        '<section class="panel wide"><div class="panel-head"><h2>Teams</h2><span class="spacer"></span>' + pageLink('teams', 'Manage teams', 'sm') + pageLink('team', '+ New team', 'sm') + '</div>' + teams + '</section>' +
         '<section class="panel"><div class="panel-head"><h2>Monitoring Links</h2></div><p class="small">' + d.linkItems + ' saved item(s).</p><div class="cluster">' +
-          '<button type="button" class="btn sm primary" onclick="generateLinks()"' + (d.linkItems ? '' : ' disabled title="No monitoring links or plans saved yet"') + '>Generate all</button>' +
-          pageLink('output', 'See output', 'sm') + pageLink('links', 'Edit', 'sm') +
-          (d.linksSheet ? sheetLink(d.linksSheet, 'Sheet') : '') + '</div>' +
-          (d.linksSheet ? '' : '<p class="small muted mb-0 mt-2">The sheet appears after the first Generate.</p>') + '</section>' +
-        (d.extensions || []).map(function (c) {
-          return '<section class="panel"><div class="panel-head"><h2>' + esc(c.title) + '</h2></div>' +
-            (c.stats && c.stats.length ? '<div class="stats">' + c.stats.map(function (x) { return stat(x.label, x.value, x.cls); }).join('') + '</div>' : '') +
-            (c.text ? '<p class="small">' + esc(c.text) + '</p>' : '') +
-            '<div class="cluster">' + (c.links || []).map(function (l, i) { return pageLink(l.page, l.label, 'sm' + (i ? '' : ' primary')); }).join('') +
-            (c.sheets || []).map(function (x) { return sheetLink(x, x.label); }).join('') + '</div></section>';
-        }).join('') + '</div>';
-
-      // 3. Teams.
-      html += '<section class="panel"><div class="panel-head"><h2>Teams</h2><span class="spacer"></span>' + pageLink('teams', 'Manage teams', 'sm') + pageLink('team', '+ New team', 'sm') + '</div>' + teams + '</section>';
-
-      // 4. All tools, by topic.
-      html += '<h2 class="group-title">All tools</h2><div class="home-grid">' +
-        tools('Schedules', [pageLink('schedule', 'Schedule', 'sm'), pageLink('import', 'Import Quinyx export', 'sm'), pageLink('history', 'Import history / Undo', 'sm'), pageLink('viewer', 'Sheet schedule viewer', 'sm')]) +
-        tools('Staff', [pageLink('staff', 'Staff', 'sm'), pageLink('ids', 'Import staff data (IDs, emails…)', 'sm'), pageLink('fields', 'Configure staff fields', 'sm')]) +
-        tools('Settings', [pageLink('settings', 'Display settings (theme)', 'sm'), pageLink('teams', 'Teams', 'sm'), pageLink('setup', 'Setup', 'sm'), pageLink('help', 'About / Help', 'sm')]) +
-        '</div>';
-
-      // 5. Maintenance, folded away.
-      html += '<section class="panel"><details class="maint"><summary>Maintenance</summary><p class="small muted">Checks and repairs. Nothing here deletes data.</p><div class="cluster">' +
+          pageLink('links', 'Edit links and plans', 'sm') + pageLink('output', 'See output', 'sm') + (d.linksSheet ? sheetLink(d.linksSheet, 'Monitoring Links sheet') : '<span class="small muted">The sheet appears after the first Generate.</span>') + '</div></section>' +
+        '<section class="panel"><div class="panel-head"><h2>More tools</h2></div><div class="cluster">' +
+          pageLink('staff', 'Staff', 'sm') + pageLink('viewer', 'Sheet schedule viewer', 'sm') + pageLink('ids', 'Import staff data', 'sm') + pageLink('fields', 'Configure staff fields', 'sm') +
+          pageLink('settings', 'Display settings', 'sm') + pageLink('setup', 'Setup', 'sm') + pageLink('help', 'About / Help', 'sm') + '</div></section>' +
+        '<section class="panel wide"><div class="panel-head"><h2>Maintenance</h2></div><div class="cluster">' +
           '<button type="button" class="btn sm" onclick="maintain(\'structure\')">Validate structure</button>' +
           '<button type="button" class="btn sm" onclick="maintain(\'data\')">Validate data</button>' +
           '<button type="button" class="btn sm" onclick="maintain(\'refresh\')">Refresh schedule data</button>' +
           '<button type="button" class="btn sm" onclick="maintain(\'repair\')">Repair formatting</button>' +
           '<button type="button" class="btn sm" onclick="maintain(\'rebuild\')">Rebuild missing sheets</button>' +
-          '</div><div id="report" class="mt-3"></div></details></section>';
-
-      $('home').innerHTML = html;
+          '</div><div id="report" class="mt-3"></div></section>' +
+        '</div>';
     }
 
     function generateLinks() {
