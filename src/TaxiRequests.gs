@@ -95,6 +95,11 @@ function normalizeTaxiSettings_(s) {
     // Empty = not decided yet: those come first in the checks tab, colored. '' = no booking column.
     bookingColumn: s.bookingColumn === undefined ? 'Booking done' : str_(s.bookingColumn),
     deniedWords: str_(s.deniedWords) || 'deny, denied, rejected',
+    // The day view: a tab with a date cell, like the daily schedule ('' = no day view). A taxi day runs from dayStart
+    // to dayStart, so a 00:15 taxi after a late shift belongs to the evening before; the email text uses the same day.
+    dayTab: s.dayTab === undefined ? 'Taxi Day' : str_(s.dayTab),
+    dayStart: hm(s.dayStart, '06:00'),
+    dayColumns: (Array.isArray(s.dayColumns) ? s.dayColumns : ['Address', 'Phone Number', 'Pet friendly']).map(str_).filter(Boolean),
     // The email text: intro, one block per taxi, outro. {Any column name} and {date} {count} {n} {time} are filled in.
     email: {
       include: em.include === 'BOOKED' ? 'BOOKED' : 'NOT_DENIED',
@@ -136,6 +141,7 @@ function taxiFailPrefix_(s) {
 function validateTaxiSettings_(s) {
   var errors = [];
   if (s.requestTab === s.checksTab) errors.push('The checks tab must be a different tab than the requests.');
+  if (s.dayTab && (s.dayTab === s.requestTab || s.dayTab === s.checksTab)) errors.push('The day view must be its own tab, not the requests or the checks tab.');
   if (s.rules.tenure.on && !s.sinceField) errors.push('Choose the staff column with the employee-since date (or switch the employment rule off).');
   if (s.rules.shiftEnd.on && s.rules.shiftEnd.from === s.rules.shiftEnd.to) errors.push('The shift end window starts and ends at the same time.');
   return errors;
@@ -278,6 +284,54 @@ function taxiTextExpr_(tpl, fixed, live) {
   return parts.length ? parts.join('&') : '""';
 }
 
+/** The arrival's time of day as a fraction (-1 when unreadable): only the hh:mm part of a text, as taxiArrivalMinutes_. Pure. */
+function taxiArrTimeExpr_(v) {
+  return 'IFERROR(MOD(IF(ISNUMBER(' + v + '),' + v + ',TIMEVALUE(REGEXEXTRACT(TO_TEXT(' + v + '),"\\d{1,2}:\\d{2}(?:\\s*[AaPp][Mm])?"))),1),-1)';
+}
+
+/** The day view's headers: Time, Name, the decision column, Result, Message, the chosen request columns, Row. Pure. */
+function taxiDayHeaders_(s, cols, extras) {
+  return ['Time', 'Name'].concat(cols.booking ? [s.bookingColumn] : []).concat(['Result', 'Message'])
+    .concat(extras.map(function (e) { return e.header; })).concat(['Row']);
+}
+
+var TAXI_DAY_SHOW = ['All', 'Not decided', 'To check'];
+var TAXI_DAY_FIRST_ROW_ = 5;
+
+/**
+ * The day view's formula (cell A5): the taxis of the taxi day in B2 (empty = every day), filtered by D2,
+ * undecided first, then by time in the day; Result and Message from the checks tab (by row). Pure.
+ * @param {Array<{header: string, letter: string}>} extras request columns to show
+ */
+function buildTaxiDayFormula_(s, cols, extras) {
+  var R = taxiSheetRef_(s.requestTab), C = taxiSheetRef_(s.checksTab);
+  var col = function (letter) { return R + '!' + letter + '2:' + letter; };
+  var checks = taxiCheckHeaders_(s, cols);
+  var cl = function (h) { var l = columnLetter_(checks.indexOf(h) + 1); return C + '!' + l + '2:' + l; };
+  var ds = taxiTimeExpr_(s.dayStart);
+  var pend = cols.booking ? '((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE")>0)' : '(nm<>"")';
+  var outCols = ['IF(arrT<0,"",TEXT(arrT,"hh:mm"))', 'nm'].concat(cols.booking ? ['booked'] : []).concat(['res', 'msg'])
+    .concat(extras.map(function (e) { return col(e.letter); })).concat(['rowNo']);
+  return '=ARRAYFORMULA(LET(' + [
+    'nm,' + col(cols.name),
+    'arr,' + col(cols.arrival)
+  ].concat(cols.booking ? ['booked,' + col(cols.booking)] : []).concat([
+    'rowNo,ROW(' + col(cols.name) + ')',
+    'arrT,' + taxiArrTimeExpr_('arr'),
+    'arrDate,IFERROR(INT(IF(ISNUMBER(arr),arr,DATEVALUE(LEFT(arr,10)))),-1)',
+    // Before the day start the taxi belongs to the day before.
+    'tday,IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<' + ds + '),1,0))',
+    'res,IFERROR(VLOOKUP(rowNo,{' + cl('Row') + ',' + cl('Result') + '},2,FALSE),"")',
+    'msg,IFERROR(VLOOKUP(rowNo,{' + cl('Row') + ',' + cl('Message') + '},2,FALSE),"")',
+    'pend,' + pend,
+    'pick,$B$2',
+    'show,$D$2',
+    'keep,(nm<>"")*IF(ISNUMBER(pick),tday=INT(pick),1)*IF(show="' + TAXI_DAY_SHOW[1] + '",pend,IF(show="' + TAXI_DAY_SHOW[2] + '",pend*(res="CHECK"),1))',
+    'out,{' + outCols.join(',') + '}',
+    'IFERROR(SORT(FILTER(out,keep),FILTER(IF(pend,0,1),keep),TRUE,FILTER(IF(arrT<0,2,MOD(arrT-' + ds + ',1)),keep),TRUE),"No taxi requests for this day.")'
+  ]).join(',') + '))';
+}
+
 function taxiTimeExpr_(hm) {
   var m = hmToMinutes_(hm);
   return 'TIME(' + Math.floor(m / 60) + ',' + (m % 60) + ',0)';
@@ -344,7 +398,7 @@ function buildTaxiFormula_(s, cols, staff) {
     'since,IFERROR(VLOOKUP(reqKey,{staffKey,INDEX(staffTbl,,2)},2,FALSE),"")',
     'endT,IFERROR(MOD(IF(ISNUMBER(shiftEnd),shiftEnd,TIMEVALUE(SUBSTITUTE(shiftEnd,".",":"))),1),-1)',
     // Only the hh:mm part of a text arrival (as taxiArrivalMinutes_), so a date like 25.10.2026 is never read as a time.
-    'arrT,IFERROR(MOD(IF(ISNUMBER(arrival),arrival,TIMEVALUE(REGEXEXTRACT(TO_TEXT(arrival),"\\d{1,2}:\\d{2}(?:\\s*[AaPp][Mm])?"))),1),-1)',
+    'arrT,' + taxiArrTimeExpr_('arrival'),
     'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
@@ -372,6 +426,16 @@ function taxiDateIso_(v, tz) {
   return isValidYmd_(+m[3], mo, d) ? ymd_(+m[3], mo, d) : '';
 }
 
+/**
+ * The taxi day of an arrival and its place in that day: before dayStart it belongs to the day before.
+ * @return {{day: string, order: number|undefined, time: string}} order = minutes after dayStart. Pure.
+ */
+function taxiDayOf_(v, dayStart, tz) {
+  var date = taxiDateIso_(v, tz), min = taxiArrivalMinutes_(v, tz), ds = hmToMinutes_(dayStart);
+  if (min === null) return { day: date, order: undefined, time: '' };
+  return { day: date && min < ds ? addDays_(date, -1) : date, order: (min - ds + 1440) % 1440, time: minutesToHm_(min) };
+}
+
 /** Fills {Any column name} (case and punctuation ignored) and the other {placeholders}; "\n" is a line break. Pure. */
 function taxiFillColumns_(tpl, values) {
   var byKey = {};
@@ -380,6 +444,13 @@ function taxiFillColumns_(tpl, values) {
     var n = normText_(k);
     return Object.prototype.hasOwnProperty.call(byKey, n) ? String(byKey[n]) : all;
   });
+}
+
+/** Sort key of a taxi in its day: minutes after the day start, else the clock time, else last. Pure. */
+function taxiOrderKey_(r) {
+  if (r.order !== undefined) return r.order;
+  var m = r.time ? hmToMinutes_(r.time) : null;
+  return m === null ? 9999 : m;
 }
 
 /**
@@ -393,7 +464,7 @@ function buildTaxiEmail_(rows, email, dateIso) {
     if (r.status === 'DENIED') { out.denied++; return false; }
     if (r.status === 'PENDING') { out.pending++; if (email.include === 'BOOKED') return false; }
     return true;
-  }).sort(function (a, b) { return (a.time || '99:99').localeCompare(b.time || '99:99'); });
+  }).sort(function (a, b) { return taxiOrderKey_(a) - taxiOrderKey_(b); });
   var common = { date: dateIso, count: list.length };
   var items = list.map(function (r, i) {
     var v = {};
@@ -573,7 +644,60 @@ function applyTaxiChecks_(s) {
   sh.getRange(1, 1).setFormula(buildTaxiFormula_(s, cols, staff.sources));
   formatTaxiChecks_(sh, s, headers, cols);
   formatTaxiRequestTab_(s, cols);
-  return { sheetUrl: sheetLink_(sh), teams: staff.sources.length, missingTeams: staff.missing, warnings: cols.warnings };
+  var day = s.dayTab ? applyTaxiDayTab_(s, cols) : null;
+  return { sheetUrl: sheetLink_(sh), dayUrl: day ? sheetLink_(day) : '', teams: staff.sources.length, missingTeams: staff.missing, warnings: cols.warnings };
+}
+
+/**
+ * The day view tab, like a daily schedule: B2 the date (a date picker; =TODAY() at first), D2 what to show,
+ * row 4 the headers, A5 the formula. The chosen date and filter are kept when the tab is rebuilt.
+ */
+function applyTaxiDayTab_(s, cols) {
+  var ss = getSs_(), th = sheetTheme_();
+  var headers = taxiHeaders_(s.requestTab) || [];
+  var extras = s.dayColumns.map(function (h) { return { header: h, letter: taxiColumnLetter_(headers, h) }; }).filter(function (e) { return e.letter; });
+  var sh = ss.getSheetByName(s.dayTab), keptDate = '=TODAY()', keptShow = TAXI_DAY_SHOW[0];
+  if (sh) {
+    var b2 = sh.getRange('B2');
+    keptDate = b2.getFormula() || (isDate_(b2.getValue()) ? b2.getValue() : keptDate);
+    if (TAXI_DAY_SHOW.indexOf(str_(sh.getRange('D2').getValue())) >= 0) keptShow = str_(sh.getRange('D2').getValue());
+  } else {
+    sh = ss.insertSheet(s.dayTab);
+  }
+  var dh = taxiDayHeaders_(s, cols, extras);
+  sh.clear();
+  sh.setConditionalFormatRules([]);
+  sh.getRange(1, 1).setValue('Taxi requests').setFontSize(14).setFontWeight('bold').setFontColor(th.accent);
+  sh.getRange('A2').setValue('Date');
+  if (typeof keptDate === 'string' && keptDate.charAt(0) === '=') sh.getRange('B2').setFormula(keptDate); else sh.getRange('B2').setValue(keptDate);
+  sh.getRange('C2').setValue('Show');
+  sh.getRange('D2').setValue(keptShow);
+  sh.getRange('E2').setValue('A taxi day runs from ' + s.dayStart + ' to ' + s.dayStart + '. Clear the date to see every day.').setFontColor('#5f6368').setFontStyle('italic');
+  sh.getRange('A2:D2').setFontWeight('bold');
+  sh.getRange('B2').setNumberFormat('yyyy-mm-dd').setBackground(th.soft)
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireDate().setAllowInvalid(false).setHelpText('Choose a date (double-click for the calendar).').build());
+  sh.getRange('D2').setBackground(th.soft)
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(TAXI_DAY_SHOW, true).setAllowInvalid(false).build());
+  sh.getRange(4, 1, 1, dh.length).setValues([dh]).setBackground(th.header).setFontColor(th.headerText).setFontWeight('bold');
+  sh.getRange(TAXI_DAY_FIRST_ROW_, 1).setFormula(buildTaxiDayFormula_(s, cols, extras));
+  applySheetFont_(sh, th);
+  sh.setFrozenRows(4);
+  sh.setTabColor(th.accent);
+  sh.setColumnWidth(dh.indexOf('Message') + 1, 380);
+  sh.getRange(TAXI_DAY_FIRST_ROW_, dh.indexOf('Message') + 1, Math.max(1, sh.getMaxRows() - 4), 1).setWrap(true);
+  var range = sh.getRange(TAXI_DAY_FIRST_ROW_, 1, Math.max(1, sh.getMaxRows() - 4), dh.length);
+  var st = taxiRowStyles_(th), f = taxiDayColorFormulas_(s, cols, dh);
+  sh.setConditionalFormatRules([taxiColorRule_(f.check, st.check, range)].concat(f.open ? [taxiColorRule_(f.open, st.open, range)] : []));
+  return sh;
+}
+
+/** The day view's color rules (rows from row 5): undecided and CHECK; undecided ('' without a decision column). Pure. */
+function taxiDayColorFormulas_(s, cols, dh) {
+  var r = TAXI_DAY_FIRST_ROW_, L = function (h) { return '$' + columnLetter_(dh.indexOf(h) + 1) + r; };
+  var name = L('Name'), result = L('Result');
+  if (!cols.booking) return { check: '=AND(' + name + '<>"",' + result + '="CHECK")', open: '' };
+  var b = L(s.bookingColumn), open = 'OR(' + b + '="",' + b + '=FALSE)';
+  return { check: '=AND(' + name + '<>"",' + open + ',' + result + '="CHECK")', open: '=AND(' + name + '<>"",' + open + ')' };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -668,11 +792,11 @@ function apiTaxiEmailText(settings, dateIso) {
       var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
       var ia = columnNumber_(cols.arrival) - 1, ib = cols.booking ? columnNumber_(cols.booking) - 1 : -1, iname = columnNumber_(cols.name) - 1;
       for (var r = 1; r < values.length; r++) {
-        if (!str_(values[r][iname]) || taxiDateIso_(values[r][ia], tz) !== date) continue;
+        var when = taxiDayOf_(values[r][ia], s.dayStart, tz);
+        if (!str_(values[r][iname]) || when.day !== date) continue;
         var v = {};
         headers.forEach(function (h, i) { if (h) v[h] = shown[r][i]; });
-        var min = taxiArrivalMinutes_(values[r][ia], tz);
-        rows.push({ values: v, time: min === null ? '' : minutesToHm_(min), status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
+        rows.push({ values: v, time: when.time, order: when.order, status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
       }
     }
     var out = buildTaxiEmail_(rows, s.email, date);
@@ -814,6 +938,30 @@ function taxiUnitTests_() {
         '2. 23:30 – Bob\nAddress: Bob street 1\nPhone: 123\nPet friendly: No\n\nThank you!');
       var booked = buildTaxiEmail_(rows, normalizeTaxiSettings_({ email: { include: 'BOOKED', intro: '{count} taxi(s) on {date}', item: '{time} {sa name} {Unknown}', outro: '' } }).email, '2026-10-25');
       assertEq_(booked.text, '1 taxi(s) on 2026-10-25\n23:30 Bob {Unknown}', 'only booked; names in any case; unknown placeholders stay');
+    }],
+    ['Taxi: a taxi day runs from the day start, so a 00:15 taxi belongs to the evening before', function () {
+      assertEq_([taxiDayOf_('2026-10-25 19:20', '06:00', tz), taxiDayOf_('2026-10-26 00:15', '06:00', tz), taxiDayOf_('26.10.2026 07:00', '06:00', tz)],
+        [{ day: '2026-10-25', order: 800, time: '19:20' }, { day: '2026-10-25', order: 1095, time: '00:15' }, { day: '2026-10-26', order: 60, time: '07:00' }]);
+      assertEq_(taxiDayOf_('2026-10-26', '06:00', tz), { day: '2026-10-26', order: undefined, time: '' }, 'a date without a time');
+      assertEq_([taxiOrderKey_({ order: 5, time: '23:00' }), taxiOrderKey_({ time: '01:30' }), taxiOrderKey_({})], [5, 90, 9999]);
+      assertEq_(validateTaxiSettings_(normalizeTaxiSettings_({ rules: { tenure: { on: false } }, dayTab: 'Taxi Checks' })).length, 1, 'the day view needs its own tab');
+    }],
+    ['Taxi: the day view lists one taxi day, undecided first, then by time in the day', function () {
+      var cols = { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' };
+      var extras = [{ header: 'Address', letter: 'E' }, { header: 'Phone Number', letter: 'F' }];
+      assertEq_(taxiDayHeaders_(s, cols, extras), ['Time', 'Name', 'Booking done', 'Result', 'Message', 'Address', 'Phone Number', 'Row']);
+      var f = buildTaxiDayFormula_(s, cols, extras);
+      assert_(f.indexOf("nm,'Taxi Requests'!C2:C,arr,'Taxi Requests'!H2:H,booked,'Taxi Requests'!J2:J,") > 0, 'request columns');
+      assert_(f.indexOf("tday,IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<TIME(6,0,0)),1,0))") > 0, 'day start');
+      assert_(f.indexOf("res,IFERROR(VLOOKUP(rowNo,{'Taxi Checks'!A2:A,'Taxi Checks'!E2:E},2,FALSE),\"\")") > 0, 'Result from the checks tab by row');
+      assert_(f.indexOf('keep,(nm<>"")*IF(ISNUMBER(pick),tday=INT(pick),1)*IF(show="Not decided",pend,IF(show="To check",pend*(res="CHECK"),1))') > 0, 'date and Show filters');
+      assert_(f.indexOf("out,{IF(arrT<0,\"\",TEXT(arrT,\"hh:mm\")),nm,booked,res,msg,'Taxi Requests'!E2:E,'Taxi Requests'!F2:F,rowNo}") > 0, 'columns shown');
+      assert_(f.indexOf('FILTER(IF(arrT<0,2,MOD(arrT-TIME(6,0,0),1)),keep),TRUE),"No taxi requests for this day.")') > 0, 'sorted in the taxi day');
+      assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
+      var c = taxiDayColorFormulas_(s, cols, taxiDayHeaders_(s, cols, extras));
+      assertEq_([c.open, c.check], ['=AND($B5<>"",OR($C5="",$C5=FALSE))', '=AND($B5<>"",OR($C5="",$C5=FALSE),$D5="CHECK")']);
+      var plain = buildTaxiDayFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H', booking: '' }, []);
+      assert_(plain.indexOf('booked') < 0 && plain.indexOf('pend,(nm<>"")') > 0, 'without a decision column everything counts as not decided');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);

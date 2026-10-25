@@ -8,117 +8,159 @@
     .steps { margin: 0; padding-left: 20px; }
     .steps li { margin-bottom: 6px; }
     .msg-cell { max-width: 420px; white-space: pre-line; }
+    .panel { max-width: 860px; }
+    .section { margin-top: var(--s4, 20px); }
+    .section:first-child { margin-top: 0; }
+    .rule { padding: 10px 12px; border: 1px solid var(--border, #dadce0); border-radius: 8px; margin-bottom: 10px; }
+    .checks { display: flex; flex-wrap: wrap; gap: 4px 16px; }
   </style>
 </head>
 <body>
   <header class="app-header">
-    <h1>Taxi Request Rules</h1>
-    <p class="subtitle">Rules a taxi request is checked against. The result is a live formula in the checks tab: the Slack workflow reads it and posts it in the request's thread. No Slack app, no trigger.</p>
+    <h1>Taxi Requests</h1>
+    <p class="subtitle">Checks each taxi request from the Slack workflow against your rules (a live formula in the checks tab, read back by the workflow), shows the taxis of a day, and builds an email text. No Slack app, no trigger.</p>
+    <div class="tabs" role="tablist" id="tabs" aria-label="Sections">
+      <button type="button" role="tab" data-tab="setup" aria-controls="p-setup" aria-selected="true">Setup</button>
+      <button type="button" role="tab" data-tab="rules" aria-controls="p-rules" aria-selected="false" tabindex="-1">Rules</button>
+      <button type="button" role="tab" data-tab="messages" aria-controls="p-messages" aria-selected="false" tabindex="-1">Messages</button>
+      <button type="button" role="tab" data-tab="requests" aria-controls="p-requests" aria-selected="false" tabindex="-1">Requests</button>
+      <button type="button" role="tab" data-tab="email" aria-controls="p-email" aria-selected="false" tabindex="-1">Email text</button>
+      <button type="button" role="tab" data-tab="slack" aria-controls="p-slack" aria-selected="false" tabindex="-1">Slack steps</button>
+    </div>
   </header>
   <main class="app-body" id="main">
     <div id="status" aria-live="polite"></div>
-    <div class="split">
-      <div>
-        <h2>Requests</h2>
+
+    <!-- Setup -->
+    <section class="panel" id="p-setup" role="tabpanel">
+      <div class="section">
+        <h2>Requests tab</h2>
         <div class="field"><label class="label" for="requestTab">Tab the Slack workflow writes to</label>
-          <select id="requestTab" onchange="tabChanged()"></select>
-          <div class="cluster mt-2"><label class="sr-only" for="newTab">New tab name</label><input type="text" id="newTab" value="Taxi Requests" maxlength="90" style="width:auto">
-            <button type="button" class="btn sm ghost" onclick="createTab()">Create this tab with the usual columns</button></div></div>
-        <div class="field"><label class="label" for="idColumn">Request ID column</label><select id="idColumn"></select>
-          <p class="hint">The column the workflow fills with <b>Time when workflow started</b> (e.g. "Date ID"). It is copied to the checks tab so the workflow finds exactly this request.</p></div>
+          <select id="requestTab" onchange="tabChanged()"></select></div>
+        <div class="cluster"><label class="sr-only" for="newTab">New tab name</label><input type="text" id="newTab" value="Taxi Requests" maxlength="90" style="width:auto">
+          <button type="button" class="btn sm ghost" onclick="createTab()">Create this tab with the usual columns</button></div>
+      </div>
+      <div class="section">
+        <h2>Columns</h2>
+        <div class="field"><label class="label" for="idColumn">Request ID</label><select id="idColumn"></select>
+          <p class="hint">The column the workflow fills with <b>Time when workflow started</b> (e.g. "Date ID"), so the workflow finds exactly this request.</p></div>
         <div class="row">
-          <div class="field"><label class="label" for="nameColumn">Requester column</label><select id="nameColumn"></select></div>
+          <div class="field"><label class="label" for="nameColumn">Requester</label><select id="nameColumn"></select></div>
           <div class="field"><label class="label" for="staffMatch">…matches this staff column</label><select id="staffMatch"></select></div>
         </div>
         <div class="row">
-          <div class="field"><label class="label" for="shiftEndColumn">Shift end column</label><select id="shiftEndColumn"></select></div>
-          <div class="field"><label class="label" for="arrivalColumn">Taxi arrival column</label><select id="arrivalColumn"></select></div>
+          <div class="field"><label class="label" for="shiftEndColumn">Shift end</label><select id="shiftEndColumn"></select></div>
+          <div class="field"><label class="label" for="arrivalColumn">Taxi arrival</label><select id="arrivalColumn"></select></div>
         </div>
         <div class="row">
-          <div class="field"><label class="label" for="bookingColumn">Decision column</label><select id="bookingColumn"></select>
-            <p class="hint">E.g. "Booking done". Empty = not decided yet: shown first and colored in the checks tab.</p></div>
+          <div class="field"><label class="label" for="bookingColumn">Decision</label><select id="bookingColumn"></select>
+            <p class="hint">E.g. "Booking done". Empty = not decided yet: shown first and colored.</p></div>
           <div class="field"><label class="label" for="deniedWords">…counts as denied when it contains</label><input type="text" id="deniedWords" maxlength="200">
-            <p class="hint">Comma separated, e.g. <code>deny, denied, rejected</code>. Anything else counts as booked.</p></div>
+            <p class="hint">Comma separated. Anything else counts as booked.</p></div>
         </div>
+      </div>
+      <div class="section">
+        <h2>Tabs the tool builds</h2>
+        <div class="row">
+          <div class="field"><label class="label" for="checksTab">Checks tab (read by the workflow)</label><input type="text" id="checksTab" maxlength="90"></div>
+          <div class="field"><label class="label" for="dayTab">Day view tab</label><input type="text" id="dayTab" maxlength="90">
+            <p class="hint">Like the daily schedule: pick a date in B2. Leave empty for no day view.</p></div>
+        </div>
+        <div class="field"><label class="label" for="dayStart">A taxi day starts at</label><input type="time" id="dayStart" style="width:auto">
+          <p class="hint">Taxis before this time belong to the day before (a 00:15 taxi after a late shift is part of that evening). Also used by the email text.</p></div>
+        <div class="field"><span class="label">Also show in the day view</span><div class="checks" id="dayColumns"></div></div>
+      </div>
+    </section>
 
-        <h2 class="mt-3">Rules</h2>
-        <label class="check"><input type="checkbox" id="seOn"> <span>Shift ends between
-          <input type="time" id="seFrom" style="width:auto"> and <input type="time" id="seTo" style="width:auto">
-          <span class="hint">The window may cross midnight, e.g. 23:00 – 06:00.</span></span></label>
-        <label class="check mt-2"><input type="checkbox" id="arOn"> <span>Taxi arrives from
-          <input type="number" id="arBefore" min="0" max="720" style="width:70px"> min before to
-          <input type="number" id="arAfter" min="0" max="720" style="width:70px"> min after the shift end
-          <span class="hint">Times only, across midnight: a shift ending 00:01 with the taxi at 00:20 is fine, a taxi at 19:20 is not.</span></span></label>
-        <label class="check mt-2"><input type="checkbox" id="teOn"> <span>Employed for less than
-          <input type="number" id="teMonths" min="1" max="120" style="width:70px"> months
-          <span class="hint">Counted to the taxi date, from the staff column below. People not in any staff sheet are always flagged.</span></span></label>
-        <div class="field mt-2"><label class="label" for="sinceField">Employee-since column (staff sheets)</label><select id="sinceField"></select></div>
+    <!-- Rules -->
+    <section class="panel hidden" id="p-rules" role="tabpanel">
+      <p class="hint mt-0">A request that breaks any switched-on rule is marked <b>CHECK</b>, with a message per broken rule.</p>
+      <div class="rule"><label class="check"><input type="checkbox" id="seOn"> <span><b>Shift ends</b> between
+        <input type="time" id="seFrom" style="width:auto"> and <input type="time" id="seTo" style="width:auto">
+        <span class="hint">The window may cross midnight, e.g. 23:00 – 06:00.</span></span></label></div>
+      <div class="rule"><label class="check"><input type="checkbox" id="arOn"> <span><b>Taxi arrives</b> from
+        <input type="number" id="arBefore" min="0" max="720" style="width:70px"> min before to
+        <input type="number" id="arAfter" min="0" max="720" style="width:70px"> min after the shift end
+        <span class="hint">Times only, across midnight: a shift ending 00:01 with the taxi at 00:20 is fine, a taxi at 19:20 is not.</span></span></label></div>
+      <div class="rule"><label class="check"><input type="checkbox" id="teOn"> <span><b>Employed</b> for less than
+        <input type="number" id="teMonths" min="1" max="120" style="width:70px"> months
+        <span class="hint">Counted to the taxi date. People not in any staff sheet are always flagged.</span></span></label>
+        <div class="field mt-2"><label class="label" for="sinceField">Employee-since column (staff sheets)</label><select id="sinceField"></select></div></div>
+    </section>
 
-        <h2 class="mt-3">Message</h2>
+    <!-- Messages -->
+    <section class="panel hidden" id="p-messages" role="tabpanel">
+      <p class="hint mt-0">What the workflow posts. Type <code>\n</code> for a new line in any box.</p>
+      <div class="section">
+        <h2>Result</h2>
         <div class="field"><label class="label" for="okText">When every rule is met</label><input type="text" id="okText" maxlength="200"></div>
-        <div class="field"><label class="label" for="failText">Before the failed rules</label><input type="text" id="failText" maxlength="200"></div>
-        <div class="field"><label class="label" for="separator">Several failed rules</label><select id="separator"></select></div>
-        <details class="mt-2">
-          <summary><b>Message per failed rule</b></summary>
-          <p class="hint">Words in braces are filled in, e.g. <code>{end}</code> the shift end. Type <code>\n</code> for a new line (in every message box). Leave a box empty for the default text.</p>
-          <div id="textsBox"></div>
-        </details>
-        <div class="field"><label class="label" for="checksTab">Checks tab (created and rebuilt by Save)</label><input type="text" id="checksTab" maxlength="90"></div>
+        <div class="field"><label class="label" for="failText">Before the broken rules</label><input type="text" id="failText" maxlength="200"></div>
+        <div class="field"><label class="label" for="separator">Several broken rules</label><select id="separator" style="width:auto"></select></div>
       </div>
-      <div>
-        <h2>Requests <span class="small">— the newest, checked with these rules</span></h2>
-        <div class="cluster"><label class="sr-only" for="limit">How many</label><select id="limit" onchange="preview()" style="width:auto"><option value="25">Newest 25</option><option value="100">Newest 100</option><option value="500">Newest 500</option></select>
-          <label class="check"><input type="checkbox" id="onlyCheck" onchange="preview()"> <span>Only requests to check</span></label></div>
-        <div id="previewBox" class="mt-2"></div>
-        <h2 class="mt-3">Email text</h2>
-        <p class="hint mt-0">Builds a text of the taxis for one day to copy into an email. Nothing is sent. Denied requests are always left out.</p>
-        <div class="cluster">
-          <label class="sr-only" for="emailDate">Taxi date</label><input type="date" id="emailDate" style="width:auto">
-          <label class="sr-only" for="emailInclude">Which requests</label><select id="emailInclude" style="width:auto">
-            <option value="NOT_DENIED">Booked and not decided yet</option><option value="BOOKED">Booked only</option></select>
-          <button type="button" class="btn" onclick="buildEmail()">Build text</button>
-        </div>
-        <details class="mt-2">
-          <summary><b>Email layout</b></summary>
-          <p class="hint">Any column of the requests tab in braces, e.g. <code>{Address}</code> <code>{Phone Number}</code> <code>{Pet friendly}</code>, and
-            <code>{date}</code> <code>{count}</code> <code>{n}</code> (number of the taxi) <code>{time}</code> (arrival time).</p>
-          <div class="field"><label class="label" for="emIntro">Start</label><textarea id="emIntro" rows="3"></textarea></div>
-          <div class="field"><label class="label" for="emItem">For each taxi</label><textarea id="emItem" rows="4"></textarea></div>
-          <div class="field"><label class="label" for="emOutro">End</label><textarea id="emOutro" rows="2"></textarea></div>
-          <p class="hint">Saved with <b>Save and apply</b>.</p>
-        </details>
-        <div id="emailBox" class="hidden mt-2">
-          <textarea id="emailText" rows="10" readonly></textarea>
-          <div class="cluster mt-2"><button type="button" class="btn primary" onclick="copyEmail()">Copy text</button><span class="small" id="emailInfo"></span></div>
-        </div>
+      <div class="section">
+        <h2>One message per broken rule</h2>
+        <p class="hint mt-0">Words in braces are filled in, e.g. <code>{end}</code> the shift end. Leave a box empty for the default text (shown greyed out).</p>
+        <div id="textsBox"></div>
+      </div>
+    </section>
 
-        <details class="mt-3">
-          <summary><b>Slack workflow steps</b></summary>
-          <ol class="steps mt-2">
-            <li><b>Add a row to a spreadsheet</b> (as now) → the requests tab.</li>
-            <li>Add <b>Google Sheets → Select a spreadsheet row</b>: this spreadsheet, tab <b id="hintChecks">Taxi Checks</b>, column <b>Date ID</b> (your request ID column) = <b>Time when workflow started</b>, the same variable step 1 wrote. Without an ID column: <b>Name</b> = the requester (the newest request is the first row).</li>
-            <li><b>Send a message to the channel</b> (as now, information only).</li>
-            <li>Add <b>Send a message</b> as a <b>reply in the thread</b> of step 3's message, with the selected row's <b>Message</b> and the <b>Prebooked / Deny</b> buttons (a message with buttons waits for the click, so they belong here).
-              To record the decision, <b>Update a spreadsheet row</b> in the requests tab where Date ID = Time when workflow started.
-              Optional: if your workflow can branch, post only when <b>Result</b> is <code>CHECK</code>.</li>
-          </ol>
-          <p class="hint">Change the rules here at any time: Save rewrites the formula, and the workflow keeps working. Save again after adding a team or moving staff columns.</p>
-        </details>
+    <!-- Requests -->
+    <section class="panel hidden" id="p-requests" role="tabpanel" style="max-width:none">
+      <div class="cluster"><label class="sr-only" for="limit">How many</label><select id="limit" onchange="preview()" style="width:auto"><option value="25">Newest 25</option><option value="100">Newest 100</option><option value="500">Newest 500</option></select>
+        <label class="check"><input type="checkbox" id="onlyCheck" onchange="preview()"> <span>Only requests to check</span></label>
+        <button type="button" class="btn sm" onclick="preview()">Refresh</button></div>
+      <p class="hint">Checked with the settings on these tabs, also before you save. Not decided yet first, then newest first.</p>
+      <div id="previewBox" class="mt-2"></div>
+    </section>
+
+    <!-- Email text -->
+    <section class="panel hidden" id="p-email" role="tabpanel">
+      <p class="hint mt-0">The taxis of one taxi day as a text to copy into an email. Nothing is sent. Denied requests are always left out.</p>
+      <div class="cluster">
+        <label class="sr-only" for="emailDate">Taxi day</label><input type="date" id="emailDate" style="width:auto">
+        <label class="sr-only" for="emailInclude">Which requests</label><select id="emailInclude" style="width:auto">
+          <option value="NOT_DENIED">Booked and not decided yet</option><option value="BOOKED">Booked only</option></select>
+        <button type="button" class="btn primary" onclick="buildEmail()">Build text</button>
       </div>
-    </div>
+      <div id="emailBox" class="hidden mt-2">
+        <textarea id="emailText" rows="12" readonly></textarea>
+        <div class="cluster mt-2"><button type="button" class="btn" onclick="copyEmail()">Copy text</button><span class="small" id="emailInfo"></span></div>
+      </div>
+      <div class="section">
+        <h2>Layout</h2>
+        <p class="hint mt-0">Any column of the requests tab in braces, e.g. <code>{Address}</code> <code>{Phone Number}</code> <code>{Pet friendly}</code>, and
+          <code>{date}</code> <code>{count}</code> <code>{n}</code> (number of the taxi) <code>{time}</code> (arrival time). Saved with <b>Save and apply</b>.</p>
+        <div class="field"><label class="label" for="emIntro">Start</label><textarea id="emIntro" rows="3"></textarea></div>
+        <div class="field"><label class="label" for="emItem">For each taxi</label><textarea id="emItem" rows="4"></textarea></div>
+        <div class="field"><label class="label" for="emOutro">End</label><textarea id="emOutro" rows="2"></textarea></div>
+      </div>
+    </section>
+
+    <!-- Slack steps -->
+    <section class="panel hidden" id="p-slack" role="tabpanel">
+      <ol class="steps">
+        <li><b>Add a row to a spreadsheet</b> → the requests tab, with <b>Time when workflow started</b> in the request ID column.</li>
+        <li><b>Google Sheets → Select a spreadsheet row</b>: this spreadsheet, tab <b id="hintChecks">Taxi Checks</b>, column <b>Date ID</b> = <b>Time when workflow started</b>.
+          Without an ID column: <b>Name</b> = the requester.</li>
+        <li><b>Send a message to the channel</b> with the request details and the selected row's <b>Message</b>, and the <b>Prebooked / Deny</b> buttons.
+          (A message with buttons waits for the click, so the check must be in this message or before it.)</li>
+        <li>In each button's branch: <b>Update a spreadsheet row</b> in the requests tab where Date ID = Time when workflow started (fill the decision column), and a message to the person.</li>
+      </ol>
+      <p class="hint">Change the settings at any time: <b>Save and apply</b> rewrites the formulas, and the workflow keeps working. Save again after adding a team or moving staff columns.</p>
+    </section>
   </main>
   <footer class="app-footer">
     <button type="button" class="btn" onclick="closeDialog()">Close</button>
     <span class="spacer"></span>
+    <a class="btn hidden" id="dayLink" target="_blank" style="text-decoration:none">Open day view</a>
     <a class="btn hidden" id="checksLink" target="_blank" style="text-decoration:none">Open checks tab</a>
-    <button type="button" class="btn" onclick="preview()">Preview</button>
     <button type="button" class="btn primary" onclick="save()">Save and apply</button>
   </footer>
 
   <?!= include('ClientCore') ?>
   <script>
     var BOOT = <?!= bootJson ?>;
-    var data = null;
+    var data = null, previewed = false;
 
     function headerOptions(headers, selected) {
       var list = headers.slice();
@@ -132,9 +174,19 @@
       $('shiftEndColumn').innerHTML = headerOptions(headers, s.shiftEndColumn);
       $('arrivalColumn').innerHTML = headerOptions(headers, s.arrivalColumn);
       $('bookingColumn').innerHTML = '<option value=""' + (s.bookingColumn ? '' : ' selected') + '>(none)</option>' + headerOptions(headers, s.bookingColumn);
+      var chosen = s.dayColumns || [];
+      $('dayColumns').innerHTML = headers.filter(Boolean).map(function (h) {
+        return '<label class="check"><input type="checkbox" data-daycol="' + esc(h) + '"' + (chosen.indexOf(h) >= 0 ? ' checked' : '') + '> <span>' + esc(h) + '</span></label>';
+      }).join('') || '<span class="hint">The requests tab has no columns yet.</span>';
+    }
+
+    function selectPanel(name) {
+      selectTab('tabs', name);
+      if (name === 'requests' && !previewed) preview();
     }
 
     function load() {
+      initTabs('tabs', selectPanel);
       call('Loading…', 'apiTaxiBootstrap').then(function (d) {
         data = d;
         var s = d.settings;
@@ -143,10 +195,12 @@
         fillColumns(d.headers.length ? d.headers : d.requestHeaders, s);
         $('staffMatch').innerHTML = options(d.staffFields, 'key', 'label', s.staffMatch);
         $('sinceField').innerHTML = options(d.staffFields, 'key', 'label', s.sinceField, '— choose —');
+        $('deniedWords').value = s.deniedWords;
+        $('checksTab').value = s.checksTab; $('dayTab').value = s.dayTab; $('dayStart').value = s.dayStart;
         $('seOn').checked = s.rules.shiftEnd.on; $('seFrom').value = s.rules.shiftEnd.from; $('seTo').value = s.rules.shiftEnd.to;
-        $('teOn').checked = s.rules.tenure.on; $('teMonths').value = s.rules.tenure.months;
         $('arOn').checked = s.rules.arrival.on; $('arBefore').value = s.rules.arrival.before; $('arAfter').value = s.rules.arrival.after;
-        $('okText').value = s.okText; $('failText').value = s.failText; $('checksTab').value = s.checksTab;
+        $('teOn').checked = s.rules.tenure.on; $('teMonths').value = s.rules.tenure.months;
+        $('okText').value = s.okText; $('failText').value = s.failText;
         $('separator').innerHTML = Object.keys(d.separators).map(function (k) {
           return '<option value="' + k + '"' + (k === s.separator ? ' selected' : '') + '>' + esc(d.separators[k].label) + '</option>';
         }).join('');
@@ -155,12 +209,10 @@
           return '<div class="field"><label class="label" for="tx_' + k + '">' + esc(t.label) + vars + '</label>' +
             '<input type="text" id="tx_' + k + '" data-text="' + k + '" maxlength="300" placeholder="' + esc(t.text) + '" value="' + esc(s.texts[k] === t.text ? '' : s.texts[k]) + '"></div>';
         }).join('');
-        $('deniedWords').value = s.deniedWords;
         $('emailDate').value = d.today; $('emailInclude').value = s.email.include;
         $('emIntro').value = s.email.intro; $('emItem').value = s.email.item; $('emOutro').value = s.email.outro;
         $('hintChecks').textContent = s.checksTab;
         if (!d.headers.length) showStatus('info', 'The tab "' + esc(s.requestTab) + '" does not exist yet. Choose the tab your Slack workflow writes to, or create a new one.', 'Choose the requests tab');
-        else preview();
       });
     }
 
@@ -187,9 +239,11 @@
         requestTab: $('requestTab').value, checksTab: $('checksTab').value, idColumn: $('idColumn').value,
         nameColumn: $('nameColumn').value, shiftEndColumn: $('shiftEndColumn').value, arrivalColumn: $('arrivalColumn').value,
         staffMatch: $('staffMatch').value, sinceField: $('sinceField').value,
+        bookingColumn: $('bookingColumn').value, deniedWords: $('deniedWords').value,
+        dayTab: $('dayTab').value, dayStart: $('dayStart').value,
+        dayColumns: Array.prototype.filter.call(document.querySelectorAll('[data-daycol]'), function (c) { return c.checked; }).map(function (c) { return c.getAttribute('data-daycol'); }),
         rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value },
           arrival: { on: $('arOn').checked, before: $('arBefore').value, after: $('arAfter').value } },
-        bookingColumn: $('bookingColumn').value, deniedWords: $('deniedWords').value,
         email: { include: $('emailInclude').value, intro: $('emIntro').value, item: $('emItem').value, outro: $('emOutro').value },
         okText: $('okText').value, failText: $('failText').value, separator: $('separator').value,
         texts: Array.prototype.reduce.call(document.querySelectorAll('[data-text]'), function (o, el) { o[el.getAttribute('data-text')] = el.value; return o; }, {})
@@ -211,6 +265,7 @@
 
     function preview() {
       showStatus('');
+      previewed = true;
       call('Checking…', 'apiTaxiPreview', collect(), { limit: $('limit').value, onlyCheck: $('onlyCheck').checked }).then(renderPreview);
     }
 
@@ -219,10 +274,11 @@
       call('Saving…', 'apiTaxiSave', collect()).then(function (r) {
         $('hintChecks').textContent = r.settings.checksTab;
         $('checksLink').href = r.sheetUrl; show('checksLink', true);
+        if (r.dayUrl) { $('dayLink').href = r.dayUrl; show('dayLink', true); } else show('dayLink', false);
         var extra = (r.missingTeams.length ? ' Not checked against: ' + esc(r.missingTeams.join(', ')) + '.' : '') +
           ((r.warnings || []).length ? ' ' + esc(r.warnings.join(' ')) : '');
-        showStatus('ok', 'The checks tab now holds the formula for ' + r.teams + ' staff sheet(s).' + extra, 'Saved');
-        preview();
+        showStatus('ok', 'The checks tab' + (r.dayUrl ? ' and the day view' : '') + ' now use these settings (' + r.teams + ' staff sheet(s)).' + extra, 'Saved');
+        if (previewed) preview();
       });
     }
 
