@@ -231,7 +231,7 @@ function apiWebHome() {
       ? { initialized: true, healthy: true, needsUpgrade: versionNeedsUpgrade_(getConfig_().SYSTEM_VERSION), version: getConfig_().SYSTEM_VERSION, codeVersion: APP.VERSION }
       : getSetupState_();
     var out = { state: state, appName: APP.NAME, version: APP.VERSION, user: currentUserEmail_(), spreadsheetUrl: ss.getUrl(),
-      spreadsheetName: ss.getName(), teams: [], lastImport: null, linksSheet: null, linkItems: 0 };
+      spreadsheetName: ss.getName(), teams: [], lastImport: null, linksSheet: null, linkItems: 0, extensions: [] };
     if (!state.initialized || state.needsUpgrade) return out;
     out.teams = listTeams_().map(function (t) {
       var link = function (kind) { var sh = resolveTeamSheet_(t, kind); return sh ? sheetLink_(sh) : null; };
@@ -242,6 +242,10 @@ function apiWebHome() {
     var links = ss.getSheetByName(LINKS_SHEET_);
     if (links) out.linksSheet = sheetLink_(links);
     out.linkItems = loadLinkTemplates_().length;
+    // Extension cards ({title, text, stats: [{label, value, cls}], links: [{page, label}], sheets: [{url, label}]}); a failing one shows its error.
+    out.extensions = smExtensions_().filter(function (e) { return e.homeCard; }).map(function (e) {
+      try { return e.homeCard(); } catch (err) { logError_('apiWebHome.' + e.id, err); return { title: e.title, text: toUserError_(err).message, stats: [], links: [], sheets: [] }; }
+    });
     return out;
   });
 }
