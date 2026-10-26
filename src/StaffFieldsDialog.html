@@ -75,7 +75,7 @@
             '<span class="meta">' + (f.fieldType === 'IDENTIFIER' ? 'Identifier' : 'Text') + ' · order ' + esc(f.displayOrder) + ' · ' + users + ' team(s)</span></button>';
         }).join('') || emptyHtml('＋', 'No custom fields', 'Click "+ Add field" to create one.');
         if (!current) $('placeholder').innerHTML = d.fields.length
-          ? '<div class="empty"><div class="empty-icon" aria-hidden="true">☰</div><p class="empty-title">Select a field</p><p>Choose a field on the left to rename, hide, reorder or delete it.</p></div>'
+          ? '<div class="empty"><div class="empty-icon" aria-hidden="true">' + emptyIconSvg('list') + '</div><p class="empty-title">Select a field</p><p>Choose a field on the left to rename, hide, reorder or delete it.</p></div>'
           : emptyHtml('＋', 'No custom fields yet', 'Add a field when a team needs an extra column, for example an external identifier used in dashboard URLs.',
             '<button type="button" class="btn primary" onclick="edit(null)">Add the first field</button>');
         var i = selectKey ? d.fields.map(function (f) { return f.fieldKey; }).indexOf(selectKey) : -1;

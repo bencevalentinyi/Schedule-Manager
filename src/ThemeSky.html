@@ -20,20 +20,20 @@
 
   /* Header: blue accent bar and the theme's own mark (a drawn calendar) at the top right.
      To show your own logo instead, replace the url(...) below with an image URL. */
-  .app-header { position: relative; padding-right: calc(var(--pad-x) + 48px); border-top: 4px solid var(--primary); border-bottom: 0; box-shadow: 0 1px 0 var(--border); }
+  .app-header { position: relative; padding-right: calc(var(--pad-x) + 48px); border-top: 3px solid var(--primary); border-bottom: 0; box-shadow: 0 1px 0 var(--border); }
   .app-header::after {
     content: ""; position: absolute; right: var(--pad-x); top: 14px; width: 34px; height: 34px;
     border-radius: 9px;
     background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23009de0'/%3E%3Crect x='8' y='9.5' width='16' height='14.5' rx='4' fill='none' stroke='white' stroke-width='2.2'/%3E%3Cpath d='M12.5 7.5v3.5M19.5 7.5v3.5' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M12.3 17.4l2.6 2.5 4.8-5' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
-  .app-header h1 { font-weight: 800; letter-spacing: -.01em; }
+  .app-header h1 { font-weight: 700; letter-spacing: -.01em; }
   body.sidebar .app-header { padding-right: calc(var(--pad-x) + 40px); }
   body.sidebar .app-header::after { width: 28px; height: 28px; top: 12px; }
 
   /* Soft page */
   .app-body { background: var(--bg); }
   .app-footer { background: var(--surface); border-top: 0; box-shadow: 0 -1px 0 var(--border); }
-  h2, .h2 { font-weight: 800; font-size: 15px; }
+  h2, .h2 { font-weight: 700; font-size: 14.5px; }
   h3, .h3 { font-weight: 700; }
 
   /* Pill buttons */
@@ -59,8 +59,8 @@
   .panel.subtle { background: var(--surface); }
   .choice { border-radius: var(--radius); }
   .choice:has(input:checked) { box-shadow: inset 0 0 0 2px var(--primary); }
-  .stat { border: 0; border-radius: var(--radius); box-shadow: var(--shadow); border-left: 4px solid var(--border-strong); }
-  .stat b { font-weight: 800; font-size: 19px; }
+  .stat { border: 0; border-radius: var(--radius); box-shadow: var(--shadow); }
+  .stat b { font-weight: 700; }
   .badge { border-radius: 999px; font-weight: 700; }
   .badge.shift { border-color: #b3e2f6; }
   .alert { border-radius: var(--radius); }
@@ -71,5 +71,4 @@
   /* Stepper and tabs */
   .stepper .num { border-radius: 50%; }
   .stepper li[aria-current="step"] { color: var(--primary); }
-  .tabs [role="tab"][aria-selected="true"] { border-bottom-width: 3px; }
 </style>
