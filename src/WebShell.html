@@ -1,27 +1,17 @@
 <!-- Web app navigation bar (WebApp.gs puts it at the top of every page). Uses the page's theme. -->
 <style>
   .web-nav {
-    flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 4px var(--s2); min-height: 52px; position: sticky; top: 0; z-index: 30;
+    flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--s1);
     padding: 8px max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
-    background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-xs);
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
   }
-  .web-nav .web-brand {
-    display: inline-flex; align-items: center; gap: 8px; font-weight: 650; color: var(--text); text-decoration: none; margin-right: var(--s3);
-    white-space: nowrap; letter-spacing: -.01em; border-radius: var(--radius);
-  }
-  .web-nav .web-mark {
-    width: 26px; height: 26px; border-radius: 7px; background: var(--primary); color: var(--primary-text);
-    display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
-  }
-  .web-nav .web-mark svg { width: 15px; height: 15px; }
+  .web-nav .web-brand { font-weight: 700; color: var(--text); text-decoration: none; margin-right: var(--s3); white-space: nowrap; }
   .web-nav .web-links { display: flex; flex-wrap: wrap; gap: 2px; }
   .web-nav .web-links a, .web-nav .web-sheet {
     padding: 6px 10px; border-radius: var(--radius); color: var(--text-2); text-decoration: none; font-weight: 500; white-space: nowrap;
-    transition: background var(--ease, 150ms), color var(--ease, 150ms);
   }
   .web-nav .web-links a:hover, .web-nav .web-sheet:hover { background: var(--muted-bg); color: var(--text); }
-  .web-nav .web-links a[aria-current="page"] { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
-  .web-nav .web-sheet { border: 1px solid var(--border); }
+  .web-nav .web-links a[aria-current="page"] { background: var(--primary-soft); color: var(--primary); }
   .web-nav .web-links a:focus-visible, .web-nav .web-sheet:focus-visible, .web-nav .web-brand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   .web-nav .web-sheet { margin-left: auto; }
   /* The page itself: full-width bars, content centered at the page's width. Only the side padding
@@ -64,7 +54,7 @@
   });
 </script>
 <nav class="web-nav" aria-label="<?= appName ?>">
-  <a class="web-brand" href="<?= homeUrl ?>" target="_top"><span class="web-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span><?= appName ?></a>
+  <a class="web-brand" href="<?= homeUrl ?>" target="_top"><?= appName ?></a>
   <div class="web-links">
     <? for (var i = 0; i < nav.length; i++) { ?>
       <a href="<?= nav[i].href ?>" target="_top"<? if (nav[i].current) { ?> aria-current="page"<? } ?>><?= nav[i].label ?></a>
