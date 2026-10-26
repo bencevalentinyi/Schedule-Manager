@@ -51,7 +51,7 @@ function taxiBookingStatus_(v, deniedWords) {
 }
 
 var TAXI_EMAIL_DEFAULTS = {
-  intro: 'Hi,\n\nPlease book the following taxis for {date}:\n',
+  intro: 'Hi,\n\nPlease book the following taxis for {taxi date}:\n',
   item: '{n}. {time} – {SA Name}\nAddress: {Address}\nPhone: {Phone Number}\nPet friendly: {Pet friendly}',
   outro: '\nThank you!'
 };
@@ -100,7 +100,8 @@ function normalizeTaxiSettings_(s) {
     dayTab: s.dayTab === undefined ? 'Taxi Day' : str_(s.dayTab),
     dayStart: hm(s.dayStart, '06:00'),
     dayColumns: (Array.isArray(s.dayColumns) ? s.dayColumns : ['Address', 'Phone Number', 'Pet friendly']).map(str_).filter(Boolean),
-    // The email text: intro, one block per taxi, outro. {Any column name} and {date} {count} {n} {time} are filled in.
+    // The email text: intro, one block per taxi, outro. {Any column name} and {date} {taxi date} {next day} {count}
+    // {n} {time} are filled in.
     email: {
       include: em.include === 'BOOKED' ? 'BOOKED' : 'NOT_DENIED',
       intro: em.intro !== undefined ? String(em.intro) : TAXI_EMAIL_DEFAULTS.intro,
@@ -454,8 +455,10 @@ function taxiOrderKey_(r) {
 }
 
 /**
- * The email text for one taxi date. Pure.
- * @param {Array<{values: Object<string,string>, time: string, status: string}>} rows request rows of that date (header → shown value)
+ * The email text for one taxi date. {date} is the taxi day (it runs from dayStart, so a 00:15 taxi belongs to the
+ * evening before); {taxi date} is the date the taxi actually drives: each taxi's own in its block, the taxis' dates
+ * in the intro and outro ({date} when no date is known); {next day} is the day after {date}. Pure.
+ * @param {Array<{values: Object<string,string>, time: string, taxiDate: string, status: string}>} rows request rows of that date (header → shown value)
  * @return {{text: string, count: number, denied: number, pending: number}}
  */
 function buildTaxiEmail_(rows, email, dateIso) {
@@ -465,11 +468,14 @@ function buildTaxiEmail_(rows, email, dateIso) {
     if (r.status === 'PENDING') { out.pending++; if (email.include === 'BOOKED') return false; }
     return true;
   }).sort(function (a, b) { return taxiOrderKey_(a) - taxiOrderKey_(b); });
-  var common = { date: dateIso, count: list.length };
+  var taxiDates = [];
+  list.forEach(function (r) { if (r.taxiDate && taxiDates.indexOf(r.taxiDate) < 0) taxiDates.push(r.taxiDate); });
+  var common = { date: dateIso, 'taxi date': taxiDates.sort().join(', ') || dateIso, 'next day': addDays_(dateIso, 1), count: list.length };
   var items = list.map(function (r, i) {
     var v = {};
     Object.keys(r.values).forEach(function (k) { v[k] = r.values[k]; });
     v.n = i + 1; v.time = r.time; v.date = dateIso; v.count = list.length;
+    v['taxi date'] = r.taxiDate || dateIso; v['next day'] = common['next day'];
     return taxiFillColumns_(email.item, v);
   });
   out.count = list.length;
@@ -796,7 +802,8 @@ function apiTaxiEmailText(settings, dateIso) {
         if (!str_(values[r][iname]) || when.day !== date) continue;
         var v = {};
         headers.forEach(function (h, i) { if (h) v[h] = shown[r][i]; });
-        rows.push({ values: v, time: when.time, order: when.order, status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
+        rows.push({ values: v, time: when.time, order: when.order, taxiDate: taxiDateIso_(values[r][ia], tz),
+          status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
       }
     }
     var out = buildTaxiEmail_(rows, s.email, date);
@@ -938,6 +945,12 @@ function taxiUnitTests_() {
         '2. 23:30 – Bob\nAddress: Bob street 1\nPhone: 123\nPet friendly: No\n\nThank you!');
       var booked = buildTaxiEmail_(rows, normalizeTaxiSettings_({ email: { include: 'BOOKED', intro: '{count} taxi(s) on {date}', item: '{time} {sa name} {Unknown}', outro: '' } }).email, '2026-10-25');
       assertEq_(booked.text, '1 taxi(s) on 2026-10-25\n23:30 Bob {Unknown}', 'only booked; names in any case; unknown placeholders stay');
+      var night = [row('Dan', '00:40', 'BOOKED'), row('Eve', '04:10', 'BOOKED')];
+      night.forEach(function (r) { r.taxiDate = '2026-10-26'; });
+      var tpl = normalizeTaxiSettings_({ email: { intro: '{date} | {Taxi date} | {next_day}', item: '{n}. {taxi date} {time} {SA Name}', outro: '' } }).email;
+      assertEq_(buildTaxiEmail_(night, tpl, '2026-10-25').text, '2026-10-25 | 2026-10-26 | 2026-10-26\n1. 2026-10-26 00:40 Dan\n\n2. 2026-10-26 04:10 Eve',
+        'taxis after midnight: {date} is the taxi day, {taxi date} the date they drive');
+      assertEq_(buildTaxiEmail_([], tpl, '2026-10-25').text, '2026-10-25 | 2026-10-25 | 2026-10-26', 'no taxis: {taxi date} falls back to {date}');
     }],
     ['Taxi: a taxi day runs from the day start, so a 00:15 taxi belongs to the evening before', function () {
       assertEq_([taxiDayOf_('2026-10-25 19:20', '06:00', tz), taxiDayOf_('2026-10-26 00:15', '06:00', tz), taxiDayOf_('26.10.2026 07:00', '06:00', tz)],
