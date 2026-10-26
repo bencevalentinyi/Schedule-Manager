@@ -1,0 +1,44 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "repeating-stripes-gradient",
+        "value": "*",
+        "files": [
+          "src/WebSchedule.html"
+        ],
+        "createdAt": "2026-10-26T16:28:44.790Z",
+        "reason": "Claude: diagonal hatch marks meetings on the schedule timeline (state by form, not hue); data encoding, not decoration"
+      },
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          "src/WebSchedule.html"
+        ],
+        "createdAt": "2026-10-26T16:28:44.962Z",
+        "reason": "Claude: page sizes come from the included Styles.html (h1 24px condensed vs 13px body); detector reads the page without its include"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "nunito",
+        "files": [
+          "src/ThemeSky.html"
+        ],
+        "createdAt": "2026-10-26T16:38:54.774Z",
+        "reason": "Claude: Sky theme's brand font, a PRODUCT.md brand commitment; DESIGN.md records Sky as a token override"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "inter",
+        "files": [
+          "src/ThemeEmber.html"
+        ],
+        "createdAt": "2026-10-26T16:38:54.933Z",
+        "reason": "Claude: Ember theme's brand font, a PRODUCT.md brand commitment; DESIGN.md records Ember as a token override"
+      }
+    ]
+  }
+}

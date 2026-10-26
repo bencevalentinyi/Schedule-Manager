@@ -5,20 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
   <style>
-    .toolbar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
     .toolbar input[type=date] { width: auto; }
-    .hc { display: flex; align-items: flex-end; gap: 2px; height: 72px; margin: var(--s3) 0 2px; }
-    .hc .bar { flex: 1 1 0; min-width: 0; background: var(--primary-soft); border-top: 2px solid var(--primary); position: relative; border-radius: 2px 2px 0 0; }
-    .hc .bar span { position: absolute; top: -16px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--text-2); }
-    .hc-axis { display: flex; gap: 2px; font-size: 10px; color: var(--text-3); }
-    .hc-axis span { flex: 1 1 0; text-align: center; min-width: 0; overflow: hidden; }
+    .btn.icon svg { width: 14px; height: 14px; }
     .spark { display: flex; align-items: flex-end; gap: 1px; height: 22px; width: 96px; }
-    .spark i { flex: 1 1 0; background: var(--primary); opacity: .55; border-radius: 1px 1px 0 0; }
-    td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    td.num a { font-weight: 600; text-decoration: none; }
+    .spark i { flex: 1 1 0; background: var(--text); border-radius: 1px 1px 0 0; }
+    .spark i.peak { background: var(--primary); }
+    table.table td.num { font: 700 15px/1.2 var(--figure); font-variant-numeric: tabular-nums; }
+    td.num a { text-decoration: none; }
+    td.num a:hover { text-decoration: underline; }
     tr.inactive td { color: var(--text-3); }
     a.btn { text-decoration: none; }
-    @media (max-width: 620px) { .col-spark, .col-import { display: none; } }
+    @media (max-width: 620px) { .col-spark, .col-import, .col-changes { display: none; } }
   </style>
 </head>
 <body>
@@ -32,9 +29,9 @@
   </header>
   <main class="app-body" id="main">
     <div class="toolbar">
-      <button type="button" class="btn icon" onclick="step(-1)" aria-label="Previous day">‹</button>
+      <button type="button" class="btn icon" onclick="step(-1)" aria-label="Previous day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
       <label class="sr-only" for="date">Date</label><input type="date" id="date" onchange="load($('date').value)">
-      <button type="button" class="btn icon" onclick="step(1)" aria-label="Next day">›</button>
+      <button type="button" class="btn icon" onclick="step(1)" aria-label="Next day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
       <button type="button" class="btn" onclick="load(data.today)">Today</button>
       <span class="spacer"></span>
       <button type="button" class="btn" onclick="load(data.date)">Reload</button>
@@ -63,7 +60,7 @@
     function spark(hc) {
       var max = hc.reduce(function (m, h) { return Math.max(m, h.count); }, 0);
       if (!max) return '';
-      return '<div class="spark" aria-hidden="true">' + hc.map(function (h) { return '<i style="height:' + Math.max(2, h.count / max * 100) + '%"></i>'; }).join('') + '</div>';
+      return '<div class="spark" aria-hidden="true">' + hc.map(function (h) { return '<i' + (h.count === max ? ' class="peak"' : '') + ' style="height:' + Math.max(2, h.count / max * 100) + '%"></i>'; }).join('') + '</div>';
     }
 
     function render() {
@@ -81,25 +78,26 @@
           '<td class="num">' + S.peak + '</td><td class="col-spark">' + spark(t.headcount) + '</td>' +
           '<td class="num">' + num(S.overlaps, sched(t.teamId, 'Overlap'), 'error') + '</td><td class="num">' + num(S.unknown, sched(t.teamId, 'Unknown employee'), 'warning') + '</td>' +
           '<td class="col-import small">' + (t.lastImport ? esc(t.lastImport.timestamp) + '<div>' + badge(t.lastImport.status === 'COMMITTED' ? 'ok' : 'warn', t.lastImport.status) + '</div>' : '<span class="muted">never</span>') + '</td>' +
-          '<td>' + (t.sheet ? '<a class="btn sm" href="' + esc(t.sheet.url) + '" target="_blank" rel="noopener">Sheet ↗</a>' : '') + '</td></tr>';
+          '<td>' + (t.sheet ? '<a class="btn sm" href="' + esc(t.sheet.url) + '" target="_blank" rel="noopener">Sheet ' + iconSvg('external') + '</a>' : '') + '</td></tr>';
       }).join('');
-      var table = d.teams.length ? '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Shifts</th><th scope="col">Staff</th>' +
-        '<th scope="col">Hours</th><th scope="col">Peak</th><th scope="col" class="col-spark">By hour</th><th scope="col">Overlaps</th><th scope="col">Unknown</th>' +
+      var table = d.teams.length ? '<div class="table-wrap auto"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col" class="num">Shifts</th><th scope="col" class="num">Staff</th>' +
+        '<th scope="col" class="num">Hours</th><th scope="col" class="num">Peak</th><th scope="col" class="col-spark">By hour</th><th scope="col" class="num">Overlaps</th><th scope="col" class="num">Unknown</th>' +
         '<th scope="col" class="col-import">Last import</th><th scope="col"><span class="sr-only">Sheet</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
-        : emptyHtml('▦', 'No teams yet', 'Create a team first.', '<a class="btn primary" href="' + esc(webHref('team')) + '" target="_top">Create a team</a>');
+        : emptyHtml('grid', 'No teams yet', 'Create a team first.', '<a class="btn primary" href="' + esc(webHref('team')) + '" target="_top">Create a team</a>');
       var max = d.headcount.reduce(function (m, h) { return Math.max(m, h.count); }, 0);
-      var hc = max ? '<section class="panel mt-3"><div class="panel-head"><h2>Headcount by hour, all active teams</h2><span class="spacer"></span><span class="small muted">peak ' + max + '</span></div>' +
-        '<div class="hc" aria-hidden="true">' + d.headcount.map(function (h) { return '<div class="bar" style="height:' + Math.max(4, h.count / max * 100) + '%" title="' + esc(h.label + ': ' + h.count) + '"><span>' + (h.count || '') + '</span></div>'; }).join('') + '</div>' +
-        '<div class="hc-axis" aria-hidden="true">' + d.headcount.map(function (h, i) { return '<span>' + (i % 3 === 0 ? esc(h.label.substr(0, 2)) : '') + '</span>'; }).join('') + '</div>' +
-        '<p class="sr-only">' + esc(d.headcount.map(function (h) { return h.label + ' ' + h.count; }).join(', ')) + '</p>' +
-        (all ? '<div class="cluster mt-2"><a class="btn sm" href="' + esc(webHref('schedule', { date: d.date, teams: all })) + '" target="_top">Everyone working</a></div>' : '') + '</section>' : '';
-      var imports = d.imports.length ? '<section class="panel mt-3"><div class="panel-head"><h2>Recent imports</h2><span class="spacer"></span><a class="btn sm" href="' + esc(webHref('history')) + '" target="_top">Import history</a></div>' +
-        '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Time</th><th scope="col">File</th><th scope="col">Teams</th><th scope="col">Changes</th><th scope="col">Status</th></tr></thead><tbody>' +
+      var hc = '<section class="panel w7">' + moduleHead('Headcount by hour, all active teams', max,
+          all ? '<a class="btn sm" href="' + esc(webHref('schedule', { date: d.date, teams: all })) + '" target="_top">Everyone working</a>' : '') +
+        (max ? headcountHtml(d.headcount) : '<p class="muted mb-0">No one is scheduled on this day.</p>') + '</section>';
+      var imports = '<section class="panel flush w5">' + moduleHead('Recent imports', d.imports.length,
+          '<a class="btn sm" href="' + esc(webHref('history')) + '" target="_top">Import history</a>') +
+        (d.imports.length ? '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Time</th><th scope="col">File and teams</th><th scope="col" class="col-changes">Changes</th><th scope="col">Status</th></tr></thead><tbody>' +
         d.imports.map(function (e) {
-          return '<tr><td class="small nowrap">' + esc(e.timestamp) + '</td><td class="small">' + esc(e.sourceFile) + '</td><td class="small">' + esc(e.teams) + '</td>' +
-            '<td class="small">+' + e.inserted + ' · ~' + e.updated + ' · −' + e.removed + '</td><td>' + badge(e.status === 'COMMITTED' ? 'ok' : (e.status === 'UNDONE' ? '' : 'warn'), e.status) + '</td></tr>';
-        }).join('') + '</tbody></table></div></section>' : '';
-      $('out').innerHTML = '<div class="mt-3">' + totals + '</div><section class="mt-3">' + table + '</section>' + hc + imports;
+          return '<tr><td class="small nowrap">' + esc(e.timestamp) + '</td><td class="small wrap"><b>' + esc(e.sourceFile) + '</b><div class="muted">' + esc(e.teams) + '</div></td>' +
+            '<td class="small nowrap col-changes">+' + e.inserted + ' · ~' + e.updated + ' · −' + e.removed + '</td><td>' + badge(e.status === 'COMMITTED' ? 'ok' : (e.status === 'UNDONE' ? '' : 'warn'), e.status) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="muted pad mb-0">Nothing imported yet.</p>') + '</section>';
+      $('out').innerHTML = '<div class="mosaic"><section class="panel flush">' + moduleHead('Day totals', null, '<span class="note">All teams</span>') + totals + '</section>' +
+        '<section class="panel flush">' + moduleHead('Teams', d.teams.length, '<span class="note">Click a number to see those people</span>') + table + '</section>' +
+        hc + imports + '</div>';
     }
     load();
   </script>

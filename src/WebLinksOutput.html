@@ -6,7 +6,7 @@
   <?!= include('Styles') ?>
   <style>
     .out-item .value { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--surface-2);
-      border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s2) var(--s3); max-height: 260px; overflow: auto; margin: 0; }
+      border: 1px solid var(--rule); border-radius: var(--radius); padding: var(--s2) var(--s3); max-height: 260px; overflow: auto; margin: 0; }
     a.btn { text-decoration: none; }
   </style>
 </head>
@@ -25,7 +25,7 @@
   </main>
   <footer class="app-footer">
     <a class="btn" id="editBtn" target="_top">Edit links and plans</a>
-    <a class="btn hidden" id="sheetBtn" target="_blank" rel="noopener">Open sheet ↗</a>
+    <a class="btn hidden" id="sheetBtn" target="_blank" rel="noopener">Open sheet <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a>
     <span class="spacer"></span>
     <button type="button" class="btn" onclick="load()">Reload</button>
     <button type="button" class="btn primary" onclick="generate()">Generate now</button>
@@ -47,12 +47,12 @@
         $('out').innerHTML = emptyHtml('🔗', data.sheet ? 'The sheet is empty' : 'Nothing generated yet', 'Click Generate now, or let your time-driven trigger (generateMonitoringLinks) run.');
         return;
       }
-      $('out').innerHTML = data.items.map(function (x, i) {
-        return '<section class="panel out-item"><div class="panel-head"><h2>' + esc(x.name) + '</h2><span class="spacer"></span>' +
-          (x.url && x.value ? '<a class="btn sm primary" href="' + esc(x.value) + '" target="_blank" rel="noopener">Open ↗</a>' : '') +
-          '<button type="button" class="btn sm" onclick="copy(' + i + ')">Copy</button></div>' +
+      $('out').innerHTML = '<div class="mosaic">' + data.items.map(function (x, i) {
+        return '<section class="panel out-item w6">' + moduleHead(x.name, null,
+          (x.url && x.value ? '<a class="btn sm primary" href="' + esc(x.value) + '" target="_blank" rel="noopener">Open ' + iconSvg('external') + '</a>' : '') +
+          '<button type="button" class="btn sm" onclick="copy(' + i + ')">Copy</button>') +
           (x.value ? '<pre class="value" id="v' + i + '">' + esc(x.value) + '</pre>' : '<p class="muted mb-0">(empty)</p>') + '</section>';
-      }).join('');
+      }).join('') + '</div>';
     }
     function copy(i) {
       var text = data.items[i].value;

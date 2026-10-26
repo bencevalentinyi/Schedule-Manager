@@ -6,16 +6,23 @@
   <?!= include('Styles') ?>
   <style>
     .toolbar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
-    .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--s2); }
-    .day { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--s2); min-height: 96px; background: var(--surface); }
-    .day.today { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
-    .day h3 { margin: 0 0 var(--s1); font-size: var(--fs-small); display: flex; justify-content: space-between; gap: 4px; }
+    .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--gap); }
+    .day { border: 1px solid var(--border); border-radius: var(--radius); min-height: 120px; background: var(--surface); }
+    .day h3 { margin: 0; padding: 6px 10px; font-size: var(--fs-small); display: flex; justify-content: space-between; align-items: center; gap: 4px;
+      background: var(--head-bg); color: var(--head-text); border-bottom: 1px solid var(--border); }
     .day h3 a { color: inherit; text-decoration: none; }
-    .day h3 a:hover { color: var(--primary); }
-    .item { border-left: 3px solid var(--primary); padding: 2px 6px; margin-top: 4px; border-radius: 2px; background: var(--primary-soft); font-size: var(--fs-small); }
-    .item.meeting { border-left-color: var(--meeting); background: var(--meeting-bg); }
-    .item b { font-variant-numeric: tabular-nums; }
+    .day h3 a:hover { text-decoration: underline; }
+    .day h3 .hrs { font: 700 13px/1 var(--figure); }
+    .day.today { border-color: var(--primary); }
+    .day.today h3 { background: var(--primary); color: var(--primary-text); border-bottom-color: var(--primary); }
+    .day .items { padding: 6px 8px 8px; }
+    .item { padding: 5px 0; border-bottom: 1px solid var(--rule); font-size: var(--fs-small); }
+    .item:last-child { border-bottom: 0; }
+    .item b { font: 700 15px/1.2 var(--figure); font-variant-numeric: tabular-nums; display: block; }
+    .item.meeting b { color: var(--meeting); }
     .off { color: var(--text-3); font-size: var(--fs-small); }
+    .details { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--gap); align-items: start; }
+    .details .panel { margin: 0; }
     @media (max-width: 760px) { .week { grid-template-columns: 1fr; } .day { min-height: 0; } }
   </style>
 </head>
@@ -30,9 +37,9 @@
   </header>
   <main class="app-body" id="main">
     <div class="toolbar">
-      <button type="button" class="btn" onclick="load(p.prevWeek)">‹ Previous week</button>
+      <button type="button" class="btn" onclick="load(p.prevWeek)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg> Previous week</button>
       <button type="button" class="btn" onclick="load(p.today)">This week</button>
-      <button type="button" class="btn" onclick="load(p.nextWeek)">Next week ›</button>
+      <button type="button" class="btn" onclick="load(p.nextWeek)">Next week <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
     <div id="status" aria-live="polite"></div>
     <div id="out" class="mt-3"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading…</div></div>
@@ -54,20 +61,20 @@
       $('title').textContent = p.name || 'Person';
       $('subtitle').textContent = 'Week ' + p.weekStart + ' – ' + p.weekEnd + (p.employeeId ? ' · Employee ID ' + p.employeeId : '');
       var stats = '<div class="stats">' + stat('Shifts this week', p.shifts) + stat('Working hours', p.totalHours) + stat('Staff sheets', p.listings.length, p.listings.length ? '' : 'warn') + '</div>';
-      var week = '<div class="week mt-3">' + p.week.map(function (d) {
+      var week = '<div class="week">' + p.week.map(function (d) {
         var items = d.items.length ? d.items.map(function (x) {
-          return '<div class="item' + (x.meeting ? ' meeting' : '') + '"><b>' + esc(x.start) + ' – ' + esc(x.end) + '</b>' + (x.overnight ? ' <span class="muted">(next day)</span>' : '') +
+          return '<div class="item' + (x.meeting ? ' meeting' : '') + '"><b>' + esc(x.start) + ' – ' + esc(x.end) + (x.overnight ? ' <span class="small">(next day)</span>' : '') + '</b>' +
             '<div>' + esc(x.type || (x.meeting ? 'Meeting' : 'Shift')) + '</div><div class="muted">' + esc(x.team) + '</div></div>';
         }).join('') : '<div class="off">Not scheduled</div>';
-        return '<div class="day' + (d.date === p.today ? ' today' : '') + '"><h3><a href="' + esc(webHref('schedule', { date: d.date })) + '" target="_top">' + esc(d.weekday.substr(0, 3)) + ' ' + esc(d.date.substr(5)) + '</a>' +
-          (d.minutes ? '<span class="muted">' + esc(d.hours) + '</span>' : '') + '</h3>' + items + '</div>';
+        return '<div class="day' + (d.date === p.today ? ' today' : '') + '"><h3><a href="' + esc(webHref('schedule', { date: d.date })) + '" target="_top">' + esc(d.weekday.substr(0, 3)) + ' ' + esc(+d.date.substr(8)) + '</a>' +
+          (d.minutes ? '<span class="hrs">' + esc(d.hours) + '</span>' : '') + '</h3><div class="items">' + items + '</div></div>';
       }).join('') + '</div>';
       var staff = p.listings.length ? p.listings.map(function (l) {
-        return '<section class="panel mt-3"><div class="panel-head"><h2>' + esc(l.teamName) + '</h2><span class="spacer"></span>' +
-          '<a class="btn sm" href="' + esc(webHref('staff', { teamId: l.teamId, q: l.employeeId || p.name })) + '" target="_top">Edit in Staff</a></div>' +
+        return '<section class="panel">' + moduleHead(l.teamName, null,
+          '<a class="btn sm" href="' + esc(webHref('staff', { teamId: l.teamId, q: l.employeeId || p.name })) + '" target="_top">Edit in Staff</a>') +
           kvTable(l.fields.map(function (f) { return [f.label, esc(f.value)]; })) + '</section>';
       }).join('') : alertHtml('warning', 'Not in any staff sheet', 'This person is scheduled but not listed in a staff sheet, so they are flagged "Unknown employee". Add them on the Staff page.');
-      $('out').innerHTML = stats + week + '<h2 class="mt-4">Staff details</h2>' + staff;
+      $('out').innerHTML = '<section class="panel flush">' + moduleHead('This week', null, '<span class="note">' + esc(p.weekStart) + ' – ' + esc(p.weekEnd) + '</span>') + stats + '</section>' + week + '<h2 class="mt-4">Staff details</h2><div class="details">' + staff + '</div>';
     }
     load();
   </script>

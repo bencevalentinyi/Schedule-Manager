@@ -5,10 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('Styles') ?>
   <style>
-    .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s3); align-items: start; }
-    .home-grid .panel { margin: 0; }
-    .home-grid .wide { grid-column: 1 / -1; }
     a.btn { text-decoration: none; }
+    .actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s2); }
+    .actions-row .btn { justify-content: flex-start; height: 40px; }
+    .tool-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 var(--s4); }
+    .tool-list a { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--rule); color: var(--text); text-decoration: none; font-weight: 600; }
+    .tool-list a::after { content: ""; width: 6px; height: 6px; border-top: 1.6px solid var(--text-3); border-right: 1.6px solid var(--text-3); transform: rotate(45deg); }
+    .tool-list a:hover { color: var(--primary); }
+    .tool-list a:hover::after { border-color: var(--primary); }
+    .big-fig { font: 700 40px/1 var(--figure); font-variant-numeric: tabular-nums; }
+    td.team-name a { color: var(--text); text-decoration: none; }
+    td.team-name a:hover { color: var(--primary); text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -43,8 +50,9 @@
     function pageLink(page, label, cls, params) {
       return '<a class="btn ' + (cls || '') + '" href="' + esc(webHref(page, params)) + '" target="_top">' + esc(label) + '</a>';
     }
+    function toolLink(page, label) { return '<a href="' + esc(webHref(page)) + '" target="_top">' + esc(label) + '</a>'; }
     function sheetLink(l, label) {
-      return l ? '<a class="btn sm" href="' + esc(l.url) + '" target="_blank" rel="noopener">' + esc(label) + ' ↗</a>' : badge('bad', 'Sheet missing');
+      return l ? '<a class="btn sm" href="' + esc(l.url) + '" target="_blank" rel="noopener">' + esc(label) + ' ' + iconSvg('external') + '</a>' : badge('bad', 'Sheet missing');
     }
 
     function render() {
@@ -67,29 +75,29 @@
         ['Status', badge(last.status === 'COMMITTED' ? 'ok' : (last.status === 'FAILED' || last.status === 'COMMITTING' ? 'bad' : 'warn'), last.status)]
       ]) : '<p class="muted mb-0">Nothing imported yet.</p>';
 
-      var teams = d.teams.length ? '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Sheets</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' +
+      var teams = d.teams.length ? '<div class="table-wrap auto"><table class="table"><thead><tr><th scope="col">Team</th><th scope="col">Status</th><th scope="col">Sheets</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' +
         d.teams.map(function (t) {
           var name = t.status === 'READY' ? '<a href="' + esc(webHref('schedule', { teams: t.teamId })) + '" target="_top">' + esc(t.teamName) + '</a>' : esc(t.teamName);
-          return '<tr><td><b>' + name + '</b><div class="small muted">' + esc(t.teamId) + '</div></td>' +
+          return '<tr><td class="team-name"><b>' + name + '</b><div class="small muted">' + esc(t.teamId) + '</div></td>' +
             '<td>' + (t.status === 'READY' ? badge('ok', 'Ready') : badge('bad', t.status)) + ' ' + (t.active ? badge('', 'Active') : badge('warn', 'Inactive')) + '</td>' +
             '<td><div class="cluster">' + sheetLink(t.schedule, 'Schedule') + sheetLink(t.staff, 'Staff') + '</div></td>' +
             '<td class="actions">' + pageLink('team', 'Edit', 'sm', { teamId: t.teamId }) + '</td></tr>';
         }).join('') + '</tbody></table></div>'
-        : emptyHtml('▦', 'No teams yet', 'A team gets its own daily schedule sheet and staff sheet.', pageLink('team', 'Create the first team', 'primary'));
+        : '<div class="pad">' + emptyHtml('grid', 'No teams yet', 'A team gets its own daily schedule sheet and staff sheet.', pageLink('team', 'Create the first team', 'primary')) + '</div>';
 
-      $('home').innerHTML = '<div class="home-grid">' +
-        '<section class="panel"><div class="panel-head"><h2>Quick actions</h2></div><div class="cluster">' +
+      $('home').innerHTML = '<div class="mosaic">' +
+        '<section class="panel w8">' + moduleHead('Quick actions') + '<div class="actions-row">' +
           pageLink('schedule', 'Today\'s schedule', 'primary') + pageLink('dashboard', 'Dashboard') + pageLink('import', 'Import Quinyx export') +
           '<button type="button" class="btn" onclick="generateLinks()"' + (d.linkItems ? '' : ' disabled title="No monitoring links or plans saved yet"') + '>Generate monitoring links</button>' +
-          pageLink('history', 'Import history / Undo') + '</div></section>' +
-        '<section class="panel"><div class="panel-head"><h2>Last import</h2></div>' + lastHtml + '</section>' +
-        '<section class="panel wide"><div class="panel-head"><h2>Teams</h2><span class="spacer"></span>' + pageLink('teams', 'Manage teams', 'sm') + pageLink('team', '+ New team', 'sm') + '</div>' + teams + '</section>' +
-        '<section class="panel"><div class="panel-head"><h2>Monitoring Links</h2></div><p class="small">' + d.linkItems + ' saved item(s).</p><div class="cluster">' +
+          pageLink('history', 'Import history / Undo') + pageLink('staff', 'Staff') + '</div></section>' +
+        '<section class="panel w4">' + moduleHead('Last import') + lastHtml + '</section>' +
+        '<section class="panel flush w8">' + moduleHead('Teams', d.teams.length, pageLink('teams', 'Manage teams', 'sm') + pageLink('team', 'New team', 'sm')) + teams + '</section>' +
+        '<section class="panel w4">' + moduleHead('Monitoring Links', d.linkItems) + '<p class="small">' + (d.linkItems ? d.linkItems + ' saved link(s) and plan(s).' : 'No links or plans saved yet.') + '</p><div class="cluster">' +
           pageLink('links', 'Edit links and plans', 'sm') + pageLink('output', 'See output', 'sm') + (d.linksSheet ? sheetLink(d.linksSheet, 'Monitoring Links sheet') : '<span class="small muted">The sheet appears after the first Generate.</span>') + '</div></section>' +
-        '<section class="panel"><div class="panel-head"><h2>More tools</h2></div><div class="cluster">' +
-          pageLink('staff', 'Staff', 'sm') + pageLink('viewer', 'Sheet schedule viewer', 'sm') + pageLink('ids', 'Import staff data', 'sm') + pageLink('fields', 'Configure staff fields', 'sm') +
-          pageLink('settings', 'Display settings', 'sm') + pageLink('setup', 'Setup', 'sm') + pageLink('help', 'About / Help', 'sm') + '</div></section>' +
-        '<section class="panel wide"><div class="panel-head"><h2>Maintenance</h2></div><div class="cluster">' +
+        '<section class="panel w6">' + moduleHead('More tools') + '<div class="tool-list">' +
+          toolLink('viewer', 'Sheet schedule viewer') + toolLink('ids', 'Import staff data') + toolLink('fields', 'Configure staff fields') +
+          toolLink('settings', 'Display settings') + toolLink('setup', 'Setup') + toolLink('help', 'About / Help') + '</div></section>' +
+        '<section class="panel w6">' + moduleHead('Maintenance') + '<div class="cluster">' +
           '<button type="button" class="btn sm" onclick="maintain(\'structure\')">Validate structure</button>' +
           '<button type="button" class="btn sm" onclick="maintain(\'data\')">Validate data</button>' +
           '<button type="button" class="btn sm" onclick="maintain(\'refresh\')">Refresh schedule data</button>' +

@@ -208,7 +208,7 @@ function webAppUrl_() {
 
 function webErrorPage_(u) {
   var noAccess = /permission|access|not found|No item with the given ID/i.test(u.message);
-  var body = '<main class="app-body"><div class="alert error" role="alert"><span class="alert-icon" aria-hidden="true">✕</span><div class="alert-body">' +
+  var body = '<main class="app-body"><div class="alert error" role="alert"><span class="alert-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></span><div class="alert-body">' +
     '<span class="alert-title">' + escapeHtml_(noAccess ? 'You have no access to the schedule spreadsheet' : 'The page could not be opened') + '</span>' +
     '<div>' + escapeHtml_(u.message) + '</div>' +
     '<div class="small mt-2">' + escapeHtml_(noAccess ? 'Ask the owner to share the spreadsheet with you (editor), then reload this page.'

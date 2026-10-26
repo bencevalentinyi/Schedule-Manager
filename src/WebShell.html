@@ -1,48 +1,58 @@
-<!-- Web app navigation bar (WebApp.gs puts it at the top of every page). Uses the page's theme. -->
+<!-- Web app top bar (WebApp.gs puts it at the top of every page). Uses the page's theme. -->
 <style>
-  .web-nav {
-    flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--s1);
-    padding: 8px max(var(--pad-x), calc((100% - var(--web-max, 1180px)) / 2));
-    background: var(--surface-2); border-bottom: 1px solid var(--border);
+  .web-nav { flex: 0 0 auto; background: var(--shell-bg); color: var(--shell-text); border-bottom: var(--shell-border, 1px solid var(--border)); position: relative; z-index: 5; }
+  .web-nav .web-row {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: 0 max(20px, calc((100% - var(--web-max, 1180px)) / 2));
   }
-  .web-nav .web-brand { font-weight: 700; color: var(--text); text-decoration: none; margin-right: var(--s3); white-space: nowrap; }
-  .web-nav .web-links { display: flex; flex-wrap: wrap; gap: 2px; }
-  .web-nav .web-links a, .web-nav .web-sheet {
-    padding: 6px 10px; border-radius: var(--radius); color: var(--text-2); text-decoration: none; font-weight: 500; white-space: nowrap;
+  .web-nav .web-row.top { height: 48px; }
+  .web-nav .web-brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; white-space: nowrap; }
+  .web-nav .web-mark { width: 26px; height: 26px; flex: 0 0 auto; display: block; }
+  .web-nav .web-name { font: 700 19px/1 var(--figure); letter-spacing: -.01em; }
+  .web-nav .web-sheet { margin-left: auto; color: var(--shell-text-2); text-decoration: none; font-weight: 600; font-size: var(--fs-small);
+    display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--shell-line, var(--border)); border-radius: var(--radius); }
+  .web-nav .web-sheet:hover { color: var(--shell-text); border-color: var(--shell-text-2); }
+  .web-nav .web-sheet svg { width: 13px; height: 13px; }
+  .web-nav .web-links { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .web-nav .web-links::-webkit-scrollbar { display: none; }
+  .web-nav .web-links a {
+    display: inline-flex; align-items: center; height: 40px; padding: 0 12px; color: var(--shell-text-2); text-decoration: none; font-weight: 600;
+    white-space: nowrap; box-shadow: inset 0 -3px 0 transparent; transition: color .12s var(--ease), box-shadow .12s var(--ease);
   }
-  .web-nav .web-links a:hover, .web-nav .web-sheet:hover { background: var(--muted-bg); color: var(--text); }
-  .web-nav .web-links a[aria-current="page"] { background: var(--primary-soft); color: var(--primary); }
-  .web-nav .web-links a:focus-visible, .web-nav .web-sheet:focus-visible, .web-nav .web-brand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-  .web-nav .web-sheet { margin-left: auto; }
+  .web-nav .web-links { padding-left: max(8px, calc((100% - var(--web-max, 1180px)) / 2 - 12px)); }
+  .web-nav .web-links a:hover { color: var(--shell-text); box-shadow: inset 0 -3px 0 var(--shell-line, var(--border-strong)); }
+  .web-nav .web-links a[aria-current="page"] { color: var(--shell-text); box-shadow: inset 0 -3px 0 var(--shell-current, var(--primary)); }
+  .web-nav a:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   /* The page itself: full-width bars, content centered at the page's width. Only the side padding
-     (--pad-x) is widened, never the padding itself, so a theme's extra room for its logo
-     (padding-right: calc(var(--pad-x) + …), logo at right: var(--pad-x)) stays intact. */
+     (--pad-x) is widened, never the padding itself, so a theme's extra room in the header stays intact. */
   body.web-page > .app-header, body.web-page > .app-body, body.web-page > .app-footer {
     --pad-x: max(20px, calc((100% - var(--web-max, 1180px)) / 2));
   }
   body.web-page.sidebar > .app-header, body.web-page.sidebar > .app-body, body.web-page.sidebar > .app-footer {
     --pad-x: max(14px, calc((100% - var(--web-max, 1180px)) / 2));
   }
+  body.web-page.sidebar { --fs-title: 24px; }
+  body.web-page > .app-header { padding-top: 18px; padding-bottom: 14px; }
   /* Content never wider than the page: long words, tables and toolbars wrap or scroll inside. */
   body.web-page .app-body { overflow-x: hidden; }
   body.web-page .head-row { flex-wrap: wrap; }
   body.web-page .head-row > * { min-width: 0; }
   body.web-page .table-wrap { max-width: 100%; overflow-x: auto; }
   body.web-page pre, body.web-page code { overflow-wrap: anywhere; }
-  body.web-page { background: var(--surface); }
+  body.web-page { background: var(--bg); }
   /* Phones: the links scroll sideways in one row; tables scroll inside their box. */
   @media (max-width: 620px) {
-    .web-nav { flex-wrap: nowrap; overflow-x: auto; padding: 6px 10px; -webkit-overflow-scrolling: touch; }
-    .web-nav .web-brand { display: none; }
-    .web-nav .web-links { flex-wrap: nowrap; }
-    .web-nav .web-sheet { margin-left: 0; }
+    .web-nav .web-row { padding: 0 12px; }
+    .web-nav .web-row.top { height: 44px; }
+    .web-nav .web-links { padding-left: 0; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+    .web-nav .web-sheet span { display: none; }
     body.web-page > .app-header, body.web-page > .app-body, body.web-page > .app-footer,
     body.web-page.sidebar > .app-header, body.web-page.sidebar > .app-body, body.web-page.sidebar > .app-footer { --pad-x: 12px; }
     body.web-page .app-header .subtitle { display: none; }
     body.web-page .table-wrap { overflow-x: auto; }
   }
   .web-loading { position: fixed; top: 0; left: 0; height: 3px; width: 100%; z-index: 1000; background: var(--primary);
-    transform-origin: left; animation: web-load 1.6s ease-out forwards; }
+    transform-origin: left; animation: web-load 1.6s var(--ease) forwards; }
   @keyframes web-load { from { transform: scaleX(.05); } to { transform: scaleX(.85); } }
 </style>
 <script>
@@ -54,11 +64,16 @@
   });
 </script>
 <nav class="web-nav" aria-label="<?= appName ?>">
-  <a class="web-brand" href="<?= homeUrl ?>" target="_top"><?= appName ?></a>
-  <div class="web-links">
+  <div class="web-row top">
+    <a class="web-brand" href="<?= homeUrl ?>" target="_top">
+      <svg class="web-mark" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="2" fill="var(--primary)"/><path d="M6 8h14M6 13h9M6 18h11" stroke="#fff" stroke-width="2.4" stroke-linecap="square"/></svg>
+      <span class="web-name"><?= appName ?></span>
+    </a>
+    <a class="web-sheet" href="<?= spreadsheetUrl ?>" target="_blank" rel="noopener" aria-label="Open spreadsheet in a new tab"><span>Open spreadsheet</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a>
+  </div>
+  <div class="web-row web-links">
     <? for (var i = 0; i < nav.length; i++) { ?>
       <a href="<?= nav[i].href ?>" target="_top"<? if (nav[i].current) { ?> aria-current="page"<? } ?>><?= nav[i].label ?></a>
     <? } ?>
   </div>
-  <a class="web-sheet" href="<?= spreadsheetUrl ?>" target="_blank" rel="noopener">Open spreadsheet ↗</a>
 </nav>

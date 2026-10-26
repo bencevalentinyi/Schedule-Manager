@@ -9,10 +9,12 @@
     .toolbar select { width: auto; min-width: 180px; }
     .toolbar input[type=search] { width: 240px; max-width: 100%; }
     tr.editing td { background: var(--primary-soft); }
+    td.fig { font-weight: 600; font-size: 14px; }
     a.person { color: var(--text); font-weight: 600; text-decoration: none; }
     a.person:hover { color: var(--primary); text-decoration: underline; }
     a.btn { text-decoration: none; }
-    .edit-panel { border: 1px solid var(--primary); }
+    .edit-panel { border-color: var(--primary); }
+    .edit-panel > .panel-head { background: var(--primary); color: var(--primary-text); border-bottom-color: var(--primary); }
     @media (max-width: 620px) { .col-extra { display: none; } .toolbar select, .toolbar input[type=search] { width: 100%; } }
   </style>
 </head>
@@ -40,7 +42,7 @@
     <div id="out" class="mt-3"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Loading…</div></div>
   </main>
   <footer class="app-footer">
-    <a class="btn" id="sheetBtn" target="_blank" rel="noopener">Open staff sheet ↗</a>
+    <a class="btn" id="sheetBtn" target="_blank" rel="noopener">Open staff sheet <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a>
     <a class="btn" id="fieldsBtn" target="_top">Configure columns</a>
     <a class="btn" id="idsBtn" target="_top">Import staff data</a>
     <span class="spacer"></span>
@@ -82,7 +84,8 @@
       if (!L.rows.length) { $('out').innerHTML = dup + emptyHtml('👤', 'No one in this staff sheet yet', 'Add people with + Add person, or use Find unknown employees after an import.'); return; }
       if (!rows.length) { $('out').innerHTML = dup + emptyHtml('⌕', 'No one matches "' + esc($('q').value) + '"', 'Clear the search to see everyone.'); return; }
       var cols = L.fields;
-      $('out').innerHTML = dup + '<div class="table-wrap"><table class="table"><thead><tr>' + cols.map(function (f, k) {
+      $('out').innerHTML = dup + '<section class="panel flush">' + moduleHead(data.teamName, rows.length) +
+        '<div class="table-wrap tall"><table class="table"><thead><tr>' + cols.map(function (f, k) {
         return '<th scope="col"' + (k > 2 ? ' class="col-extra"' : '') + '>' + esc(f.label) + '</th>';
       }).join('') + '<th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>' + rows.map(function (x) {
         var r = x.r;
@@ -91,9 +94,10 @@
           var cell = f.key === 'employeeName'
             ? '<a class="person" href="' + esc(webHref('person', { key: r.employeeId ? 'ID:' + r.employeeId : 'NM:' + r.employeeName })) + '" target="_top">' + esc(v) + '</a>'
             : esc(v === undefined ? '' : v);
-          return '<td' + (k > 2 ? ' class="col-extra small"' : '') + (f.identifier ? ' style="font-family:var(--mono)"' : '') + '>' + cell + '</td>';
+          var cls = (k > 2 ? 'col-extra small ' : '') + (f.identifier ? 'fig' : '');
+          return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + cell + '</td>';
         }).join('') + '<td class="actions"><button type="button" class="btn sm" onclick="edit(' + x.i + ')">Edit</button></td></tr>';
-      }).join('') + '</tbody></table></div>';
+      }).join('') + '</tbody></table></div></section>';
     }
 
     function edit(i) {

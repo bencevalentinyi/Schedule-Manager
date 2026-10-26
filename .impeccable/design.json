@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-26T12:00:00Z",
+  "title": "Design System: Schedule Manager",
+  "extensions": {
+    "colorMeta": {
+      "utility-red": { "role": "primary", "displayName": "Utility Red", "canonical": "#e60012", "tonalRamp": ["#3d0005", "#6b0009", "#99000c", "#c2000f", "#e60012", "#f3727c", "#f9b8bd", "#fdeced"] },
+      "utility-red-deep": { "role": "primary", "displayName": "Deep Red", "canonical": "#c2000f" },
+      "utility-red-wash": { "role": "primary", "displayName": "Red Wash", "canonical": "#fdeced" },
+      "on-red": { "role": "neutral", "displayName": "On Red", "canonical": "#ffffff" },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#111111", "tonalRamp": ["#111111", "#2b2b2b", "#4a4a4a", "#6b6b6b", "#8c8c8c", "#b3b3b3", "#d6d6d6", "#f2f2f2"] },
+      "ink-2": { "role": "neutral", "displayName": "Ink 2", "canonical": "#4a4a4a" },
+      "ink-3": { "role": "neutral", "displayName": "Ink 3", "canonical": "#6b6b6b" },
+      "ground-grey": { "role": "neutral", "displayName": "Ground Grey", "canonical": "#f2f2f2" },
+      "surface": { "role": "neutral", "displayName": "Surface", "canonical": "#ffffff" },
+      "surface-2": { "role": "neutral", "displayName": "Surface 2", "canonical": "#f5f5f5" },
+      "muted-fill": { "role": "neutral", "displayName": "Muted Fill", "canonical": "#ebebeb" },
+      "module-border": { "role": "neutral", "displayName": "Module Border", "canonical": "#d6d6d6" },
+      "border-strong": { "role": "neutral", "displayName": "Border Strong", "canonical": "#b3b3b3" },
+      "inner-rule": { "role": "neutral", "displayName": "Inner Rule", "canonical": "#e6e6e6" },
+      "strip-grey": { "role": "neutral", "displayName": "Strip Grey", "canonical": "#f2f2f2" },
+      "ok-green": { "role": "state", "displayName": "OK Green", "canonical": "#0b7a3e", "tonalRamp": ["#06311a", "#0d4a29", "#0b7a3e", "#2f9a5c", "#6cc08e", "#a9d8bb", "#d2ecdc", "#e9f6ee"] },
+      "ok-green-wash": { "role": "state", "displayName": "OK Green Wash", "canonical": "#e9f6ee" },
+      "warn-amber": { "role": "state", "displayName": "Warn Amber", "canonical": "#8a5300", "tonalRamp": ["#2e1c00", "#553300", "#8a5300", "#a86500", "#d99a2b", "#f0cf86", "#f9e5b5", "#fff4d9"] },
+      "warn-amber-wash": { "role": "state", "displayName": "Warn Amber Wash", "canonical": "#fff4d9" },
+      "problem-red": { "role": "state", "displayName": "Problem Red", "canonical": "#c2000f", "tonalRamp": ["#3d0005", "#7d000a", "#99000c", "#c2000f", "#e2545e", "#f3b4b9", "#f9d6d9", "#fdeced"] },
+      "problem-red-wash": { "role": "state", "displayName": "Problem Red Wash", "canonical": "#fdeced" },
+      "meeting-purple": { "role": "state", "displayName": "Meeting Purple", "canonical": "#6a3d9a", "tonalRamp": ["#22132f", "#3d2259", "#6a3d9a", "#8a63b5", "#ab8dcf", "#d4c3ea", "#e7dcf3", "#f3edf9"] },
+      "meeting-purple-wash": { "role": "state", "displayName": "Meeting Purple Wash", "canonical": "#f3edf9" },
+      "disabled-fill": { "role": "neutral", "displayName": "Disabled Fill", "canonical": "#efefef" },
+      "disabled-ink": { "role": "neutral", "displayName": "Disabled Ink", "canonical": "#8c8c8c" },
+      "selection-pink": { "role": "neutral", "displayName": "Selection", "canonical": "#ffd5d9" }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Page and dialog titles; 20px in sidebars." },
+      "wordmark": { "displayName": "Wordmark", "purpose": "Product name in the web top bar." },
+      "figure-stat": { "displayName": "Figure, stat", "purpose": "Summary figures in the stat strip." },
+      "figure-row": { "displayName": "Figure, row", "purpose": "Shift times, hours and counts in rows; 13 to 15px." },
+      "module-title": { "displayName": "Module title", "purpose": "Heading in each module header strip." },
+      "body": { "displayName": "Body", "purpose": "All running text and controls; tables at 12.5px." },
+      "label": { "displayName": "Label", "purpose": "Form labels; nav links and tabs at 13px 600." },
+      "small": { "displayName": "Small", "purpose": "Hints, notes, meta lines, table headers." },
+      "tag": { "displayName": "Tag", "purpose": "Tags (badges)." }
+    },
+    "themes": [
+      { "name": "Sky", "file": "src/ThemeSky.html", "summary": "Primary #0079b8 with accent #009de0, ground #f1f6f9, pale blue strips #eaf5fb, Nunito for text and figures, radius 6/10/14px, rounded modules, pill buttons, segments, tags and count tags, filled inputs, 34px controls." },
+      { "name": "Ember", "file": "src/ThemeEmber.html", "summary": "Primary #d91500, ground #f4f4f4, black shell and module strips #141414 with white text, 4px red line under the top bar, Inter for text and figures, radius 3/4/6px, pill buttons, segments, tags and count tags, 1.5px control borders, 34px controls." }
+    ],
+    "shadows": [
+      { "name": "none", "value": "none", "purpose": "Modules, tables, stat strip and top bar at rest." },
+      { "name": "float", "value": "0 6px 20px rgba(0, 0, 0, .14)", "purpose": "Loading box and tooltips only." },
+      { "name": "focus-ring", "value": "0 0 0 2px #ffffff, 0 0 0 4px #111111", "purpose": "Keyboard focus on buttons, links, tabs, list items." },
+      { "name": "underline-current", "value": "inset 0 -3px 0 #e60012", "purpose": "Current nav link and selected tab (a rule, not depth)." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(.2, .8, .2, 1)", "purpose": "All state transitions." },
+      { "name": "state-fast", "value": "120ms", "purpose": "Colour, border and underline changes on hover." },
+      { "name": "press", "value": "80ms translateY(1px)", "purpose": "Button press." },
+      { "name": "toggle", "value": "150ms", "purpose": "Switch knob and disclosure chevron." },
+      { "name": "reduced-motion", "value": "prefers-reduced-motion: durations 0.001ms", "purpose": "All motion is removed when the user asks." }
+    ],
+    "breakpoints": [
+      { "name": "tablet", "value": "900px" },
+      { "name": "narrow", "value": "760px" },
+      { "name": "phone", "value": "620px" },
+      { "name": "web-max", "value": "1180px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one red action in a module.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Import</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 2px; border: 1px solid #b3b3b3; background: #fff; color: #111; font: 600 13px/1 \"Noto Sans\", Arial, sans-serif; cursor: pointer; transition: background-color .12s cubic-bezier(.2,.8,.2,1), border-color .12s cubic-bezier(.2,.8,.2,1), transform .08s cubic-bezier(.2,.8,.2,1); } .ds-btn-primary { background: #e60012; border-color: #e60012; color: #fff; } .ds-btn-primary:hover { background: #c2000f; border-color: #c2000f; } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #111; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Every other action: white with a strong grey outline.",
+      "html": "<button class=\"ds-btn2\">All teams</button>",
+      "css": ".ds-btn2 { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 2px; border: 1px solid #b3b3b3; background: #fff; color: #111; font: 600 13px/1 \"Noto Sans\", Arial, sans-serif; cursor: pointer; transition: background-color .12s, border-color .12s; } .ds-btn2:hover { background: #f5f5f5; border-color: #6b6b6b; } .ds-btn2:active { transform: translateY(1px); } .ds-btn2:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #111; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "refersTo": "segment-pressed",
+      "description": "Joined small buttons; the pressed segment fills red.",
+      "html": "<div class=\"ds-seg\" role=\"group\" aria-label=\"View\"><button aria-pressed=\"true\">List</button><button aria-pressed=\"false\">Timeline</button></div>",
+      "css": ".ds-seg { display: inline-flex; } .ds-seg button { height: 26px; min-width: 64px; padding: 0 10px; margin-left: -1px; border: 1px solid #b3b3b3; border-radius: 0; background: #fff; color: #111; font: 600 12px/1 \"Noto Sans\", Arial, sans-serif; cursor: pointer; } .ds-seg button:first-child { margin-left: 0; border-radius: 2px 0 0 2px; } .ds-seg button:last-child { border-radius: 0 2px 2px 0; } .ds-seg button:hover { background: #f5f5f5; } .ds-seg button[aria-pressed=\"true\"] { background: #e60012; border-color: #e60012; color: #fff; position: relative; z-index: 1; } .ds-seg button:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #111; position: relative; z-index: 2; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "32px field; focus turns the border red.",
+      "html": "<label class=\"ds-label\" for=\"ds-q\">Search</label><input class=\"ds-input\" id=\"ds-q\" type=\"text\" placeholder=\"Name, role, type…\">",
+      "css": ".ds-label { display: block; font: 600 12.5px \"Noto Sans\", Arial, sans-serif; color: #111; margin: 0 0 4px; } .ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid #b3b3b3; border-radius: 2px; font: 13px \"Noto Sans\", Arial, sans-serif; color: #111; background: #fff; transition: border-color .12s, box-shadow .12s; } .ds-input::placeholder { color: #6b6b6b; } .ds-input:hover { border-color: #6b6b6b; } .ds-input:focus { outline: none; border-color: #e60012; box-shadow: 0 0 0 1px #e60012; }"
+    },
+    {
+      "name": "Module with Count Tag",
+      "kind": "card",
+      "refersTo": "module",
+      "description": "White ruled module with a grey header strip and a filled red count tag.",
+      "html": "<div class=\"ds-ground\"><section class=\"ds-panel\"><div class=\"ds-head\"><h2>Flags</h2><span class=\"ds-count\">3</span><span class=\"ds-note\">Today</span></div><p>Unknown employees, overlaps and meetings in shifts.</p></section></div>",
+      "css": ".ds-ground { background: #f2f2f2; padding: 8px; } .ds-panel { border: 1px solid #d6d6d6; border-radius: 2px; padding: 12px 14px; background: #fff; font: 13px/1.5 \"Noto Sans\", Arial, sans-serif; color: #111; } .ds-panel p { margin: 0; } .ds-head { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: -12px -14px 12px; padding: 6px 14px; background: #f2f2f2; border-bottom: 1px solid #d6d6d6; } .ds-head h2 { margin: 0; font-size: 14px; font-weight: 700; } .ds-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 2px; background: #e60012; color: #fff; font: 700 13px/1 \"Barlow Semi Condensed\", \"Arial Narrow\", sans-serif; font-variant-numeric: tabular-nums; } .ds-note { margin-left: auto; color: #4a4a4a; font-size: 12px; }"
+    },
+    {
+      "name": "Tags",
+      "kind": "chip",
+      "refersTo": "tag-neutral",
+      "description": "Rectangular tags; each carries a word so colour is never the only signal.",
+      "html": "<span class=\"ds-tag\">Role</span> <span class=\"ds-tag ds-bad\">Unknown</span> <span class=\"ds-tag ds-shift\">Shift</span> <span class=\"ds-tag ds-dark\">Lead</span> <span class=\"ds-tag ds-ok\">Ok</span> <span class=\"ds-tag ds-meet\">Meeting</span>",
+      "css": ".ds-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 2px; border: 1px solid #d6d6d6; background: #ebebeb; color: #111; font: 600 11.5px/1 \"Noto Sans\", Arial, sans-serif; white-space: nowrap; } .ds-bad { background: #c2000f; border-color: #c2000f; color: #fff; } .ds-shift { background: #fff; border-color: #e60012; color: #e60012; } .ds-dark { background: #111; border-color: #111; color: #fff; } .ds-ok { background: #fff; border-color: #0b7a3e; color: #0b7a3e; } .ds-meet { background: #f3edf9; border-color: #d4c3ea; color: #6a3d9a; }"
+    },
+    {
+      "name": "Stat Strip",
+      "kind": "custom",
+      "refersTo": "figure-stat",
+      "description": "Summary figures in one ruled strip, condensed and tabular.",
+      "html": "<div class=\"ds-stats\"><div class=\"ds-stat\"><b>42</b><span>Shifts</span></div><div class=\"ds-stat\"><b>318</b><span>Hours</span></div><div class=\"ds-stat ds-bad\"><b>3</b><span>Flags</span></div><div class=\"ds-stat ds-meet\"><b>5</b><span>Meetings</span></div></div>",
+      "css": ".ds-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); border: 1px solid #d6d6d6; border-radius: 2px; background: #fff; overflow: hidden; font-family: \"Noto Sans\", Arial, sans-serif; } .ds-stat { display: flex; flex-direction: column-reverse; justify-content: flex-end; padding: 8px 12px 9px; box-shadow: -1px 0 0 #e6e6e6; } .ds-stat b { font: 700 26px/1.05 \"Barlow Semi Condensed\", \"Arial Narrow\", sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: #111; } .ds-stat span { color: #4a4a4a; font-size: 12px; line-height: 1.3; margin-bottom: 2px; } .ds-bad b { color: #c2000f; } .ds-meet b { color: #6a3d9a; }"
+    },
+    {
+      "name": "Headcount by Hour",
+      "kind": "custom",
+      "refersTo": "figure-row",
+      "description": "Whole-cell columns, one block per person; the peak hour is red.",
+      "html": "<div class=\"ds-hc\"><div class=\"ds-col\"><i></i><i></i><b>2</b></div><div class=\"ds-col\"><i></i><i></i><i></i><i></i><b>4</b></div><div class=\"ds-col ds-peak\"><i></i><i></i><i></i><i></i><i></i><i></i><b>6</b></div><div class=\"ds-col\"><i></i><i></i><i></i><b>3</b></div></div><div class=\"ds-axis\"><span>08</span><span></span><span></span><span>11</span></div>",
+      "css": ".ds-hc { display: flex; align-items: flex-end; gap: 3px; height: 92px; width: 160px; } .ds-col { flex: 1 1 0; display: flex; flex-direction: column-reverse; gap: 2px; align-items: stretch; } .ds-col i { display: block; height: 6px; background: #111; border-radius: 1px; } .ds-col b { order: -1; text-align: center; font: 600 11px/1 \"Barlow Semi Condensed\", \"Arial Narrow\", sans-serif; color: #4a4a4a; margin-bottom: 2px; } .ds-peak i { background: #e60012; } .ds-peak b { color: #e60012; } .ds-axis { display: flex; gap: 3px; width: 160px; border-top: 1px solid #111; margin-top: 3px; font: 500 11px/1.6 \"Barlow Semi Condensed\", \"Arial Narrow\", sans-serif; color: #4a4a4a; } .ds-axis span { flex: 1 1 0; }"
+    },
+    {
+      "name": "Web Top Bar",
+      "kind": "nav",
+      "refersTo": "nav-link-current",
+      "description": "Two-tier white bar: mark, wordmark, spreadsheet link; page links with a red underline on the current page.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Schedule Manager\"><div class=\"ds-top\"><a class=\"ds-brand\" href=\"#\"><svg width=\"26\" height=\"26\" viewBox=\"0 0 26 26\" aria-hidden=\"true\"><rect width=\"26\" height=\"26\" rx=\"2\" fill=\"#e60012\"/><path d=\"M6 8h14M6 13h9M6 18h11\" stroke=\"#fff\" stroke-width=\"2.4\" stroke-linecap=\"square\"/></svg><span>Schedule Manager</span></a><a class=\"ds-sheet\" href=\"#\">Open spreadsheet <svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" aria-hidden=\"true\"><path d=\"M14 4h6v6M20 4l-9 9M18 14v6H4V6h6\"/></svg></a></div><div class=\"ds-links\"><a href=\"#\">Home</a><a href=\"#\" aria-current=\"page\">Schedule</a><a href=\"#\">Dashboard</a><a href=\"#\">Staff</a></div></nav>",
+      "css": ".ds-nav { background: #fff; color: #111; border-bottom: 1px solid #d6d6d6; font: 13px \"Noto Sans\", Arial, sans-serif; } .ds-top { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 20px; } .ds-brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; font: 700 19px/1 \"Barlow Semi Condensed\", \"Arial Narrow\", sans-serif; letter-spacing: -.01em; } .ds-sheet { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid #d6d6d6; border-radius: 2px; color: #4a4a4a; text-decoration: none; font-weight: 600; font-size: 12px; } .ds-sheet:hover { color: #111; border-color: #4a4a4a; } .ds-links { display: flex; gap: 4px; padding: 0 8px; } .ds-links a { display: inline-flex; align-items: center; height: 40px; padding: 0 12px; color: #4a4a4a; text-decoration: none; font-weight: 600; box-shadow: inset 0 -3px 0 transparent; transition: color .12s, box-shadow .12s; } .ds-links a:hover { color: #111; box-shadow: inset 0 -3px 0 #b3b3b3; } .ds-links a[aria-current=\"page\"] { color: #111; box-shadow: inset 0 -3px 0 #e60012; } .ds-nav a:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #111; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Planner's Wall Chart",
+    "overview": "Every page is a packed wall of ruled modules, each with its own grey header strip, so a planner sees the whole day without scrolling between cards. The density is deliberate: 13px Noto Sans text, 32px controls, an 8px gap between modules, and a 12-column mosaic that packs modules side by side. Figures (times, counts, hours, headcount) are set in Barlow Semi Condensed bold with tabular numerals, so numbers read as numbers across the whole screen.\n\nOne utility red carries the system's voice: the main action in each module, the current page in the nav, the pressed segment, the count tag in each module header, and the peak hour. Everything else is ink on white modules set on a light grey ground. Depth comes from tone and a single 1px rule, never from shadows at rest. State is shown by form as well as hue: previous and next day shifts are dashed, meetings are hatched in purple, problems are filled red tags.\n\nThe same stylesheet serves narrow Sheets sidebars (~300px), dialogs, and full web pages. Sky and Ember are named themes that override tokens and a small set of shape traits; they keep their own recognisable character (rounded and pill shapes, their own faces) while the module mosaic underneath stays the same. The user rejected a neutral, airy \"clean dashboard\" look as too generic; big soft cards, KPI tiles and lots of white are not this system.",
+    "keyCharacteristics": [
+      "Light grey ground (`ground-grey`), white modules with a 1px border, grey header strips.",
+      "One utility red for action, current place, counts, flags and peaks.",
+      "Condensed bold figures with tabular numerals for every number and page title.",
+      "Dense: 13px body, 32px controls, 8px module gap, 36px header strips.",
+      "Flat at rest; tone steps and 1px rules do the separating.",
+      "State by form and hue together: dashed, hatched, filled."
+    ],
+    "rules": [
+      { "name": "The One Red Rule", "body": "Utility red marks only action, current place, counts, flags and peaks. In a module there is at most one red button; if a second action needs weight, it is a secondary button.", "section": "colors" },
+      { "name": "The Tone Step Rule", "body": "Modules are white on the grey ground. Never set a module on white or a grey module on grey; the step between ground and module is the separator, the 1px border confirms it.", "section": "colors" },
+      { "name": "The State Pairs Rule", "body": "The four state colours (green ok, amber warn, purple meeting, red problem) live beside the utility red and are never used decoratively. Each always comes with text or form (a tag label, a dash, a hatch), so colour is never the only signal.", "section": "colors" },
+      { "name": "The Figures Are Condensed Rule", "body": "Every number a planner reads (times, counts, hours, headcount, step numbers) is set in the figure face with tabular numerals. Words never use the figure face except page titles and the wordmark.", "section": "typography" },
+      { "name": "The Sentence Case Rule", "body": "Titles, labels and buttons are sentence case. No uppercase labels, no letter-spaced small caps.", "section": "typography" },
+      { "name": "The Whole Day Rule", "body": "Pack modules edge to edge on the mosaic so the job's modules are visible at once. Use the 8px module gap, not larger gutters, and do not centre a few big cards in white space.", "section": "layout" },
+      { "name": "The Flat At Rest Rule", "body": "Nothing on the page casts a shadow at rest. A shadow means the layer floats (loading, tooltip) or has focus.", "section": "elevation" },
+      { "name": "The One Rule Weight Rule", "body": "In the default theme every border and divider is 1px; emphasis comes from colour (red border for edit and today, error border for confirm), not from thicker lines.", "section": "shapes" }
+    ],
+    "dos": [
+      "**Do** set the page on the grey ground (`ground-grey`) and every module on white with a 1px `module-border`; let the tone step separate modules.",
+      "**Do** give every module a 36px grey header strip with a 14px bold title and, when it holds a countable list, a filled red count tag.",
+      "**Do** set every time, count and hour in Barlow Semi Condensed bold with tabular numerals.",
+      "**Do** keep one red primary button per module; everything else is secondary or ghost.",
+      "**Do** show state with form and a word as well as colour: dashed for carried-over shifts, hatched purple for meetings, filled red tags for problems.",
+      "**Do** keep theme files to token overrides plus their own recognisable traits (Sky: rounded modules, pill buttons, Nunito; Ember: pill buttons, Inter, black shell and module strips).",
+      "**Do** use the drawn line icons from the shared set, inline SVG at 13 to 14px in buttons."
+    ],
+    "donts": [
+      "**Don't** build the airy SaaS dashboard: big soft cards, KPI tiles, lots of white, large gutters.",
+      "**Don't** add shadows to modules, tables or the top bar at rest; only floating layers (loading box, tooltip) use the float shadow.",
+      "**Don't** use the utility red for decoration, headings or large fills beyond the header strip of a module in edit mode or today's day column.",
+      "**Don't** use the state colours (green, amber, purple, problem red) for anything other than their state.",
+      "**Don't** add uppercase or letter-spaced labels above titles; titles and labels are sentence case and stand alone.",
+      "**Don't** use text glyphs or emoji as icons; map them to the drawn line icons."
+    ]
+  }
+}

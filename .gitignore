@@ -1,1 +1,8 @@
 
+
+# Impeccable working files (sketches, reference images, screenshots, cache)
+.impeccable/mocks/
+.impeccable/ref/
+.impeccable/review/
+.impeccable/questions/
+.impeccable/hook.cache.json
