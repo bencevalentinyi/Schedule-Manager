@@ -79,7 +79,7 @@ var TAXI_SEPARATORS = {
 /** Settings with defaults. Pure. */
 function normalizeTaxiSettings_(s) {
   s = s || {};
-  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {}, ar = r.arrival || {}, t = s.texts || {}, em = s.email || {};
+  var r = s.rules || {}, se = r.shiftEnd || {}, te = r.tenure || {}, ar = r.arrival || {}, t = s.texts || {}, em = s.email || {}, au = em.auto || {};
   var hm = function (v, d) { var m = hmToMinutes_(str_(v)); return m === null ? d : minutesToHm_(m % 1440); };
   var mins = function (v, d) { return Math.min(720, Math.max(0, Math.floor(toNumber_(v, d)))); };
   return {
@@ -106,7 +106,10 @@ function normalizeTaxiSettings_(s) {
       include: em.include === 'BOOKED' ? 'BOOKED' : 'NOT_DENIED',
       intro: em.intro !== undefined ? String(em.intro) : TAXI_EMAIL_DEFAULTS.intro,
       item: str_(em.item) ? String(em.item) : TAXI_EMAIL_DEFAULTS.item,
-      outro: em.outro !== undefined ? String(em.outro) : TAXI_EMAIL_DEFAULTS.outro
+      outro: em.outro !== undefined ? String(em.outro) : TAXI_EMAIL_DEFAULTS.outro,
+      // Kept up to date for a Slack workflow: taxiEmailTick (on a time-driven trigger the user adds) writes today's
+      // email text into one row of this tab while the time is inside from–to; the workflow reads the row where Key = key.
+      auto: { on: au.on === true, tab: str_(au.tab) || 'Taxi Email', key: str_(au.key) || 'tonight', from: hm(au.from, '04:30'), to: hm(au.to, '22:00') }
     },
     rules: {
       shiftEnd: { on: se.on !== false, from: hm(se.from, '00:00'), to: hm(se.to, '06:00') },
@@ -143,6 +146,9 @@ function validateTaxiSettings_(s) {
   var errors = [];
   if (s.requestTab === s.checksTab) errors.push('The checks tab must be a different tab than the requests.');
   if (s.dayTab && (s.dayTab === s.requestTab || s.dayTab === s.checksTab)) errors.push('The day view must be its own tab, not the requests or the checks tab.');
+  var a = s.email.auto;
+  if (a.on && [s.requestTab, s.checksTab, s.dayTab].indexOf(a.tab) >= 0) errors.push('The email text tab must be its own tab, not the requests, checks or day view tab.');
+  if (a.on && a.from === a.to) errors.push('The email text window starts and ends at the same time.');
   if (s.rules.tenure.on && !s.sinceField) errors.push('Choose the staff column with the employee-since date (or switch the employment rule off).');
   if (s.rules.shiftEnd.on && s.rules.shiftEnd.from === s.rules.shiftEnd.to) errors.push('The shift end window starts and ends at the same time.');
   return errors;
@@ -479,6 +485,7 @@ function buildTaxiEmail_(rows, email, dateIso) {
     return taxiFillColumns_(email.item, v);
   });
   out.count = list.length;
+  out.taxiDate = common['taxi date'];
   out.text = [taxiFillColumns_(email.intro, common)].concat(items.length ? [items.join('\n\n')] : []).concat([taxiFillColumns_(email.outro, common)])
     .filter(function (p) { return p !== ''; }).join('\n');
   return out;
@@ -788,29 +795,101 @@ function apiTaxiPreview(settings, opts) {
  */
 function apiTaxiEmailText(settings, dateIso) {
   return apiCall_('apiTaxiEmailText', function () {
-    var s = normalizeTaxiSettings_(settings), tz = getTz_();
-    var date = isIsoDate_(str_(dateIso)) ? str_(dateIso) : todayIso_(tz);
-    var cols = taxiRequestColumns_(s);
-    var sh = getSs_().getSheetByName(s.requestTab);
-    var rows = [];
-    if (sh.getLastRow() >= 2) {
-      var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
-      var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
-      var ia = columnNumber_(cols.arrival) - 1, ib = cols.booking ? columnNumber_(cols.booking) - 1 : -1, iname = columnNumber_(cols.name) - 1;
-      for (var r = 1; r < values.length; r++) {
-        var when = taxiDayOf_(values[r][ia], s.dayStart, tz);
-        if (!str_(values[r][iname]) || when.day !== date) continue;
-        var v = {};
-        headers.forEach(function (h, i) { if (h) v[h] = shown[r][i]; });
-        rows.push({ values: v, time: when.time, order: when.order, taxiDate: taxiDateIso_(values[r][ia], tz),
-          status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
-      }
-    }
-    var out = buildTaxiEmail_(rows, s.email, date);
-    out.date = date;
-    out.warnings = cols.warnings;
-    return out;
+    var s = normalizeTaxiSettings_(settings);
+    return taxiEmailFor_(s, isIsoDate_(str_(dateIso)) ? str_(dateIso) : todayIso_(getTz_()));
   });
+}
+
+/** The email text for one taxi day, read from the request tab (see buildTaxiEmail_). */
+function taxiEmailFor_(s, date) {
+  var tz = getTz_();
+  var cols = taxiRequestColumns_(s);
+  var sh = getSs_().getSheetByName(s.requestTab);
+  var rows = [];
+  if (sh.getLastRow() >= 2) {
+    var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
+    var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
+    var ia = columnNumber_(cols.arrival) - 1, ib = cols.booking ? columnNumber_(cols.booking) - 1 : -1, iname = columnNumber_(cols.name) - 1;
+    for (var r = 1; r < values.length; r++) {
+      var when = taxiDayOf_(values[r][ia], s.dayStart, tz);
+      if (!str_(values[r][iname]) || when.day !== date) continue;
+      var v = {};
+      headers.forEach(function (h, i) { if (h) v[h] = shown[r][i]; });
+      rows.push({ values: v, time: when.time, order: when.order, taxiDate: taxiDateIso_(values[r][ia], tz),
+        status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
+    }
+  }
+  var out = buildTaxiEmail_(rows, s.email, date);
+  out.date = date;
+  out.warnings = cols.warnings;
+  return out;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Email text for a Slack workflow                                           */
+/* ------------------------------------------------------------------------ */
+
+var TAXI_EMAIL_TAB_HEADERS = ['Key', 'Taxi day', 'Taxi date', 'Count', 'Text', 'Updated', 'Status'];
+
+/** A cell value that Sheets keeps as text (a leading = + - @ would make it a formula). Pure. */
+function taxiCellText_(v) {
+  var t = String(v === null || v === undefined ? '' : v);
+  return /^[=+\-@]/.test(t) ? "'" + t : t;
+}
+
+/**
+ * The row of the email text tab: Key, Taxi day, Taxi date, Count, Text, Updated, Status. Pure.
+ * @param {{text: string, count: number, taxiDate: string, date: string}} out buildTaxiEmail_'s result for the taxi day
+ */
+function taxiEmailRow_(key, out, updated) {
+  return [key, out.date, out.taxiDate, String(out.count), out.text, updated, 'OK'].map(taxiCellText_);
+}
+
+/**
+ * Writes today's email text into its tab (created when missing; row 1 the headers, row 2 the text). Today is the
+ * taxi day in the spreadsheet's time zone, so in the evening it holds the taxis of the coming night.
+ * @return {{sheetUrl: Object, count: number}}
+ */
+function writeTaxiEmailTab_(s) {
+  var a = s.email.auto, tz = getTz_(), ss = getSs_(), th = sheetTheme_();
+  var out = taxiEmailFor_(s, todayIso_(tz));
+  var sh = ss.getSheetByName(a.tab) || ss.insertSheet(a.tab);
+  var n = TAXI_EMAIL_TAB_HEADERS.length;
+  sh.getRange(1, 1, 1, n).setValues([TAXI_EMAIL_TAB_HEADERS]).setFontWeight('bold').setBackground(th.header).setFontColor(th.headerText).setFontFamily(th.font);
+  sh.getRange(2, 1, 1, n).setNumberFormat('@').setValues([taxiEmailRow_(a.key, out, Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'))])
+    .setVerticalAlignment('top').setFontFamily(th.font);
+  sh.getRange(2, 5).setWrap(true);
+  sh.setFrozenRows(1);
+  sh.setColumnWidth(5, 420);
+  return { sheetUrl: sheetLink_(sh), count: out.count };
+}
+
+/**
+ * Entry point for a time-driven trigger (Apps Script → Triggers → Add trigger → taxiEmailTick, time-driven,
+ * every 10 minutes). While the time is inside the window of Email text → "Keep up to date", writes today's email
+ * text into its tab for a Slack workflow to read; outside the window it does nothing. On an error the last text
+ * stays and the Status column shows the error. Never shows UI.
+ */
+function taxiEmailTick() {
+  var s = null;
+  try {
+    requireInitialized_();
+    s = getTaxiSettings_();
+    var a = s.email.auto;
+    if (!a.on) return 'off';
+    var now = hmToMinutes_(Utilities.formatDate(new Date(), getTz_(), 'HH:mm'));
+    if (!taxiInWindow_(now, a.from, a.to)) return 'outside ' + a.from + '–' + a.to;
+    var r = writeTaxiEmailTab_(s);
+    console.log('Taxi email text: ' + r.count + ' taxi(s) written to "' + a.tab + '".');
+    return r.count;
+  } catch (e) {
+    logError_('taxiEmailTick', e);
+    try {
+      var sh = s && getSs_().getSheetByName(s.email.auto.tab);
+      if (sh) sh.getRange(2, 7).setValue(taxiCellText_('Error ' + Utilities.formatDate(new Date(), getTz_(), 'HH:mm') + ': ' + (e && e.message ? e.message : e)));
+    } catch (e2) { /* nothing more to do */ }
+    throw e;
+  }
 }
 
 function apiTaxiSave(settings) {
@@ -823,6 +902,8 @@ function apiTaxiSave(settings) {
       var u = {};
       u[TAXI_SETTINGS_KEY_] = JSON.stringify(s);
       setConfigValues_(u);
+      // Fill the email text tab at once, so the Slack step can be set up before the trigger first runs.
+      if (s.email.auto.on) res.emailTab = writeTaxiEmailTab_(s);
       res.settings = s;
       return res;
     });
@@ -951,6 +1032,17 @@ function taxiUnitTests_() {
       assertEq_(buildTaxiEmail_(night, tpl, '2026-10-25').text, '2026-10-25 | 2026-10-26 | 2026-10-26\n1. 2026-10-26 00:40 Dan\n\n2. 2026-10-26 04:10 Eve',
         'taxis after midnight: {date} is the taxi day, {taxi date} the date they drive');
       assertEq_(buildTaxiEmail_([], tpl, '2026-10-25').text, '2026-10-25 | 2026-10-25 | 2026-10-26', 'no taxis: {taxi date} falls back to {date}');
+    }],
+    ['Taxi: the email text tab for a Slack workflow — settings, row, text kept as text', function () {
+      var a = normalizeTaxiSettings_({}).email.auto;
+      assertEq_([a.on, a.tab, a.key, a.from, a.to], [false, 'Taxi Email', 'tonight', '04:30', '22:00'], 'off by default; 04:30–22:00');
+      var b = normalizeTaxiSettings_({ email: { auto: { on: true, tab: 'Mail', key: 'next', from: '5:00', to: 'x' } } }).email.auto;
+      assertEq_([b.on, b.tab, b.key, b.from, b.to], [true, 'Mail', 'next', '05:00', '22:00']);
+      assertEq_(validateTaxiSettings_(normalizeTaxiSettings_({ rules: { tenure: { on: false } }, email: { auto: { on: true, tab: 'Taxi Checks' } } })).length, 1, 'its own tab');
+      assertEq_(taxiEmailRow_('tonight', { date: '2026-10-25', taxiDate: '2026-10-26', count: 2, text: '=Hi\n1. Ann' }, '2026-10-25 21:50'),
+        ['tonight', '2026-10-25', '2026-10-26', '2', "'=Hi\n1. Ann", '2026-10-25 21:50', 'OK'], 'a text starting with = stays text');
+      assertEq_([taxiInWindow_(hmToMinutes_('04:29'), '04:30', '22:00'), taxiInWindow_(hmToMinutes_('21:59'), '04:30', '22:00'), taxiInWindow_(hmToMinutes_('22:01'), '04:30', '22:00')],
+        [false, true, false], 'the trigger writes only inside the window');
     }],
     ['Taxi: a taxi day runs from the day start, so a 00:15 taxi belongs to the evening before', function () {
       assertEq_([taxiDayOf_('2026-10-25 19:20', '06:00', tz), taxiDayOf_('2026-10-26 00:15', '06:00', tz), taxiDayOf_('26.10.2026 07:00', '06:00', tz)],

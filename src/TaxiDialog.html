@@ -18,7 +18,7 @@
 <body>
   <header class="app-header">
     <h1>Taxi Requests</h1>
-    <p class="subtitle">Checks each taxi request from the Slack workflow against your rules (a live formula in the checks tab, read back by the workflow), shows the taxis of a day, and builds an email text. No Slack app, no trigger.</p>
+    <p class="subtitle">Checks each taxi request from the Slack workflow against your rules (a live formula in the checks tab, read back by the workflow), shows the taxis of a day, and builds an email text. No Slack app; the only trigger is the optional one that keeps the email text up to date.</p>
     <div class="tabs" role="tablist" id="tabs" aria-label="Sections">
       <button type="button" role="tab" data-tab="setup" aria-controls="p-setup" aria-selected="true">Setup</button>
       <button type="button" role="tab" data-tab="rules" aria-controls="p-rules" aria-selected="false" tabindex="-1">Rules</button>
@@ -135,6 +135,21 @@
         <div class="field"><label class="label" for="emItem">For each taxi</label><textarea id="emItem" rows="4"></textarea></div>
         <div class="field"><label class="label" for="emOutro">End</label><textarea id="emOutro" rows="2"></textarea></div>
       </div>
+      <div class="section">
+        <h2>Keep up to date for Slack</h2>
+        <p class="hint mt-0">Writes today's email text (the taxis of the coming night) into one row of a tab, again and again inside the time window,
+          so a scheduled Slack workflow can read it and send it, e.g. at 22:00. Uses the layout above and "Which requests".</p>
+        <label class="check"><input type="checkbox" id="auOn"> Keep the email text up to date in a tab</label>
+        <div class="row mt-2">
+          <div class="field"><label class="label" for="auTab">Tab</label><input type="text" id="auTab" maxlength="100"></div>
+          <div class="field"><label class="label" for="auKey">Key (column A)</label><input type="text" id="auKey" maxlength="50"></div>
+          <div class="field"><label class="label" for="auFrom">From</label><input type="time" id="auFrom"></div>
+          <div class="field"><label class="label" for="auTo">Until</label><input type="time" id="auTo"></div>
+        </div>
+        <p class="hint">Once, in the Apps Script editor: <b>Triggers</b> (clock icon) → <b>Add trigger</b> → function <code>taxiEmailTick</code>,
+          event source <b>Time-driven</b>, <b>Minutes timer</b>, <b>Every 10 minutes</b>. Outside the window it does nothing. Save and apply fills the tab at once.
+          The Slack steps are under <b>Slack steps</b>.</p>
+      </div>
     </section>
 
     <!-- Slack steps -->
@@ -148,6 +163,14 @@
         <li>In each button's branch: <b>Update a spreadsheet row</b> in the requests tab where Date ID = Time when workflow started (fill the decision column), and a message to the person.</li>
       </ol>
       <p class="hint">Change the settings at any time: <b>Save and apply</b> rewrites the formulas, and the workflow keeps working. Save again after adding a team or moving staff columns.</p>
+      <h2>Sending the email text at a set time</h2>
+      <ol class="steps">
+        <li>Switch on <b>Email text → Keep up to date for Slack</b>, save, and add the <code>taxiEmailTick</code> trigger (see there).</li>
+        <li>A new workflow that starts <b>On a schedule</b>: every day at the time to send (e.g. 22:00, inside the window).</li>
+        <li><b>Google Sheets → Select a spreadsheet row</b>: this spreadsheet, tab <b id="hintAutoTab">Taxi Email</b>, column <b>Key</b> = <b id="hintAutoKey">tonight</b>.</li>
+        <li>Send the selected row's <b>Text</b>: <b>Send a message</b> to a channel or person, or an email step if your Slack has one.
+          <b>Count</b> is the number of taxis and <b>Updated</b> when the text was last written.</li>
+      </ol>
     </section>
   </main>
   <footer class="app-footer">
@@ -212,7 +235,9 @@
         }).join('');
         $('emailDate').value = d.today; $('emailInclude').value = s.email.include;
         $('emIntro').value = s.email.intro; $('emItem').value = s.email.item; $('emOutro').value = s.email.outro;
-        $('hintChecks').textContent = s.checksTab;
+        var au = s.email.auto;
+        $('auOn').checked = au.on; $('auTab').value = au.tab; $('auKey').value = au.key; $('auFrom').value = au.from; $('auTo').value = au.to;
+        $('hintChecks').textContent = s.checksTab; $('hintAutoTab').textContent = au.tab; $('hintAutoKey').textContent = au.key;
         if (!d.headers.length) showStatus('info', 'The tab "' + esc(s.requestTab) + '" does not exist yet. Choose the tab your Slack workflow writes to, or create a new one.', 'Choose the requests tab');
       });
     }
@@ -245,7 +270,8 @@
         dayColumns: Array.prototype.filter.call(document.querySelectorAll('[data-daycol]'), function (c) { return c.checked; }).map(function (c) { return c.getAttribute('data-daycol'); }),
         rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value },
           arrival: { on: $('arOn').checked, before: $('arBefore').value, after: $('arAfter').value } },
-        email: { include: $('emailInclude').value, intro: $('emIntro').value, item: $('emItem').value, outro: $('emOutro').value },
+        email: { include: $('emailInclude').value, intro: $('emIntro').value, item: $('emItem').value, outro: $('emOutro').value,
+          auto: { on: $('auOn').checked, tab: $('auTab').value, key: $('auKey').value, from: $('auFrom').value, to: $('auTo').value } },
         okText: $('okText').value, failText: $('failText').value, separator: $('separator').value,
         texts: Array.prototype.reduce.call(document.querySelectorAll('[data-text]'), function (o, el) { o[el.getAttribute('data-text')] = el.value; return o; }, {})
       };
@@ -274,10 +300,13 @@
       showStatus('');
       call('Saving…', 'apiTaxiSave', collect()).then(function (r) {
         $('hintChecks').textContent = r.settings.checksTab;
-        $('checksLink').href = r.sheetUrl; show('checksLink', true);
-        if (r.dayUrl) { $('dayLink').href = r.dayUrl; show('dayLink', true); } else show('dayLink', false);
+        $('hintAutoTab').textContent = r.settings.email.auto.tab; $('hintAutoKey').textContent = r.settings.email.auto.key;
+        // sheetLink_ gives {sheet, url}: the button needs the url.
+        $('checksLink').href = r.sheetUrl.url; show('checksLink', true);
+        if (r.dayUrl) { $('dayLink').href = r.dayUrl.url; show('dayLink', true); } else show('dayLink', false);
         var extra = (r.missingTeams.length ? ' Not checked against: ' + esc(r.missingTeams.join(', ')) + '.' : '') +
-          ((r.warnings || []).length ? ' ' + esc(r.warnings.join(' ')) : '');
+          ((r.warnings || []).length ? ' ' + esc(r.warnings.join(' ')) : '') +
+          (r.emailTab ? ' Email text tab filled (' + r.emailTab.count + ' taxi(s)); add the taxiEmailTick trigger to keep it up to date.' : '');
         showStatus('ok', 'The checks tab' + (r.dayUrl ? ' and the day view' : '') + ' now use these settings (' + r.teams + ' staff sheet(s)).' + extra, 'Saved');
         if (previewed) preview();
       });
