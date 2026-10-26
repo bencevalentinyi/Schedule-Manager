@@ -91,11 +91,24 @@ function saveTeamRow_(team) {
   updateObject_(T_TEAMS, team);
 }
 
+var SHEET_BY_ID_MEMO_ = null;
+/**
+ * The sheet with this ID, or null. The ID map is built once per execution and rebuilt when the number of
+ * sheets changed, a remembered sheet no longer answers, or the ID is not in it, so sheets added or
+ * removed during a run are found.
+ */
 function findSheetById_(id) {
   if (id === null || id === undefined || id === '') return null;
-  var sheets = getSs_().getSheets();
-  for (var i = 0; i < sheets.length; i++) if (sheets[i].getSheetId() === Number(id)) return sheets[i];
-  return null;
+  var want = Number(id);
+  var ss = getSs_();
+  var memo = SHEET_BY_ID_MEMO_;
+  if (memo && memo.count === ss.getNumSheets() && memo.byId[want]) {
+    try { memo.byId[want].getName(); return memo.byId[want]; } catch (e) { /* deleted: rebuild below */ }
+  }
+  var sheets = ss.getSheets(), byId = {};
+  sheets.forEach(function (s) { byId[s.getSheetId()] = s; });
+  SHEET_BY_ID_MEMO_ = { count: sheets.length, byId: byId };
+  return byId[want] || null;
 }
 
 /**

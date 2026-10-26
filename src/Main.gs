@@ -98,7 +98,7 @@ function checkInstall() {
     AuditService: 'readImportLog_', WebApp: 'doGet', WebDataService: 'apiWebDay', Main: 'onOpen', Tests: 'runUnitTests'
   };
   var html = ['Styles', 'ClientCore', 'SetupDialog', 'TeamDialog', 'TeamManager', 'StaffFieldsDialog', 'SettingsDialog', 'StaffImportDialog', 'MonitoringLinksDialog', 'ImportDialog', 'ImportPreview', 'HistoryDialog', 'StaffSidebar', 'Navigator', 'ReportDialog',
-    'WebShell', 'WebHome', 'WebSchedule', 'WebDashboard', 'WebPerson', 'WebStaff', 'WebLinksOutput'];
+    'WebShell', 'WebLoading', 'WebHome', 'WebSchedule', 'WebDashboard', 'WebPerson', 'WebStaff', 'WebLinksOutput'];
   var problems = [];
   Object.keys(scripts).forEach(function (file) {
     if (typeof g[scripts[file]] === 'undefined') problems.push('Script file "' + file + '" is missing, empty, incomplete or contains another file\'s code (expected to define ' + scripts[file] + ').');

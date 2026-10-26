@@ -367,8 +367,11 @@ function activeSheetOrNull_() {
   try { return SpreadsheetApp.getActiveSpreadsheet() ? getSs_().getActiveSheet() : null; } catch (e) { return null; }
 }
 
+var TZ_MEMO_ = null;
+/** The spreadsheet's time zone (asked once per execution). */
 function getTz_() {
-  return getSs_().getSpreadsheetTimeZone();
+  if (TZ_MEMO_ === null) TZ_MEMO_ = getSs_().getSpreadsheetTimeZone();
+  return TZ_MEMO_;
 }
 
 function todayIso_(tz) {
@@ -478,12 +481,15 @@ function include(name) {
   return name === 'Styles' ? html + themeHtml_() : html;
 }
 
-/** The active theme's HTML, or '' for the default look (also when its file is missing). */
+var THEME_HTML_MEMO_ = null;
+/** The active theme's HTML, or '' for the default look (also when its file is missing). Read once per execution. */
 function themeHtml_() {
+  if (THEME_HTML_MEMO_ !== null) return THEME_HTML_MEMO_;
   try {
     var theme = THEMES[getConfig_().UI_THEME];
-    return theme && theme.file ? HtmlService.createHtmlOutputFromFile(theme.file).getContent() : '';
+    THEME_HTML_MEMO_ = theme && theme.file ? HtmlService.createHtmlOutputFromFile(theme.file).getContent() : '';
   } catch (e) {
-    return ''; // not initialized yet, or the theme file was not added to the project
+    THEME_HTML_MEMO_ = ''; // not initialized yet, or the theme file was not added to the project
   }
+  return THEME_HTML_MEMO_;
 }

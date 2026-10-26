@@ -66,6 +66,7 @@ var CONFIG_CACHE_SECONDS = 300;
 
 function resetConfigMemo_() {
   configMemo_ = null;
+  THEME_HTML_MEMO_ = null; // the theme may have changed with the settings
   try { CacheService.getScriptCache().remove(CONFIG_CACHE_KEY_); } catch (e) { /* no cache here */ }
 }
 

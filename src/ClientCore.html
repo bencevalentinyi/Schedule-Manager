@@ -66,9 +66,9 @@
   /* ---------- Web app (WebApp.gs sets window.WEB_APP; inside Sheets it is undefined) ---------- */
 
   var WEB = window.WEB_APP || null;
-  /** Link to a web-app page, e.g. webHref('team', {teamId: 'TEAM_001'}). */
+  /** Link to a web-app page, e.g. webHref('team', {teamId: 'TEAM_001'}). nav=1: opens at once, without the loading page. */
   function webHref(page, params) {
-    var q = '?page=' + encodeURIComponent(page);
+    var q = '?page=' + encodeURIComponent(page) + '&nav=1';
     Object.keys(params || {}).forEach(function (k) { if (params[k] !== '' && params[k] !== null && params[k] !== undefined) q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
     return WEB.url + q;
   }

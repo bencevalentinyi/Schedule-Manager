@@ -108,13 +108,8 @@ function faviconFromThemeHtml_(html) {
 
 /** The icon of the active theme (Display Settings → Theme), or the default icon. */
 function themeFaviconUrl_() {
-  try {
-    var theme = THEMES[getConfig_().UI_THEME];
-    if (theme && theme.file) {
-      var url = faviconFromThemeHtml_(HtmlService.createHtmlOutputFromFile(theme.file).getContent());
-      if (url) return url;
-    }
-  } catch (e) { /* no theme file or not set up yet: default icon */ }
+  var url = faviconFromThemeHtml_(themeHtml_()); // '' for the default look, a missing file, or before setup
+  if (url) return url;
   return WEB_DEFAULT_FAVICON_;
 }
 
@@ -131,23 +126,63 @@ function withFavicon_(out) {
   return out;
 }
 
-/** Web app entry point (GET). */
+/**
+ * Web app entry point (GET). Links inside the web app carry nav=1 and get their page at once (one round
+ * trip). Any other opening (a bookmark, the link from Sheets, a reload) first gets a light loading page
+ * that needs no spreadsheet, so something shows quickly; that page asks for the real one (apiWebPage).
+ */
 function doGet(e) {
   var params = (e && e.parameter) || {};
-  var pages = webPages_();
-  var key = pages[params.page] ? params.page : 'home';
   try {
-    var page = pages[key];
-    // Before setup only Home, Setup and Help open; the others need the system sheets.
-    if (page.init !== false && !isInitialized_()) { key = 'setup'; page = pages.setup; }
-    return renderWebPage_(key, params);
+    if (params.nav !== '1') return webLoadingPage_(params);
+    var page = buildWebPage_(params);
+    return webOutput_(page.html, page.title);
   } catch (err) {
     logError_('doGet', err);
     return webErrorPage_(toUserError_(err));
   }
 }
 
-/** The page's HTML: the dialog file evaluated with its BOOT data, plus the navigation bar. */
+/** The page for these URL parameters: {html, title}. Writes how long it took to the execution log. */
+function buildWebPage_(params) {
+  var started = Date.now();
+  var pages = webPages_();
+  var key = pages[params.page] ? params.page : 'home';
+  // Before setup only Home, Setup and Help open; the others need the system sheets.
+  if (pages[key].init !== false && !isInitialized_()) key = 'setup';
+  var out = renderWebPage_(key, params);
+  console.log('Web page "' + key + '": ' + (Date.now() - started) + ' ms, of which page data ' + out.dataMs + ' ms');
+  return out;
+}
+
+/** Client API (WebLoading.html): the real page as HTML, for the loading page to put in its place. */
+function apiWebPage(params) {
+  return apiCall_('apiWebPage', function () {
+    var clean = {};
+    Object.keys(params || {}).forEach(function (k) { if (typeof params[k] === 'string') clean[k] = params[k]; });
+    var page = buildWebPage_(clean);
+    return { html: page.html, title: page.title };
+  });
+}
+
+/** A finished page: tab title, icon and phone viewport. */
+function webOutput_(html, title) {
+  return withFavicon_(HtmlService.createHtmlOutput(html)
+    .setTitle(APP.NAME + ' · ' + title)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1'));
+}
+
+/** The navigation bar (WebShell.html) for a page. */
+function webShellHtml_(key, url, spreadsheetUrl) {
+  var shell = HtmlService.createTemplateFromFile('WebShell');
+  shell.nav = webNav_(key, url);
+  shell.spreadsheetUrl = spreadsheetUrl;
+  shell.appName = APP.NAME;
+  shell.homeUrl = url + '?page=home&nav=1';
+  return shell.evaluate().getContent();
+}
+
+/** The page's HTML: the dialog file evaluated with its BOOT data, plus the navigation bar. {html, title, dataMs} */
 function renderWebPage_(key, params) {
   var page = webPages_()[key];
   var t = HtmlService.createTemplateFromFile(page.file);
@@ -155,22 +190,45 @@ function renderWebPage_(key, params) {
   if (data.title === undefined) data.title = page.title;
   t.bootJson = jsonForHtml_(data);
   var url = webAppUrl_();
-  var client = { url: url, page: key, back: page.back || 'home', spreadsheetUrl: getSs_().getUrl(),
-    prefetch: page.prefetch ? webPrefetch_(page.prefetch(params, data)) : {} };
-  var shell = HtmlService.createTemplateFromFile('WebShell');
-  shell.nav = webNav_(key, url);
-  shell.spreadsheetUrl = client.spreadsheetUrl;
-  shell.appName = APP.NAME;
-  shell.homeUrl = url + '?page=home';
-  var head = '<script>window.WEB_APP = ' + jsonForHtml_(client) + ';</script>' +
-    '<style>:root { --web-max: ' + (page.narrow ? WEB_MAX_WIDTH_.narrow : WEB_MAX_WIDTH_.wide) + 'px; }</style>';
+  var dataStarted = Date.now();
+  var prefetch = page.prefetch ? webPrefetch_(page.prefetch(params, data)) : {};
+  var dataMs = Date.now() - dataStarted;
+  var client = { url: url, page: key, back: page.back || 'home', spreadsheetUrl: getSs_().getUrl(), prefetch: prefetch };
+  var head = '<script>window.WEB_APP = ' + jsonForHtml_(client) + ';</script>' + webWidthStyle_(page);
   var content = t.evaluate().getContent();
   // Sidebar pages (Schedule, Staff) have no page header; give them one so the theme's mark and top bar show.
-  var top = shell.evaluate().getContent() + webPageHeader_(content, data.title || page.title);
-  var html = injectWebShell_(content, head, top);
-  return withFavicon_(HtmlService.createHtmlOutput(html)
-    .setTitle(APP.NAME + ' · ' + (data.title || page.title))
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1'));
+  var top = webShellHtml_(key, url, client.spreadsheetUrl) + webPageHeader_(content, data.title || page.title);
+  return { html: injectWebShell_(content, head, top), title: data.title || page.title, dataMs: dataMs };
+}
+
+function webWidthStyle_(page) {
+  return '<style>:root { --web-max: ' + (page.narrow ? WEB_MAX_WIDTH_.narrow : WEB_MAX_WIDTH_.wide) + 'px; }</style>';
+}
+
+/**
+ * The loading page shown when the web app is opened: the navigation bar and a loading screen, built
+ * without opening the spreadsheet (the theme comes from the cached settings). It then loads the real page.
+ */
+function webLoadingPage_(params) {
+  var pages = webPages_();
+  var key = pages[params.page] ? params.page : 'home';
+  var url = webAppUrl_();
+  var query = Object.keys(params).filter(function (k) { return k !== 'nav'; })
+    .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
+  var t = HtmlService.createTemplateFromFile('WebLoading');
+  t.shell = webShellHtml_(key, url, webSpreadsheetUrlFast_());
+  t.widthStyle = webWidthStyle_(pages[key]);
+  t.pageTitle = pages[key].title;
+  t.bootJson = jsonForHtml_({ params: params, directUrl: url + '?' + query.concat(['nav=1']).join('&') });
+  return webOutput_(t.evaluate().getContent(), pages[key].title);
+}
+
+/** The spreadsheet's address from the remembered ID, without opening it ('' when unknown). */
+function webSpreadsheetUrlFast_() {
+  try {
+    var id = PropertiesService.getScriptProperties().getProperty(SS_ID_PROPERTY_);
+    return id ? 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(id) + '/edit' : '';
+  } catch (e) { return ''; }
 }
 
 /**
@@ -197,7 +255,7 @@ function webPageHeader_(html, title) {
 function webNav_(current, url) {
   var pages = webPages_();
   return Object.keys(pages).filter(function (k) { return pages[k].nav; }).map(function (k) {
-    return { key: k, label: pages[k].nav, href: url + '?page=' + k, current: k === current || pages[current].back === k };
+    return { key: k, label: pages[k].nav, href: url + '?page=' + k + '&nav=1', current: k === current || pages[current].back === k };
   });
 }
 

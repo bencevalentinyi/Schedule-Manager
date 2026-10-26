@@ -1078,7 +1078,7 @@ function unitTestsWebApp_() {
       // Extension pages (when their files are present) come after the built-in ones.
       assertEq_(nav.map(function (n) { return n.key; }).filter(function (k) { return WEB_PAGES[k]; }), ['home', 'schedule', 'dashboard', 'import', 'teams', 'staff', 'links', 'settings']);
       assertEq_(nav.filter(function (n) { return n.current; }).map(function (n) { return n.key; }), ['teams'], 'Team editor belongs to Teams');
-      assertEq_(nav[3].href, 'https://x/exec?page=import');
+      assertEq_(nav[3].href, 'https://x/exec?page=import&nav=1', 'links inside the app skip the loading page');
       assertEq_(WEB_PAGES.setup.init, false, 'Setup opens before initialization');
       assertEq_([webDateParam_('2026-10-15'), webDateParam_('15/10/2026'), webListParam_('A, B,,C'), webListParam_('')], ['2026-10-15', '', ['A', 'B', 'C'], []]);
     }],

@@ -25,13 +25,16 @@ Apps Script can only use an icon from a web address, so these are loaded from th
 
 ## Speed
 
+- **Loading screen when the web app is opened** (a bookmark, the link from Sheets, a reload): a light page with the top bar and a loading screen comes first, built without opening the spreadsheet (`WebLoading.html`). It then asks for the real page (`apiWebPage`) and puts it in place. Links inside the web app carry `nav=1` and skip it, so moving between pages stays one round trip.
 - **One round trip per page.** The data a page needs when it opens is fetched while the page is built and sent with it, so the page doesn't have to ask the server again (`prefetch` in `WEB_PAGES`).
+- **Fewer slow calls per page:** each distinct date in `_SCHEDULE_DATA` is converted once instead of once per row, sheets are looked up by ID from a map built once per run, and the time zone and theme file are read once.
+- **Timings in the log:** every page writes `Web page "<page>": N ms, of which page data M ms` to Apps Script → Executions, so you can see which page is slow and whether the time goes to its data.
 - **Settings are cached** for 5 minutes between calls (script cache), instead of reading `_CONFIG` every time. Saving settings, setup, or editing `_CONFIG` by hand clears the cache.
 - **One read of the schedule per page:** all chosen teams and days at once, and only the matching rows.
 - **Search on the page:** Schedule and Staff filter in the browser as you type, with no server call.
 - **Instant feedback:** a progress bar appears as soon as you click a link.
 
-What still takes time is Google itself: each page opening runs the script once (usually 1–3 seconds), and the first run after a while is slower.
+What still takes time is Google itself: each page opening runs the script once (usually 1–3 seconds), and the first run after a while is slower. Before the loading screen appears there is still a short blank moment while Google starts the script; no code in the project can show anything earlier.
 
 ## Deploy (once)
 

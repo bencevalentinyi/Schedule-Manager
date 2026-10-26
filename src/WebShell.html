@@ -69,7 +69,7 @@
       <svg class="web-mark" viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" rx="2" fill="var(--primary)"/><path d="M6 8h14M6 13h9M6 18h11" stroke="#fff" stroke-width="2.4" stroke-linecap="square"/></svg>
       <span class="web-name"><?= appName ?></span>
     </a>
-    <a class="web-sheet" href="<?= spreadsheetUrl ?>" target="_blank" rel="noopener" aria-label="Open spreadsheet in a new tab"><span>Open spreadsheet</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a>
+    <? if (spreadsheetUrl) { ?><a class="web-sheet" href="<?= spreadsheetUrl ?>" target="_blank" rel="noopener" aria-label="Open spreadsheet in a new tab"><span>Open spreadsheet</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a><? } ?>
   </div>
   <div class="web-row web-links">
     <? for (var i = 0; i < nav.length; i++) { ?>

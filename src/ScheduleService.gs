@@ -80,10 +80,17 @@ function queryScheduleRecords_(filter) {
   var dates = filter.dates ? filter.dates : null;
   var teamCol = teams ? sh.getRange(2, hi.idx.teamId + 1, n, 1).getValues() : null;
   var dateCol = dates ? sh.getRange(2, hi.idx.shiftDate + 1, n, 1).getValues() : null;
+  // Many rows share a date: convert each distinct date cell once (formatting a date is slow and the table only grows).
+  var isoOf = {};
+  var isoDate = function (v) {
+    var k = isDate_(v) ? 'd' + v.getTime() : 's' + v;
+    if (!(k in isoOf)) isoOf[k] = cellToIsoDate_(v, tz);
+    return isoOf[k];
+  };
   var matches = [];
   for (var i = 0; i < n; i++) {
     if (teams && teams.indexOf(str_(teamCol[i][0])) < 0) continue;
-    if (dates && dates.indexOf(cellToIsoDate_(dateCol[i][0], tz)) < 0) continue;
+    if (dates && dates.indexOf(isoDate(dateCol[i][0])) < 0) continue;
     matches.push(i);
   }
   if (!matches.length) return [];

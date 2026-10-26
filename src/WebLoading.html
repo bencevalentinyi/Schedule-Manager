@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <?!= widthStyle ?>
+  <style>
+    /* Loading page (WebApp.gs → webLoadingPage_): shown while the real page is built, then replaced by it. */
+    .boot-wrap { display: flex; justify-content: center; padding-top: clamp(24px, 12vh, 120px); }
+    .boot { width: min(100%, 460px); }
+    .boot .panel-head h2 { white-space: normal; }
+    .boot-cells { display: flex; align-items: flex-end; gap: 4px; height: 96px; margin: var(--s2) 0 0; }
+    .boot-cells .col { flex: 1 1 0; display: flex; flex-direction: column-reverse; gap: 3px; }
+    .boot-cells i { display: block; height: 7px; border-radius: 1px; background: var(--text); opacity: 0;
+      animation: boot-cell 2.4s var(--ease) infinite; animation-delay: calc(var(--c) * 55ms + var(--r) * 70ms); }
+    .boot-cells .peak i { background: var(--primary); }
+    .boot-axis { border-top: 1px solid var(--text); margin-top: 3px; display: flex; justify-content: space-between; font: 500 11px/1.6 var(--figure); color: var(--text-2); }
+    .boot-note { margin: var(--s3) 0 0; color: var(--text-2); font-size: var(--fs-small); }
+    @keyframes boot-cell { 0% { opacity: 0; transform: translateY(4px); } 18%, 78% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .boot-cells i { animation: none; opacity: 1; } }
+  </style>
+</head>
+<body class="web-page">
+  <?!= shell ?>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div class="boot-wrap">
+      <section class="panel boot" role="status" aria-live="polite">
+        <div class="panel-head"><h2>Opening <?= pageTitle ?></h2></div>
+        <div class="boot-cells" id="cells" aria-hidden="true"></div>
+        <div class="boot-axis" aria-hidden="true"><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span></div>
+        <p class="boot-note" id="note">Reading the schedule from the spreadsheet…</p>
+      </section>
+    </div>
+  </main>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var PARAMS = BOOT.params || {}, DIRECT_URL = BOOT.directUrl || '';
+
+    // A day's headcount as whole cells, stacking up hour by hour; the peak hours are red.
+    (function () {
+      var day = [1, 2, 4, 6, 8, 9, 9, 8, 7, 7, 6, 5, 4, 3, 2, 1];
+      $('cells').innerHTML = day.map(function (n, c) {
+        var cells = '';
+        for (var r = 0; r < n; r++) cells += '<i style="--c:' + c + ';--r:' + r + '"></i>';
+        return '<div class="col' + (n === 9 ? ' peak' : '') + '">' + cells + '</div>';
+      }).join('');
+    })();
+
+    /** Puts the real page in place of this one: its head and body, then runs its scripts in order. */
+    function showPage(html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      document.head.innerHTML = doc.head.innerHTML;
+      Array.prototype.forEach.call(doc.body.attributes, function (a) { document.body.setAttribute(a.name, a.value); });
+      document.body.innerHTML = doc.body.innerHTML;
+      // Scripts inserted as HTML do not run; recreate each one so it does, in document order.
+      Array.prototype.forEach.call(document.querySelectorAll('script'), function (old) {
+        var s = document.createElement('script');
+        s.text = old.text;
+        old.parentNode.replaceChild(s, old);
+      });
+    }
+
+    var slow = setTimeout(function () {
+      $('note').innerHTML = 'This is taking longer than usual. If several Google accounts are signed in, open the web app in a window signed into only this account. ' +
+        '<a href="' + esc(DIRECT_URL) + '" target="_top">Open the page directly</a>';
+    }, 20000);
+
+    api('apiWebPage', PARAMS).then(function (page) {
+      clearTimeout(slow);
+      showPage(page.html);
+    }, function (e) {
+      clearTimeout(slow);
+      document.querySelector('.boot-wrap').innerHTML = '';
+      showError(e);
+      $('status').insertAdjacentHTML('beforeend', '<div class="cluster"><a class="btn primary" href="' + esc(DIRECT_URL) + '" target="_top">Try again</a></div>');
+    });
+  </script>
+</body>
+</html>
