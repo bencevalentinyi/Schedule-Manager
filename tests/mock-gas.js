@@ -217,6 +217,7 @@ class MockRange {
 class MockSpreadsheet {
   constructor(tz) { this.tz = tz; this.sheets = []; this.nextId = 1000; this.active = null; this.insertSheet('Sheet1'); }
   getSpreadsheetTimeZone() { return this.tz; }
+  getUrl() { return 'https://docs.google.com/spreadsheets/d/mock/edit'; }
   getSheetByName(n) { return this.sheets.find((s) => s.name === n) || null; }
   getSheets() { return this.sheets.slice(); }
   getNumSheets() { return this.sheets.length; }

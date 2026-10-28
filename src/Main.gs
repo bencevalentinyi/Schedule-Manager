@@ -29,11 +29,11 @@ function onOpen() {
       .addItem('View Staff Directory', 'menuViewStaff')
       .addItem('Import Staff Data (IDs, emails…)', 'menuImportEmployeeIds')
       .addItem('Monitoring Links', 'menuMonitoringLinks'))
-    .addSubMenu(ui.createMenu('Maintenance')
+    .addSubMenu(addExtensionMaintenance_(ui.createMenu('Maintenance')
       .addItem('Rebuild Missing Sheets', 'menuRebuildMissing')
       .addItem('Repair Formatting', 'menuRepairFormatting')
       .addItem('Validate Data', 'menuValidateData')
-      .addItem('Open System Configuration', 'menuOpenConfig')
+      .addItem('Open System Configuration', 'menuOpenConfig'))
       .addSeparator()
       .addItem('Open Web App', 'menuOpenWebApp')
       .addItem('About / Help', 'menuHelp'));
@@ -42,11 +42,17 @@ function onOpen() {
 }
 
 /**
- * Optional extension files (e.g. TaxiRequests.gs) register themselves in SM_EXTENSIONS: {id, title, menu: [{label, fn}], tests}.
+ * Optional extension files (e.g. TaxiRequests.gs) register themselves in SM_EXTENSIONS: {id, title, menu: [{label, fn}],
+ * maintenance: [{label, fn}] (added to the Maintenance menu), tests}.
  * Without such a file there is no Extensions menu and nothing else changes.
  */
 function smExtensions_() {
   return typeof SM_EXTENSIONS !== 'undefined' && Array.isArray(SM_EXTENSIONS) ? SM_EXTENSIONS : [];
+}
+
+function addExtensionMaintenance_(sub) {
+  smExtensions_().forEach(function (e) { (e.maintenance || []).forEach(function (m) { sub.addItem(m.label, m.fn); }); });
+  return sub;
 }
 
 function addExtensionsMenu_(ui, menu) {

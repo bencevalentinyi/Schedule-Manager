@@ -10,8 +10,9 @@
  *  - The workflow reads it back with "Select a spreadsheet row" (checks tab, the ID column = the value it wrote, e.g.
  *    "Time when workflow started") and posts the Message in the request's thread, so the approver sees it before
  *    clicking Prebooked / Deny. Without an ID column it searches by Name (the newest request of that person).
- *  - The request tab is never written to; the checks tab is rebuilt by "Save and apply" (and after staff
- *    sheets are added or their columns move).
+ *  - The request tab's values are never changed; only "Clear old requests" (Requests tab, or Maintenance → Clear Old
+ *    Taxi Requests) removes old rows, by default after copying them into an archive tab. The checks tab is rebuilt
+ *    by "Save and apply" (and after staff sheets are added or their columns move).
  *
  * Settings: _CONFIG TAXI_SETTINGS (JSON). The same rules also run here (taxiEvaluate_) for the dialog's preview.
  * Dependencies: Utils.gs, ConfigService.gs, TeamService.gs (listTeams_), StaffService.gs (readStaff_), Schema.gs, Main.gs (showHtml_)
@@ -21,6 +22,7 @@ var SM_EXTENSIONS = (typeof SM_EXTENSIONS !== 'undefined' && SM_EXTENSIONS) || [
 SM_EXTENSIONS.push({
   id: 'taxi', title: 'Taxi Requests',
   menu: [{ label: 'Taxi Request Rules', fn: 'menuTaxiRules' }],
+  maintenance: [{ label: 'Clear Old Taxi Requests', fn: 'menuTaxiClear' }],
   // Web app page (only while this file is present): the same page as the dialog, with the request list.
   webPages: { taxi: { file: 'TaxiDialog', title: 'Taxi Requests', nav: 'Taxi', prefetch: function () { return [['apiTaxiBootstrap']]; } } },
   // Repair Formatting and a theme change restyle the checks tab too.
@@ -950,6 +952,115 @@ function apiTaxiSave(settings) {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Clearing old requests                                                     */
+/* ------------------------------------------------------------------------ */
+
+/** Options of a clear with defaults: older than days (taxi day), DECIDED (booked and denied) or ALL, a copy kept in archiveTab. Pure. */
+function normalizeTaxiClear_(o) {
+  o = o || {};
+  return { days: Math.min(3650, Math.max(1, Math.floor(toNumber_(o.days, 30)))), which: o.which === 'ALL' ? 'ALL' : 'DECIDED',
+    archive: o.archive !== false, archiveTab: str_(o.archiveTab) || 'Taxi Archive' };
+}
+
+/**
+ * The requests to clear: taxi day before today minus days; with DECIDED only booked and denied ones. A row
+ * without a readable date (arrival or ID) is never cleared. Pure.
+ * @param {Array<{row: number, day: string, status: string}>} rows
+ */
+function taxiClearPick_(rows, o, today) {
+  var cut = addDays_(today, -o.days);
+  return rows.filter(function (r) { return r.day && r.day < cut && (o.which === 'ALL' || r.status !== 'PENDING'); });
+}
+
+/** The request tab's rows with their taxi day (from the arrival, else the ID: a denied request may hold no time) and status. */
+function taxiClearRows_(s, cols, values, tz) {
+  var at = function (row, letter) { return letter ? row[columnNumber_(letter) - 1] : ''; };
+  var rows = [];
+  for (var r = 1; r < values.length; r++) {
+    var v = values[r];
+    if (!str_(at(v, cols.name))) continue;
+    var day = taxiDayOf_(at(v, cols.arrival), s.dayStart, tz).day || (cols.id ? taxiDayOf_(at(v, cols.id), s.dayStart, tz).day : '');
+    rows.push({ row: r + 1, day: day, status: taxiBookingStatus_(cols.booking ? at(v, cols.booking) : 'BOOKED', s.deniedWords, [at(v, cols.shiftEnd), at(v, cols.arrival)]) });
+  }
+  return rows;
+}
+
+function taxiClearValidate_(s, o) {
+  var own = [s.requestTab, s.checksTab, s.dayTab, s.email.auto.tab].filter(Boolean).map(normText_);
+  if (o.archive && own.indexOf(normText_(o.archiveTab)) >= 0) fail_('VALIDATION', 'The archive needs its own tab, not "' + o.archiveTab + '".');
+}
+
+/** What a clear would remove (nothing is changed), with the saved settings. */
+function apiTaxiClearPreview(opts) {
+  return apiCall_('apiTaxiClearPreview', function () {
+    var s = getTaxiSettings_(), o = normalizeTaxiClear_(opts), tz = getTz_();
+    taxiClearValidate_(s, o);
+    var cols = taxiRequestColumns_(s), sh = getSs_().getSheetByName(s.requestTab);
+    var values = sh.getLastRow() >= 2 ? sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues() : [];
+    var rows = taxiClearRows_(s, cols, values, tz), pick = taxiClearPick_(rows, o, todayIso_(tz));
+    var n = function (st) { return pick.filter(function (r) { return r.status === st; }).length; };
+    var days = pick.map(function (r) { return r.day; }).sort();
+    return { count: pick.length, total: rows.length, booked: n('BOOKED'), denied: n('DENIED'), pending: n('PENDING'),
+      from: days[0] || '', to: days[days.length - 1] || '', before: addDays_(todayIso_(tz), -o.days), options: o };
+  });
+}
+
+/**
+ * Clears old requests from the request tab (copied first into the archive tab when asked; it gets the same header
+ * row). Rows are deleted bottom-up, so a row the workflow adds meanwhile is never touched; Taxi Checks and Taxi Day
+ * recalculate by themselves.
+ */
+function apiTaxiClear(opts) {
+  return apiCall_('apiTaxiClear', function () {
+    var s = getTaxiSettings_(), o = normalizeTaxiClear_(opts), tz = getTz_();
+    taxiClearValidate_(s, o);
+    return withLock_(function () {
+      var cols = taxiRequestColumns_(s), ss = getSs_(), sh = ss.getSheetByName(s.requestTab);
+      var last = sh.getLastRow(), width = Math.max(1, sh.getLastColumn());
+      if (last < 2) return { cleared: 0, archived: 0 };
+      var values = sh.getRange(1, 1, last, width).getValues();
+      var pick = taxiClearPick_(taxiClearRows_(s, cols, values, tz), o, todayIso_(tz));
+      if (!pick.length) return { cleared: 0, archived: 0 };
+      var out = { cleared: pick.length, archived: 0 };
+      if (o.archive) {
+        var ar = ss.getSheetByName(o.archiveTab) || ss.insertSheet(o.archiveTab);
+        if (ar.getMaxColumns() < width) ar.insertColumnsAfter(ar.getMaxColumns(), width - ar.getMaxColumns());
+        if (ar.getLastRow() < 1) {
+          ar.getRange(1, 1, 1, width).setValues([values[0]]).setFontWeight('bold');
+          ar.setFrozenRows(1);
+        } else if (ar.getRange(1, 1, 1, width).getDisplayValues()[0].map(normText_).join('|') !== values[0].map(normText_).join('|')) {
+          // Never append to some other tab by a typing mistake: an existing archive has the request tab's header row.
+          fail_('VALIDATION', 'The tab "' + o.archiveTab + '" is not an archive of "' + s.requestTab + '" (its first row has other column names). Choose another archive tab.');
+        }
+        // Text stays text (a phone number "+36…" or "06…" would otherwise turn into a number); dates and numbers keep
+        // the request tab's number formats.
+        var copy = pick.map(function (r) { return values[r.row - 1].map(function (x) { return typeof x === 'string' && x ? "'" + x : x; }); });
+        var formats = sh.getRange(pick[0].row, 1, 1, width).getNumberFormats()[0];
+        var room = ar.getMaxRows() - ar.getLastRow();
+        if (room < copy.length) ar.insertRowsAfter(ar.getMaxRows(), copy.length - room);
+        ar.getRange(ar.getLastRow() + 1, 1, copy.length, width).setNumberFormats(copy.map(function () { return formats; })).setValues(copy);
+        out.archived = copy.length;
+        out.archiveUrl = sheetLink_(ar);
+      }
+      // A sheet must keep one row below the frozen header, so add an empty one when every request goes.
+      if (sh.getMaxRows() - 1 <= pick.length) sh.insertRowsAfter(sh.getMaxRows(), 1);
+      var nums = pick.map(function (r) { return r.row; }).sort(function (a, b) { return b - a; });
+      for (var i = 0; i < nums.length;) {
+        var j = i;
+        while (j + 1 < nums.length && nums[j + 1] === nums[j] - 1) j++;
+        sh.deleteRows(nums[j], nums[i] - nums[j] + 1);
+        i = j + 1;
+      }
+      return out;
+    }, 60000);
+  });
+}
+
+function menuTaxiClear() {
+  menuRun_('menuTaxiClear', function () { showHtml_('TaxiDialog', 'Taxi Request Rules', { tab: 'requests', clear: true }, DIALOG_SIZE.LARGE); });
+}
+
+/* ------------------------------------------------------------------------ */
 /* Tests                                                                     */
 /* ------------------------------------------------------------------------ */
 
@@ -1114,6 +1225,25 @@ function taxiUnitTests_() {
       var plain = buildTaxiDayFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H', booking: '' }, []);
       assert_(plain.indexOf('booked') < 0 && plain.indexOf('pend,(nm<>"")*(res<>"DENIED")') > 0, 'without a decision column everything not denied counts as not decided');
       assert_(plain.indexOf('idDate') < 0, 'without an ID column the day comes from the arrival only');
+    }],
+    ['Taxi: clearing old requests keeps undecided ones and rows without a date', function () {
+      var o = normalizeTaxiClear_({});
+      assertEq_([o.days, o.which, o.archive, o.archiveTab], [30, 'DECIDED', true, 'Taxi Archive'], 'defaults: 30 days, decided only, with a copy');
+      assertEq_([normalizeTaxiClear_({ days: 0 }).days, normalizeTaxiClear_({ days: 'x', which: 'ALL', archive: false }).which], [1, 'ALL']);
+      var cols = { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' };
+      var r = function (id, name, end, arr, bk) { return [id, '', name, '', '', '', end, arr, '', bk, '', '']; };
+      var values = [TAXI_REQUEST_HEADERS,
+        r('2026-09-01 21:00:00', 'Ann', '00:00', '2026-09-02 00:20', 'Ben'),      // booked, taxi day 2026-09-01
+        r('2026-09-01 21:05:00', 'Bob', 'DENIED', 'DENIED', 'Ben'),             // denied: the day from the ID
+        r('2026-09-01 21:10:00', 'Cid', '00:00', '2026-09-02 00:30', ''),       // not decided yet
+        r('', 'Dan', '00:00', 'soon', 'Ben'),                                    // no readable date
+        r('2026-10-28 21:00:00', 'Eve', '00:00', '2026-10-29 00:10', 'Ben'),    // too new
+        r('', '', '', '', '')];
+      var rows = taxiClearRows_(s, cols, values, tz);
+      assertEq_(rows.map(function (x) { return [x.row, x.day, x.status]; }), [[2, '2026-09-01', 'BOOKED'], [3, '2026-09-01', 'DENIED'], [4, '2026-09-01', 'PENDING'], [5, '', 'BOOKED'], [6, '2026-10-28', 'BOOKED']]);
+      assertEq_(taxiClearPick_(rows, o, '2026-10-29').map(function (x) { return x.row; }), [2, 3], 'decided and older than 30 days');
+      assertEq_(taxiClearPick_(rows, normalizeTaxiClear_({ which: 'ALL' }), '2026-10-29').map(function (x) { return x.row; }), [2, 3, 4], 'all, also not decided yet');
+      assertEq_(taxiClearPick_(rows, normalizeTaxiClear_({ days: 60 }), '2026-10-29').length, 0, 'nothing older than 60 days');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);

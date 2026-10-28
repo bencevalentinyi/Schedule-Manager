@@ -111,6 +111,20 @@
         <button type="button" class="btn sm" onclick="preview()">Refresh</button></div>
       <p class="hint">Checked with the settings on these tabs, also before you save. Not decided yet first, then newest first.</p>
       <div id="previewBox" class="mt-2"></div>
+      <div class="section" id="clearSection" style="max-width:860px">
+        <h2>Clear old requests</h2>
+        <p class="hint mt-0">Removes old rows from the requests tab so it does not pile up. Taxi Checks and Taxi Day update by themselves.
+          Not decided yet requests are kept unless you choose all. Uses the saved settings.</p>
+        <div class="row">
+          <div class="field"><label class="label" for="clDays">Taxi day older than (days)</label><input type="number" id="clDays" min="1" max="3650" value="30"></div>
+          <div class="field"><label class="label" for="clWhich">Which</label><select id="clWhich">
+            <option value="DECIDED">Booked and denied</option><option value="ALL">All, also not decided yet</option></select></div>
+        </div>
+        <label class="check"><input type="checkbox" id="clArchive" checked> <span>Keep a copy in the tab</span></label>
+        <label class="sr-only" for="clTab">Archive tab</label><input type="text" id="clTab" value="Taxi Archive" maxlength="90" style="width:auto">
+        <div class="cluster mt-2"><button type="button" class="btn" onclick="clearPreview()">Count requests to clear</button><span class="small" id="clInfo"></span></div>
+        <div id="clearConfirm" class="hidden mt-2"></div>
+      </div>
     </section>
 
     <!-- Email text -->
@@ -239,6 +253,8 @@
         $('auOn').checked = au.on; $('auTab').value = au.tab; $('auKey').value = au.key; $('auFrom').value = au.from; $('auTo').value = au.to;
         $('hintChecks').textContent = s.checksTab; $('hintAutoTab').textContent = au.tab; $('hintAutoKey').textContent = au.key;
         if (!d.headers.length) showStatus('info', 'The tab "' + esc(s.requestTab) + '" does not exist yet. Choose the tab your Slack workflow writes to, or create a new one.', 'Choose the requests tab');
+        // Opened from Maintenance → Clear Old Taxi Requests: straight to that section.
+        if (BOOT && BOOT.clear) { selectPanel('requests'); $('clearSection').scrollIntoView({ block: 'start' }); }
       });
     }
 
@@ -309,6 +325,33 @@
           (r.emailTab ? ' Email text tab filled (' + r.emailTab.count + ' taxi(s)); add the taxiEmailTick trigger to keep it up to date.' : '');
         showStatus('ok', 'The checks tab' + (r.dayUrl ? ' and the day view' : '') + ' now use these settings (' + r.teams + ' staff sheet(s)).' + extra, 'Saved');
         if (previewed) preview();
+      });
+    }
+
+    function clearOptions() {
+      return { days: $('clDays').value, which: $('clWhich').value, archive: $('clArchive').checked, archiveTab: $('clTab').value.trim() };
+    }
+
+    function clearPreview() {
+      showStatus(''); closeConfirm('clearConfirm'); $('clInfo').textContent = '';
+      call('Counting…', 'apiTaxiClearPreview', clearOptions()).then(function (p) {
+        if (!p.count) { $('clInfo').textContent = 'Nothing to clear: no ' + (p.options.which === 'ALL' ? '' : 'booked or denied ') + 'request has a taxi day before ' + p.before + '.'; return; }
+        var parts = [p.booked + ' booked', p.denied + ' denied'].concat(p.pending ? [p.pending + ' not decided yet'] : []);
+        askConfirm('clearConfirm', {
+          title: 'Clear ' + p.count + ' of ' + p.total + ' request(s)?',
+          html: esc(parts.join(', ')) + ', taxi days ' + esc(p.from) + (p.to !== p.from ? ' to ' + esc(p.to) : '') + '. ' +
+            (p.options.archive ? 'They are copied into the tab <b>' + esc(p.options.archiveTab) + '</b> first, then removed from the requests tab.'
+              : '<b>They are deleted, without a copy.</b> Only the spreadsheet\'s version history can bring them back.'),
+          confirmLabel: p.options.archive ? 'Move ' + p.count + ' to the archive' : 'Delete ' + p.count,
+          onConfirm: function () {
+            call('Clearing…', 'apiTaxiClear', clearOptions()).then(function (r) {
+              closeConfirm('clearConfirm');
+              $('clInfo').innerHTML = r.archiveUrl ? '<a href="' + esc(r.archiveUrl.url) + '" target="_blank">Open ' + esc(p.options.archiveTab) + '</a>' : '';
+              showStatus('ok', r.cleared + ' request(s) removed from the requests tab' + (r.archived ? ', copied into "' + esc(p.options.archiveTab) + '"' : '') + '.', 'Cleared');
+              if (previewed) preview();
+            });
+          }
+        });
       });
     }
 
