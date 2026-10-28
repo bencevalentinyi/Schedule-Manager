@@ -42,12 +42,25 @@ function taxiCheckHeaders_(s, cols) {
     .concat(['Result', 'Message', 'Employee since', 'Months']);
 }
 
-/** A booking cell → PENDING (empty or an unticked box), DENIED (contains one of the denied words) or BOOKED. Pure. */
-function taxiBookingStatus_(v, deniedWords) {
-  var t = normText_(v === false ? '' : v);
-  if (!t || t === 'false') return 'PENDING';
+/**
+ * A booking cell → PENDING (empty or an unticked box), DENIED (it, or one of the other cells, contains one of the
+ * denied words) or BOOKED. A Slack "Deny" button may write the name of who clicked into the booking column and
+ * DENIED into the time columns, so those are passed as others. Pure.
+ */
+function taxiBookingStatus_(v, deniedWords, others) {
   var words = String(deniedWords || '').split(',').map(normText_).filter(Boolean);
-  return words.some(function (w) { return (' ' + t + ' ').indexOf(' ' + w) >= 0; }) ? 'DENIED' : 'BOOKED';
+  var has = function (x) { var t = ' ' + normText_(x === false ? '' : x) + ' '; return words.some(function (w) { return t.indexOf(' ' + w) >= 0; }); };
+  if (has(v) || (others || []).some(function (x) { return !isDate_(x) && has(x); })) return 'DENIED';
+  var t = normText_(v === false ? '' : v);
+  return !t || t === 'false' ? 'PENDING' : 'BOOKED';
+}
+
+/** The sheet's version of taxiBookingStatus_'s DENIED: TRUE when any of the cells contains a denied word. Pure. */
+function taxiDeniedExpr_(s, cells) {
+  var words = String(s.deniedWords || '').split(',').map(normText_).filter(Boolean);
+  if (!words.length || !cells.length) return 'FALSE';
+  var t = '" "&' + cells.map(function (c) { return 'TO_TEXT(' + c + ')'; }).join('&" "&');
+  return '((' + words.map(function (w) { return 'ISNUMBER(SEARCH(' + taxiText_(' ' + w) + ',' + t + '))'; }).join('+') + ')>0)';
 }
 
 var TAXI_EMAIL_DEFAULTS = {
@@ -316,18 +329,24 @@ function buildTaxiDayFormula_(s, cols, extras) {
   var checks = taxiCheckHeaders_(s, cols);
   var cl = function (h) { var l = columnLetter_(checks.indexOf(h) + 1); return C + '!' + l + '2:' + l; };
   var ds = taxiTimeExpr_(s.dayStart);
-  var pend = cols.booking ? '((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE")>0)' : '(nm<>"")';
+  // Denied requests (Result DENIED in the checks tab) are decided, whatever the booking column holds.
+  var pend = (cols.booking ? '((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE")>0)' : '(nm<>"")') + '*(res<>"DENIED")';
   var outCols = ['IF(arrT<0,"",TEXT(arrT,"hh:mm"))', 'nm'].concat(cols.booking ? ['booked'] : []).concat(['res', 'msg'])
     .concat(extras.map(function (e) { return col(e.letter); })).concat(['rowNo']);
+  var dateOf = function (v) { return 'IFERROR(INT(IF(ISNUMBER(' + v + '),' + v + ',DATEVALUE(LEFT(' + v + ',10)))),-1)'; };
+  // Before the day start the taxi belongs to the day before. Without a readable arrival (a denied request may hold
+  // "DENIED" there) the day comes from the ID column, the time the request was sent.
+  var tday = 'IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<' + ds + '),1,0))';
+  if (cols.id) tday = 'IF(arrDate>=0,' + tday + ',IF(idDate<0,-1,idDate-IF((idT>=0)*(idT<' + ds + '),1,0)))';
   return '=ARRAYFORMULA(LET(' + [
     'nm,' + col(cols.name),
     'arr,' + col(cols.arrival)
   ].concat(cols.booking ? ['booked,' + col(cols.booking)] : []).concat([
     'rowNo,ROW(' + col(cols.name) + ')',
     'arrT,' + taxiArrTimeExpr_('arr'),
-    'arrDate,IFERROR(INT(IF(ISNUMBER(arr),arr,DATEVALUE(LEFT(arr,10)))),-1)',
-    // Before the day start the taxi belongs to the day before.
-    'tday,IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<' + ds + '),1,0))',
+    'arrDate,' + dateOf('arr')
+  ]).concat(cols.id ? ['idv,' + col(cols.id), 'idT,' + taxiArrTimeExpr_('idv'), 'idDate,' + dateOf('idv')] : []).concat([
+    'tday,' + tday,
     'res,IFERROR(VLOOKUP(rowNo,{' + cl('Row') + ',' + cl('Result') + '},2,FALSE),"")',
     'msg,IFERROR(VLOOKUP(rowNo,{' + cl('Row') + ',' + cl('Message') + '},2,FALSE),"")',
     'pend,' + pend,
@@ -388,10 +407,12 @@ function buildTaxiFormula_(s, cols, staff) {
   // so "Select a spreadsheet row" finds the value the workflow searches for.
   var withId = !!(s.idColumn && cols.id), withBooking = !!(s.bookingColumn && cols.booking);
   var headers = taxiCheckHeaders_(s, { id: withId, booking: withBooking });
-  // Not decided yet (booking empty or an unticked box) first, then newest first.
+  // Not decided yet (booking empty or an unticked box, and not denied) first, then newest first.
   var sorted = withBooking
-    ? 'SORT(FILTER(out,keep),FILTER(IF((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE"),0,1),keep),TRUE,FILTER(rowNo,keep),FALSE)'
+    ? 'SORT(FILTER(out,keep),FILTER(IF(((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE"))*(1-denied),0,1),keep),TRUE,FILTER(rowNo,keep),FALSE)'
     : 'SORT(FILTER(out,keep),1,FALSE)';
+  // A denied request is DENIED whatever the rules say (its time columns may hold "DENIED" instead of a time).
+  var denied = taxiDeniedExpr_(s, (withBooking ? ['booked'] : []).concat(['shiftEnd', 'arrival']));
   return '=ARRAYFORMULA(LET(' + [].concat(withId ? ['reqId,TO_TEXT(' + col(cols.id) + ')'] : [])
     .concat(withBooking ? ['booked,' + col(cols.booking)] : []).concat([
     'reqName,' + col(cols.name),
@@ -409,8 +430,10 @@ function buildTaxiFormula_(s, cols, staff) {
     'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
+    'denied,' + denied,
     'keep,reqName<>""',
-    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,' + (withBooking ? 'booked,' : '') + 'IF(msg="","OK","CHECK"),IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + ')),' +
+    'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,' + (withBooking ? 'booked,' : '') + 'IF(denied,"DENIED",IF(msg="","OK","CHECK")),' +
+      'IF(denied,"Request denied",IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + '))),' +
       'IF(since="","",TEXT(since,"yyyy-mm-dd")),IF(tenure<0,"",tenure)}',
     'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(' + sorted + ',{' +
       headers.map(function () { return '""'; }).join(',') + '}))'
@@ -570,11 +593,13 @@ function formatTaxiChecks_(sh, s, headers, cols) {
   var st = taxiRowStyles_(th);
   var rule = function (formula, style) { return taxiColorRule_(formula, style, range); };
   var name = L('Name'), result = L('Result');
-  var rules = [];
+  // The first rule that matches colors the row, so denied comes before the undecided ones.
+  var rules = [rule('=AND(' + name + '<>"",' + result + '="DENIED")', st.denied)];
   if (cols.booking) {
     var b = L(s.bookingColumn), open = '(' + b + '="",' + b + '=FALSE)';
     rules.push(rule('=AND(' + name + '<>"",OR' + open + ',' + result + '="CHECK")', st.check));
     rules.push(rule('=AND(' + name + '<>"",OR' + open + ')', st.open));
+    rules.push(rule('=AND(' + name + '<>"",' + b + '<>"",' + b + '<>FALSE)', st.booked));
   } else {
     rules.push(rule('=AND(' + name + '<>"",' + result + '="CHECK")', st.check));
   }
@@ -582,12 +607,13 @@ function formatTaxiChecks_(sh, s, headers, cols) {
 }
 
 /**
- * Colors of undecided requests, from the theme: to check = the theme's error tint with dark red bold text,
- * all rules met = the theme's light tint with dark text. The text color is set too, so a row stays readable
- * whatever the tab's own text color is. Pure.
+ * Row colors. Undecided, from the theme: to check = the theme's error tint with dark red bold text, all rules
+ * met = the theme's light tint with dark text. Decided: booked = green, denied = grey. The text color is set too,
+ * so a row stays readable whatever the tab's own text color is. Pure.
  */
 function taxiRowStyles_(th) {
-  return { check: { bg: th.error, text: '#8c1d18', bold: true }, open: { bg: th.soft, text: '#1f1f1f', bold: false } };
+  return { check: { bg: th.error, text: '#8c1d18', bold: true }, open: { bg: th.soft, text: '#1f1f1f', bold: false },
+    booked: { bg: '#e6f4ea', text: '#0d652d', bold: false }, denied: { bg: '#eeeeee', text: '#757575', bold: false } };
 }
 
 function taxiColorRule_(formula, style, range) {
@@ -620,10 +646,11 @@ function formatTaxiRequestTab_(s, cols) {
   var range = sh.getRange(2, 1, Math.max(1, sh.getMaxRows() - 1), width);
   var st = taxiRowStyles_(th);
   var rule = function (formula, style) { return taxiColorRule_(formula, style, range); };
-  sh.setConditionalFormatRules([rule(f.check, st.check), rule(f.open, st.open)].concat(keep));
+  // The first rule that matches colors the row: denied, then undecided (to check, then all rules met), then booked.
+  sh.setConditionalFormatRules([rule(f.denied, st.denied), rule(f.check, st.check), rule(f.open, st.open), rule(f.booked, st.booked)].concat(keep));
 }
 
-/** The request tab's color rules: not decided yet and CHECK in the checks tab; not decided yet. Pure. */
+/** The request tab's color rules: denied; not decided yet and CHECK in the checks tab; not decided yet; booked. Pure. */
 function taxiRequestColorFormulas_(s, cols) {
   var name = '$' + cols.name + '2', b = '$' + cols.booking + '2', open = 'OR(' + b + '="",' + b + '=FALSE)';
   // The checks tab's Row column (A) holds the request's row number; its Result column says OK / CHECK.
@@ -631,9 +658,12 @@ function taxiRequestColorFormulas_(s, cols) {
   var checks = taxiCheckHeaders_(s, cols), q = taxiSheetRef_(s.checksTab).replace(/"/g, '""');
   var res = columnLetter_(checks.indexOf('Result') + 1);
   var isCheck = 'IFERROR(INDEX(INDIRECT("' + q + '!' + res + ':' + res + '"),MATCH(ROW(),INDIRECT("' + q + '!A:A"),0))="CHECK",FALSE)';
+  var denied = taxiDeniedExpr_(s, [b].concat([cols.shiftEnd, cols.arrival].filter(Boolean).map(function (l) { return '$' + l + '2'; })));
   return {
+    denied: '=AND(' + TAXI_RULE_MARK_ + ',' + name + '<>"",' + denied + ')',
     check: '=AND(' + TAXI_RULE_MARK_ + ',' + name + '<>"",' + open + ',' + isCheck + ')',
-    open: '=AND(' + TAXI_RULE_MARK_ + ',' + name + '<>"",' + open + ')'
+    open: '=AND(' + TAXI_RULE_MARK_ + ',' + name + '<>"",' + open + ')',
+    booked: '=AND(' + TAXI_RULE_MARK_ + ',' + name + '<>"",' + b + '<>"",' + b + '<>FALSE)'
   };
 }
 
@@ -700,17 +730,22 @@ function applyTaxiDayTab_(s, cols) {
   sh.getRange(TAXI_DAY_FIRST_ROW_, dh.indexOf('Message') + 1, Math.max(1, sh.getMaxRows() - 4), 1).setWrap(true);
   var range = sh.getRange(TAXI_DAY_FIRST_ROW_, 1, Math.max(1, sh.getMaxRows() - 4), dh.length);
   var st = taxiRowStyles_(th), f = taxiDayColorFormulas_(s, cols, dh);
-  sh.setConditionalFormatRules([taxiColorRule_(f.check, st.check, range)].concat(f.open ? [taxiColorRule_(f.open, st.open, range)] : []));
+  var rule = function (formula, style) { return formula ? [taxiColorRule_(formula, style, range)] : []; };
+  sh.setConditionalFormatRules([].concat(rule(f.denied, st.denied), rule(f.check, st.check), rule(f.open, st.open), rule(f.booked, st.booked)));
   return sh;
 }
 
-/** The day view's color rules (rows from row 5): undecided and CHECK; undecided ('' without a decision column). Pure. */
+/**
+ * The day view's color rules (rows from row 5), the first that matches wins: denied; undecided and CHECK;
+ * undecided; booked ('' for the last two without a decision column). Pure.
+ */
 function taxiDayColorFormulas_(s, cols, dh) {
   var r = TAXI_DAY_FIRST_ROW_, L = function (h) { return '$' + columnLetter_(dh.indexOf(h) + 1) + r; };
-  var name = L('Name'), result = L('Result');
-  if (!cols.booking) return { check: '=AND(' + name + '<>"",' + result + '="CHECK")', open: '' };
+  var name = L('Name'), result = L('Result'), denied = '=AND(' + name + '<>"",' + result + '="DENIED")';
+  if (!cols.booking) return { denied: denied, check: '=AND(' + name + '<>"",' + result + '="CHECK")', open: '', booked: '' };
   var b = L(s.bookingColumn), open = 'OR(' + b + '="",' + b + '=FALSE)';
-  return { check: '=AND(' + name + '<>"",' + open + ',' + result + '="CHECK")', open: '=AND(' + name + '<>"",' + open + ')' };
+  return { denied: denied, check: '=AND(' + name + '<>"",' + open + ',' + result + '="CHECK")', open: '=AND(' + name + '<>"",' + open + ')',
+    booked: '=AND(' + name + '<>"",' + b + '<>"",' + b + '<>FALSE)' };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -775,11 +810,14 @@ function apiTaxiPreview(settings, opts) {
         var req = { name: str_(at(values[i], cols.name)), shiftEnd: at(values[i], cols.shiftEnd), arrival: at(values[i], cols.arrival) };
         if (!req.name) continue;
         var e = taxiEvaluate_(req, staff.sinceByName, s, today, tz);
-        if (opts.onlyCheck && e.result !== 'CHECK') continue;
         var idv = cols.id ? at(values[i], cols.id) : '', bk = cols.booking ? at(values[i], cols.booking) : '';
+        var status = taxiBookingStatus_(bk, s.deniedWords, [req.shiftEnd, req.arrival]);
+        // As the checks tab: a denied request is DENIED whatever the rules say.
+        if (status === 'DENIED') e = { result: 'DENIED', message: 'Request denied', since: e.since, months: e.months };
+        if (opts.onlyCheck && e.result !== 'CHECK') continue;
         rows.push({ row: first + i, id: isDate_(idv) ? Utilities.formatDate(idv, tz, 'yyyy-MM-dd HH:mm:ss') : str_(idv), name: req.name, shiftEnd: isDate_(req.shiftEnd) ? Utilities.formatDate(req.shiftEnd, tz, 'HH:mm') : str_(req.shiftEnd),
           arrival: isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd HH:mm') : str_(req.arrival),
-          booking: bk === false ? '' : str_(bk), status: cols.booking ? taxiBookingStatus_(bk, s.deniedWords) : '',
+          booking: bk === false ? '' : str_(bk), status: cols.booking || status === 'DENIED' ? status : '',
           result: e.result, message: e.message, since: e.since, months: e.months });
       }
     }
@@ -810,13 +848,14 @@ function taxiEmailFor_(s, date) {
     var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
     var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
     var ia = columnNumber_(cols.arrival) - 1, ib = cols.booking ? columnNumber_(cols.booking) - 1 : -1, iname = columnNumber_(cols.name) - 1;
+    var ise = columnNumber_(cols.shiftEnd) - 1;
     for (var r = 1; r < values.length; r++) {
       var when = taxiDayOf_(values[r][ia], s.dayStart, tz);
       if (!str_(values[r][iname]) || when.day !== date) continue;
       var v = {};
       headers.forEach(function (h, i) { if (h) v[h] = shown[r][i]; });
       rows.push({ values: v, time: when.time, order: when.order, taxiDate: taxiDateIso_(values[r][ia], tz),
-        status: ib >= 0 ? taxiBookingStatus_(values[r][ib], s.deniedWords) : 'BOOKED' });
+        status: taxiBookingStatus_(ib >= 0 ? values[r][ib] : 'BOOKED', s.deniedWords, [values[r][ise], values[r][ia]]) });
     }
   }
   var out = buildTaxiEmail_(rows, s.email, date);
@@ -1002,16 +1041,22 @@ function taxiUnitTests_() {
     ['Taxi: undecided requests (booking empty) come first in the checks tab', function () {
       assertEq_(['', false, 'FALSE', 'Prebooked', 'Denied by Anna', 'deny', 'TRUE', 'Rejected'].map(function (v) { return taxiBookingStatus_(v, s.deniedWords); }),
         ['PENDING', 'PENDING', 'PENDING', 'BOOKED', 'DENIED', 'DENIED', 'BOOKED', 'DENIED']);
+      assertEq_([taxiBookingStatus_('Anna Smith', s.deniedWords, ['DENIED', 'DENIED']), taxiBookingStatus_('Anna Smith', s.deniedWords, ['01:00', '01:10']), taxiBookingStatus_('', s.deniedWords, ['', 'denied'])],
+        ['DENIED', 'BOOKED', 'DENIED'], 'a Deny button writes the name in the booking column and DENIED in the time columns');
+      assertEq_(taxiDeniedExpr_(s, ['booked', 'arrival']), '((ISNUMBER(SEARCH(" deny"," "&TO_TEXT(booked)&" "&TO_TEXT(arrival)))+ISNUMBER(SEARCH(" denied"," "&TO_TEXT(booked)&" "&TO_TEXT(arrival)))+' +
+        'ISNUMBER(SEARCH(" rejected"," "&TO_TEXT(booked)&" "&TO_TEXT(arrival))))>0)');
       var f = buildTaxiFormula_(s, { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' }, []);
-      assert_(f.indexOf("booked,'Taxi Requests'!J2:J") > 0 && f.indexOf('out,{rowNo,reqId,reqName,booked,') > 0, 'booking column after Name');
-      assert_(f.indexOf('SORT(FILTER(out,keep),FILTER(IF((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE"),0,1),keep),TRUE,FILTER(rowNo,keep),FALSE)') > 0, 'undecided first, then newest');
+      assert_(f.indexOf("booked,'Taxi Requests'!J2:J") > 0 && f.indexOf('out,{rowNo,reqId,reqName,booked,IF(denied,"DENIED",IF(msg="","OK","CHECK")),IF(denied,"Request denied",') > 0, 'booking column after Name; denied');
+      assert_(f.indexOf('SORT(FILTER(out,keep),FILTER(IF(((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE"))*(1-denied),0,1),keep),TRUE,FILTER(rowNo,keep),FALSE)') > 0, 'undecided first, then newest');
       assert_(f.indexOf('{"Row","Date ID","Name","Booking done","Result"') > 0, 'headers');
       assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
       var none = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H' }, []);
       assert_(none.indexOf('booked') < 0 && none.indexOf('SORT(FILTER(out,keep),1,FALSE)') > 0, 'without a booking column: newest first');
     }],
-    ['Taxi: the request tab colors undecided requests, and those the checks tab flags', function () {
-      var f = taxiRequestColorFormulas_(normalizeTaxiSettings_({ sinceField: 'x', checksTab: "Ann's Checks" }), { id: 'A', name: 'C', booking: 'J' });
+    ['Taxi: the request tab colors denied, undecided, flagged and booked requests', function () {
+      var f = taxiRequestColorFormulas_(normalizeTaxiSettings_({ sinceField: 'x', checksTab: "Ann's Checks", deniedWords: 'denied' }), { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' });
+      assertEq_(f.denied, '=AND(N("sm-taxi")=0,$C2<>"",((ISNUMBER(SEARCH(" denied"," "&TO_TEXT($J2)&" "&TO_TEXT($G2)&" "&TO_TEXT($H2))))>0))');
+      assertEq_(f.booked, '=AND(N("sm-taxi")=0,$C2<>"",$J2<>"",$J2<>FALSE)');
       assertEq_(f.open, '=AND(N("sm-taxi")=0,$C2<>"",OR($J2="",$J2=FALSE))');
       assertEq_(f.check, '=AND(N("sm-taxi")=0,$C2<>"",OR($J2="",$J2=FALSE),IFERROR(INDEX(INDIRECT("\'Ann\'\'s Checks\'!E:E"),' +
         'MATCH(ROW(),INDIRECT("\'Ann\'\'s Checks\'!A:A"),0))="CHECK",FALSE))', 'Result is column E (Row, Date ID, Name, Booking done, Result)');
@@ -1057,16 +1102,18 @@ function taxiUnitTests_() {
       assertEq_(taxiDayHeaders_(s, cols, extras), ['Time', 'Name', 'Booking done', 'Result', 'Message', 'Address', 'Phone Number', 'Row']);
       var f = buildTaxiDayFormula_(s, cols, extras);
       assert_(f.indexOf("nm,'Taxi Requests'!C2:C,arr,'Taxi Requests'!H2:H,booked,'Taxi Requests'!J2:J,") > 0, 'request columns');
-      assert_(f.indexOf("tday,IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<TIME(6,0,0)),1,0))") > 0, 'day start');
+      assert_(f.indexOf("tday,IF(arrDate>=0,IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<TIME(6,0,0)),1,0)),IF(idDate<0,-1,idDate-IF((idT>=0)*(idT<TIME(6,0,0)),1,0)))") > 0, 'day start; without a readable arrival, the day of the ID');
+      assert_(f.indexOf('pend,((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE")>0)*(res<>"DENIED")') > 0, 'denied is decided');
       assert_(f.indexOf("res,IFERROR(VLOOKUP(rowNo,{'Taxi Checks'!A2:A,'Taxi Checks'!E2:E},2,FALSE),\"\")") > 0, 'Result from the checks tab by row');
       assert_(f.indexOf('keep,(nm<>"")*IF(ISNUMBER(pick),tday=INT(pick),1)*IF(show="Not decided",pend,IF(show="To check",pend*(res="CHECK"),1))') > 0, 'date and Show filters');
       assert_(f.indexOf("out,{IF(arrT<0,\"\",TEXT(arrT,\"hh:mm\")),nm,booked,res,msg,'Taxi Requests'!E2:E,'Taxi Requests'!F2:F,rowNo}") > 0, 'columns shown');
       assert_(f.indexOf('FILTER(IF(arrT<0,2,MOD(arrT-TIME(6,0,0),1)),keep),TRUE),"No taxi requests for this day.")') > 0, 'sorted in the taxi day');
       assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');
       var c = taxiDayColorFormulas_(s, cols, taxiDayHeaders_(s, cols, extras));
-      assertEq_([c.open, c.check], ['=AND($B5<>"",OR($C5="",$C5=FALSE))', '=AND($B5<>"",OR($C5="",$C5=FALSE),$D5="CHECK")']);
+      assertEq_([c.denied, c.open, c.check, c.booked], ['=AND($B5<>"",$D5="DENIED")', '=AND($B5<>"",OR($C5="",$C5=FALSE))', '=AND($B5<>"",OR($C5="",$C5=FALSE),$D5="CHECK")', '=AND($B5<>"",$C5<>"",$C5<>FALSE)']);
       var plain = buildTaxiDayFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H', booking: '' }, []);
-      assert_(plain.indexOf('booked') < 0 && plain.indexOf('pend,(nm<>"")') > 0, 'without a decision column everything counts as not decided');
+      assert_(plain.indexOf('booked') < 0 && plain.indexOf('pend,(nm<>"")*(res<>"DENIED")') > 0, 'without a decision column everything not denied counts as not decided');
+      assert_(plain.indexOf('idDate') < 0, 'without an ID column the day comes from the arrival only');
     }],
     ['Taxi: request columns found by header text', function () {
       assertEq_([taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'sa name'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'When the taxi should arrive?'), taxiColumnLetter_(TAXI_REQUEST_HEADERS, 'Nope')], ['C', 'H', '']);
