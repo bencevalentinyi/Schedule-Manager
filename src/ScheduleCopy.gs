@@ -1,20 +1,20 @@
 /**
  * ScheduleCopy.gs — optional extension (delete this file and ScheduleCopyDialog.html to remove it; nothing else changes).
- * Copies imported shifts into another spreadsheet laid out in weekly blocks, as the old "HUN shifts" tab:
+ * Copies imported shifts into another spreadsheet laid out in weekly blocks:
  *
  *     |  Week 44                                            ← week row (B–H merged)
- *     Support Associate | 2026-10-26 | 2026-10-27 | … | 2026-11-01   ← dates, Monday–Sunday (B–H)
- *     Anna Kovács 🇳🇴    | 17:00 - 23:00 | Day Off | …     ← one row per person (name in A)
+ *     Name      | 2026-10-26 | 2026-10-27 | … | 2026-11-01   ← dates, Monday–Sunday (B–H)
+ *     Ann Lee   | 17:00 - 23:00 | Day Off | …                ← one row per person (name in A)
  *
  *  - After each Quinyx import the imported days of the chosen team(s) are written into the blocks for those
  *    dates: "08:00 - 16:00" (the person's earliest start to latest end that day; meetings are left out) or
- *    "Day Off", in the old colors (shift yellow, shift lead grey, Aircall purple, Day Off green). A cell that
- *    says Vacation / Sick / … is kept when there is no shift. People are matched by name (case, accents,
- *    emojis and "Shift Lead -" ignored); rows of people who are not in the team are never touched.
+ *    "Day Off", colored (shift yellow, shift lead grey, highlighted purple, Day Off green). A cell that says
+ *    Vacation / Sick / … is kept when there is no shift. People are matched by name (case, accents, emojis
+ *    and the shift-lead words ignored); rows of people who are not in the team are never touched.
  *  - New week blocks are added at the bottom (two empty rows, "Week N", the dates, then the team's staff from
- *    this spreadsheet: A–Z, two empty rows, the shift leads), as the old "Create a new weekly block":
- *    scheduleCopyWeeklyTick (on a weekly time-driven trigger the user adds, e.g. Sunday 06:00–07:00) adds next
- *    week's, and an import adds any week it needs first. The other sheet needs no script.
+ *    this spreadsheet: A–Z, two empty rows, the shift leads): scheduleCopyWeeklyTick (on a weekly time-driven
+ *    trigger the user adds, e.g. Sunday 06:00–07:00) adds next week's, and an import adds any week it needs
+ *    first. The other sheet needs no script.
  *  - Who runs the import (and who added the trigger) needs edit access to the other spreadsheet.
  *
  * Settings: _CONFIG SCHEDULE_COPY_SETTINGS (JSON), {copies: [...]}: one entry per target tab.
@@ -32,8 +32,8 @@ SM_EXTENSIONS.push({
 });
 
 var SCHEDULE_COPY_KEY_ = 'SCHEDULE_COPY_SETTINGS';
-/** The old sheet's colors. */
-var SC_COLORS = { dayOff: '#b6d7a8', paidLeave: '#ea9999', vacation: '#4283ee', sick: '#e06666', aircall: '#b4a7d6', shift: '#ffe599', lead: '#d9d9d9', other: '#ffffff' };
+/** Cell colors. */
+var SC_COLORS = { dayOff: '#b6d7a8', paidLeave: '#ea9999', vacation: '#4283ee', sick: '#e06666', highlight: '#b4a7d6', shift: '#ffe599', lead: '#d9d9d9', other: '#ffffff' };
 var SC_MAX_DAYS_ = 62;
 var SC_MAX_NEW_BLOCKS_ = 8;
 
@@ -44,19 +44,21 @@ var SC_MAX_NEW_BLOCKS_ = 8;
 /** One copy with defaults. Pure. */
 function normalizeScheduleCopy_(c, i) {
   c = c || {};
-  var ar = c.aircall || {};
+  var hl = c.highlight || {};
   var hm = function (v, d) { var m = hmToMinutes_(str_(v)); return m === null ? d : minutesToHm_(m % 1440); };
   return {
     id: str_(c.id) || 'copy' + ((i || 0) + 1),
     name: str_(c.name) || 'Schedule copy',
     on: c.on !== false,
     url: str_(c.url),
-    tab: str_(c.tab) || 'HUN shifts',
+    tab: str_(c.tab),
     teamIds: (Array.isArray(c.teamIds) ? c.teamIds : []).map(str_).filter(Boolean),
     addBlocks: c.addBlocks !== false,
-    // Aircall (purple): a shift type ending with typeEnds (as its own word, e.g. "SSC - CS - NOR A"), or, when on,
-    // a shift (not a shift lead's) overlapping from–to, as the old NOR rule.
-    aircall: { on: ar.on !== false, from: hm(ar.from, '08:00'), to: hm(ar.to, '14:00'), typeEnds: ar.typeEnds === undefined ? 'A' : str_(ar.typeEnds) },
+    // Column A of a new block's dates row.
+    dateLabel: c.dateLabel === undefined ? 'Name' : str_(c.dateLabel),
+    // Highlighted (purple): a shift type ending with typeEnds (as its own word, e.g. "Support A"), or, when on,
+    // a shift (not a shift lead's) overlapping from–to. Both off by default.
+    highlight: { on: hl.on === true, from: hm(hl.from, '08:00'), to: hm(hl.to, '14:00'), typeEnds: str_(hl.typeEnds) },
     leadWords: c.leadWords === undefined ? 'shift lead' : str_(c.leadWords),
     // Shift leads (role or name has a lead word) are listed last in a new block, with this before their name.
     leadPrefix: c.leadPrefix === undefined ? 'Shift Lead - ' : String(c.leadPrefix),
@@ -79,8 +81,9 @@ function scheduleCopySpreadsheetId_(url) {
 function validateScheduleCopy_(c) {
   var e = [];
   if (!scheduleCopySpreadsheetId_(c.url)) e.push('"' + c.name + '": paste the link of the other spreadsheet.');
+  if (!c.tab) e.push('"' + c.name + '": type the name of the tab with the week blocks.');
   if (!c.teamIds.length) e.push('"' + c.name + '": choose at least one team.');
-  if (hmToMinutes_(c.aircall.from) >= hmToMinutes_(c.aircall.to)) e.push('"' + c.name + '": the Aircall time must end after it starts.');
+  if (c.highlight.on && hmToMinutes_(c.highlight.from) >= hmToMinutes_(c.highlight.to)) e.push('"' + c.name + '": the highlight time must end after it starts.');
   return e;
 }
 
@@ -103,6 +106,14 @@ function scheduleCopyKey_(name, leadWords) {
   var t = ' ' + normText_(name) + ' ';
   String(leadWords || '').split(',').map(normText_).filter(Boolean).forEach(function (w) { t = t.split(' ' + w + ' ').join(' '); });
   return t.replace(/\s+/g, '');
+}
+
+/**
+ * The words that mark a shift lead in a name: the lead words and the lead prefix ("Shift Lead - " → "shift lead"),
+ * so a name the tool wrote as prefix + name still matches, whatever the lead words are (e.g. "Support Shift Lead"). Pure.
+ */
+function scheduleCopyNameWords_(c) {
+  return [c.leadWords, normText_(c.leadPrefix)].filter(Boolean).join(',');
 }
 
 function scheduleCopyHasWord_(text, words) {
@@ -153,8 +164,8 @@ function scheduleCopyShiftText_(x) {
   return minutesToHm_(x.start) + ' - ' + minutesToHm_(x.end);
 }
 
-/** Aircall: the shift type ends with typeEnds, or (not for shift leads) the shift overlaps the Aircall time that day. Pure. */
-function scheduleCopyIsAircall_(x, isLead, a) {
+/** Highlighted: the shift type ends with typeEnds, or (not for shift leads) the shift overlaps the highlight time that day. Pure. */
+function scheduleCopyIsHighlight_(x, isLead, a) {
   var end = normText_(a.typeEnds);
   if (end && x.types.some(function (t) { var n = normText_(t); return n === end || n.slice(-end.length - 1) === ' ' + end; })) return true;
   if (!a.on || isLead) return false;
@@ -162,14 +173,14 @@ function scheduleCopyIsAircall_(x, isLead, a) {
   return x.start < base + hmToMinutes_(a.to) && x.end > base + hmToMinutes_(a.from);
 }
 
-/** Text and colors of one cell, as the old sheet: {value, bg, fc}. Pure. */
-function scheduleCopyStyle_(text, isLead, aircall) {
+/** Text and colors of one cell: {value, bg, fc}. Pure. */
+function scheduleCopyStyle_(text, isLead, highlight) {
   var t = str_(text), low = t.toLowerCase(), C = SC_COLORS;
   if (!t || low === 'day off') return { value: 'Day Off', bg: C.dayOff, fc: '#000000' };
   if (low.indexOf('paid leave') >= 0) return { value: t, bg: C.paidLeave, fc: '#000000' };
   if (low.indexOf('vacation') >= 0) return { value: t, bg: C.vacation, fc: '#ffffff' };
   if (low.indexOf('sick') >= 0) return { value: t, bg: C.sick, fc: '#000000' };
-  if (aircall) return { value: t, bg: C.aircall, fc: '#000000' };
+  if (highlight) return { value: t, bg: C.highlight, fc: '#000000' };
   if (/\d:\d\d/.test(t)) return { value: t, bg: isLead ? C.lead : C.shift, fc: '#000000' };
   return { value: t, bg: C.other, fc: '#000000' };
 }
@@ -190,22 +201,23 @@ function scheduleCopyFill_(block, names, grid, dates, shifts, known, c) {
   var keys = Object.keys(known);
   var resolve = function (key) {
     if (known[key]) return key;
-    // A suffix such as "NOR" after the name: the one person whose key starts the same, at most 4 letters apart.
+    // A short suffix after the name (e.g. a team code): the one person whose key starts the same, at most 4 letters apart.
     var hits = keys.filter(function (k) { return (key.indexOf(k) === 0 || k.indexOf(key) === 0) && Math.abs(k.length - key.length) <= 4; });
     return hits.length === 1 ? hits[0] : '';
   };
   names.forEach(function (n, i) {
     var name = str_(n), norm = normText_(name);
-    if (!name || norm === 'support associate' || /^week \d+$/.test(norm)) return;
-    var key = resolve(scheduleCopyKey_(name, c.leadWords));
+    if (!name || (c.dateLabel && norm === normText_(c.dateLabel)) || /^week \d+$/.test(norm)) return;
+    var words = scheduleCopyNameWords_(c);
+    var key = resolve(scheduleCopyKey_(name, words));
     if (!key) return;
     out.matched[key] = true;
-    var isLead = scheduleCopyHasWord_(name, c.leadWords);
+    var isLead = scheduleCopyHasWord_(name, words);
     block.dates.forEach(function (d, j) {
       if (!dates[d]) return;
       var x = shifts[key] && shifts[key][d];
       if (!x && scheduleCopyHasWord_(grid.values[i][j], c.keepWords)) { out.kept++; return; }
-      var st = x ? scheduleCopyStyle_(scheduleCopyShiftText_(x), isLead, scheduleCopyIsAircall_(x, isLead, c.aircall)) : scheduleCopyStyle_('', isLead, false);
+      var st = x ? scheduleCopyStyle_(scheduleCopyShiftText_(x), isLead, scheduleCopyIsHighlight_(x, isLead, c.highlight)) : scheduleCopyStyle_('', isLead, false);
       grid.values[i][j] = st.value; grid.bgs[i][j] = st.bg; grid.fcs[i][j] = st.fc;
       if (x) out.shifts++; else out.dayOff++;
     });
@@ -214,18 +226,18 @@ function scheduleCopyFill_(block, names, grid, dates, shifts, known, c) {
 }
 
 /**
- * Column A of a new block, as the old "Create a new weekly block": the staff A–Z, two empty rows, then the shift
- * leads (role or name has a lead word) A–Z with the lead prefix. Each person once. Pure.
+ * Column A of a new block: the staff A–Z, two empty rows, then the shift leads (role or name has a lead word)
+ * A–Z with the lead prefix. Each person once. Pure.
  * @param {Array<{name: string, role: string}>} people
  */
 function scheduleCopyBlockNames_(people, c) {
   var seen = {}, regular = [], leads = [];
   people.forEach(function (p) {
-    var k = scheduleCopyKey_(p.name, c.leadWords);
+    var words = scheduleCopyNameWords_(c), k = scheduleCopyKey_(p.name, words);
     if (!k || seen[k]) return;
     seen[k] = true;
-    if (scheduleCopyHasWord_(p.role, c.leadWords) || scheduleCopyHasWord_(p.name, c.leadWords)) {
-      leads.push(scheduleCopyHasWord_(p.name, c.leadWords) ? p.name : c.leadPrefix + p.name);
+    if (scheduleCopyHasWord_(p.role, c.leadWords) || scheduleCopyHasWord_(p.name, words)) {
+      leads.push(scheduleCopyHasWord_(p.name, words) ? p.name : c.leadPrefix + p.name);
     } else regular.push(p.name);
   });
   var byName = function (a, b) { return a.localeCompare(b); };
@@ -263,7 +275,7 @@ function scheduleCopyStaff_(c) {
   listTeams_().filter(function (t) { return c.teamIds.indexOf(t.teamId) >= 0; }).forEach(function (t) {
     try {
       readStaff_(t).rows.forEach(function (p) {
-        var k = scheduleCopyKey_(p.employeeName, c.leadWords);
+        var k = scheduleCopyKey_(p.employeeName, scheduleCopyNameWords_(c));
         if (!k) return;
         out.known[k] = true;
         out.people.push({ name: p.employeeName, role: str_(p.fields.role) });
@@ -274,10 +286,10 @@ function scheduleCopyStaff_(c) {
 }
 
 /**
- * Adds a week block at the bottom, as the old "Create a new weekly block": two empty rows, the week row, the
- * dates row, the names (scheduleCopyBlockNames_); Nunito 10 with light grey borders.
+ * Adds a week block at the bottom: two empty rows, the week row, the dates row (label in A), the names
+ * (scheduleCopyBlockNames_); Nunito 10 with light grey borders.
  */
-function scheduleCopyAddBlock_(sh, names, monday) {
+function scheduleCopyAddBlock_(sh, names, monday, label) {
   var start = sh.getLastRow() === 0 ? 1 : sh.getLastRow() + 3;
   var height = 2 + Math.max(1, names.length);
   if (sh.getMaxRows() < start + height - 1) sh.insertRowsAfter(sh.getMaxRows(), start + height - 1 - sh.getMaxRows());
@@ -286,7 +298,7 @@ function scheduleCopyAddBlock_(sh, names, monday) {
   var dates = [];
   for (var i = 0; i < 7; i++) dates.push(addDays_(monday, i));
   sh.getRange(start + 1, 1, 1, 8).setBackground('#efefef').setFontFamily('Nunito');
-  sh.getRange(start + 1, 1).setValue('Support Associate');
+  sh.getRange(start + 1, 1).setValue(label || '');
   sh.getRange(start + 1, 2, 1, 7).setNumberFormat('yyyy-mm-dd').setValues([dates]).setFontColor('black').setFontWeight('normal').setHorizontalAlignment('right');
   if (names.length) sh.getRange(start + 2, 1, names.length, 1).setValues(names);
   sh.getRange(start, 1, height, 8).setFontFamily('Nunito').setFontSize(10)
@@ -303,7 +315,7 @@ function scheduleCopyRun_(c, from, to) {
   var dates = [], dateSet = {};
   for (var d = from; d <= to; d = addDays_(d, 1)) { dates.push(d); dateSet[d] = true; }
   var records = queryScheduleRecords_({ teamIds: c.teamIds, dates: dates });
-  var shifts = scheduleCopyShifts_(records, c.leadWords);
+  var shifts = scheduleCopyShifts_(records, scheduleCopyNameWords_(c));
   // The team's people: everyone in their staff sheets, and everyone with a shift in these days.
   var staff = scheduleCopyStaff_(c), known = staff.known;
   Object.keys(shifts).forEach(function (k) { known[k] = true; });
@@ -313,7 +325,7 @@ function scheduleCopyRun_(c, from, to) {
     added = scheduleCopyAddWeeks_(c, t, data, weekStartOf_(from), weekStartOf_(to), staff);
     if (added.length) data = scheduleCopyRead_(t);
   }
-  if (!data.blocks.length) fail_('NOT_FOUND', '"' + c.tab + '" has no week block yet (a row with "Support Associate" and the dates in B–H).');
+  if (!data.blocks.length) fail_('NOT_FOUND', '"' + c.tab + '" has no week block yet (a row with the dates Monday–Sunday in B–H). Switch on "Add missing week blocks", or add one by hand.');
 
   var res = { shifts: 0, dayOff: 0, kept: 0, added: added, missingWeeks: [], notFound: [] }, matched = {}, covered = {};
   data.blocks.forEach(function (b) {
@@ -360,7 +372,7 @@ function scheduleCopyAddWeeks_(c, t, data, firstMonday, monday, staff) {
   var last = data.blocks.length ? data.blocks[data.blocks.length - 1].monday : addDays_(firstMonday, -7);
   while (last < monday && added.length < SC_MAX_NEW_BLOCKS_) {
     last = addDays_(last, 7);
-    scheduleCopyAddBlock_(t.sh, names, last);
+    scheduleCopyAddBlock_(t.sh, names, last, c.dateLabel);
     added.push('Week ' + scheduleCopyWeekNo_(last));
   }
   if (added.length) SpreadsheetApp.flush();
@@ -457,66 +469,75 @@ function apiScheduleCopyNow(copy, from, to) {
 /* Tests                                                                     */
 /* ------------------------------------------------------------------------ */
 
+
 function scheduleCopyUnitTests_() {
-  var c = normalizeScheduleCopy_({ url: 'https://docs.google.com/spreadsheets/d/13EJoMcNtT4DxT4Kc17F-myjnGUAIZsHgACdc3e8MFB0/edit#gid=0', teamIds: ['T1'] });
+  var c = normalizeScheduleCopy_({ url: 'https://docs.google.com/spreadsheets/d/aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789/edit#gid=0', tab: 'Shifts', teamIds: ['T1'] });
   var rec = function (name, start, end, type, extra) {
-    return Object.assign({ employeeName: name, shiftDate: start.substr(0, 10), shiftStart: start, shiftEnd: end, shiftType: type || 'SSC - CS - NOR', recordStatus: 'ACTIVE', activityCategory: 'SHIFT' }, extra || {});
+    return Object.assign({ employeeName: name, shiftDate: start.substr(0, 10), shiftStart: start, shiftEnd: end, shiftType: type || 'Support', recordStatus: 'ACTIVE', activityCategory: 'SHIFT' }, extra || {});
   };
   return [
     ['Schedule copy: settings, link and week numbers', function () {
-      assertEq_([c.tab, c.on, c.addBlocks, c.aircall.on, c.aircall.from, c.aircall.to, c.aircall.typeEnds, c.leadWords], ['HUN shifts', true, true, true, '08:00', '14:00', 'A', 'shift lead']);
-      assertEq_([scheduleCopySpreadsheetId_(c.url), scheduleCopySpreadsheetId_('nope')], ['13EJoMcNtT4DxT4Kc17F-myjnGUAIZsHgACdc3e8MFB0', '']);
+      var d = normalizeScheduleCopy_({});
+      assertEq_([d.tab, d.on, d.addBlocks, d.dateLabel, d.highlight.on, d.highlight.typeEnds, d.leadWords], ['', true, true, 'Name', false, '', 'shift lead'], 'no tab by default; highlight off');
+      assertEq_([scheduleCopySpreadsheetId_(c.url), scheduleCopySpreadsheetId_('nope')], ['aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789', '']);
       assertEq_(validateScheduleCopy_(c), []);
-      assertEq_(validateScheduleCopy_(normalizeScheduleCopy_({ name: 'X' })).length, 2, 'a link and a team are needed');
+      assertEq_(validateScheduleCopy_(normalizeScheduleCopy_({ name: 'X' })).length, 3, 'a link, a tab and a team are needed');
       assertEq_([scheduleCopyWeekNo_('2026-10-26'), scheduleCopyWeekNo_('2026-01-01'), scheduleCopyWeekNo_('2025-12-29'), scheduleCopyWeekNo_('2027-01-03')], [44, 1, 1, 53]);
     }],
-    ['Schedule copy: names match ignoring case, accents, emojis and "Shift Lead -"', function () {
-      assertEq_([scheduleCopyKey_('Anna Kovács 🇳🇴', 'shift lead'), scheduleCopyKey_('Shift Lead - ANNA kovacs', 'shift lead'), scheduleCopyKey_('anna  kovacs', 'shift lead')],
-        ['annakovacs', 'annakovacs', 'annakovacs']);
+    ['Schedule copy: names match ignoring case, accents, emojis and the shift-lead words', function () {
+      assertEq_([scheduleCopyKey_('Ann Léé ⭐', 'shift lead'), scheduleCopyKey_('Shift Lead - ANN lee', 'shift lead'), scheduleCopyKey_('ann  lee', 'shift lead')], ['annlee', 'annlee', 'annlee']);
       assert_(scheduleCopyHasWord_('Shift Lead - Ben', 'shift lead') && !scheduleCopyHasWord_('Ben Shiftleader', 'shift lead'));
     }],
-    ['Schedule copy: week blocks found by their dates row', function () {
-      var dates = function (m) { var r = ['Support Associate']; for (var i = 0; i < 7; i++) r.push(addDays_(m, i)); return r; };
+    ['Schedule copy: week blocks found by their dates row; new blocks list the staff', function () {
+      var dates = function (m) { var r = ['Name']; for (var i = 0; i < 7; i++) r.push(addDays_(m, i)); return r; };
       var blank = ['', '', '', '', '', '', '', ''];
-      var values = [['', 'Week 43', '', '', '', '', '', ''], dates('2026-10-19'), ['Anna', '', '', '', '', '', '', ''], ['Ben', '', '', '', '', '', '', ''], blank, blank,
-        ['', 'Week 44', '', '', '', '', '', ''], dates('2026-10-26'), ['Anna', '17:00 - 23:00', '', '', '', '', '', ''], blank, ['Shift Lead - Cid', '', '', '', '', '', '', '']];
+      var values = [['', 'Week 43', '', '', '', '', '', ''], dates('2026-10-19'), ['Ann', '', '', '', '', '', '', ''], ['Ben', '', '', '', '', '', '', ''], blank, blank,
+        ['', 'Week 44', '', '', '', '', '', ''], dates('2026-10-26'), ['Ann', '17:00 - 23:00', '', '', '', '', '', ''], blank, ['Shift Lead - Cid', '', '', '', '', '', '', '']];
       var b = scheduleCopyBlocks_(values, function (v) { return isIsoDate_(str_(v)) ? str_(v) : ''; });
       assertEq_(b.map(function (x) { return [x.dateRow, x.monday, x.firstRow, x.lastRow, x.dates[6]]; }), [[2, '2026-10-19', 3, 6, '2026-10-25'], [8, '2026-10-26', 9, 11, '2026-11-01']]);
-      var people = [{ name: 'Ben Ray', role: '' }, { name: 'Cid Moe', role: 'Support Shift Lead' }, { name: 'Anna Kovács', role: 'Agent' }, { name: 'Shift Lead - Dee Fox', role: '' }, { name: 'ben  ray', role: '' }];
-      assertEq_(scheduleCopyBlockNames_(people, c), [['Anna Kovács'], ['Ben Ray'], [''], [''], ['Shift Lead - Cid Moe'], ['Shift Lead - Dee Fox']],
+      var people = [{ name: 'Ben Ray', role: '' }, { name: 'Cid Moe', role: 'Support Shift Lead' }, { name: 'Ann Lee', role: 'Agent' }, { name: 'Shift Lead - Dee Fox', role: '' }, { name: 'ben  ray', role: '' }];
+      assertEq_(scheduleCopyBlockNames_(people, c), [['Ann Lee'], ['Ben Ray'], [''], [''], ['Shift Lead - Cid Moe'], ['Shift Lead - Dee Fox']],
         'a new block: staff A–Z, two empty rows, the shift leads (by role or name) with the prefix; each person once');
       assertEq_(scheduleCopyBlockNames_([{ name: 'Ann', role: '' }], c), [['Ann']], 'no shift leads: no gap');
     }],
-    ['Schedule copy: one cell per day, in the old colors', function () {
-      var shifts = scheduleCopyShifts_([rec('Anna Kovács', '2026-10-26 17:00', '2026-10-26 23:00'), rec('Anna Kovács', '2026-10-27 08:00', '2026-10-27 12:00'),
-        rec('Anna Kovács', '2026-10-27 12:30', '2026-10-27 16:00'), rec('Ben Ray', '2026-10-26 23:40', '2026-10-27 08:00'),
-        rec('Ben Ray', '2026-10-26 10:00', '2026-10-26 11:00', 'Meeting', { activityCategory: 'MEETING' }), rec('Ben Ray', '2026-10-27 09:00', '2026-10-27 15:00', 'SSC - CS - NOR', { recordStatus: 'REMOVED' })], 'shift lead');
-      assertEq_(scheduleCopyShiftText_(shifts.annakovacs['2026-10-27']), '08:00 - 16:00', 'earliest start to latest end');
+    ['Schedule copy: one cell per day, colored', function () {
+      var shifts = scheduleCopyShifts_([rec('Ann Lee', '2026-10-26 17:00', '2026-10-26 23:00'), rec('Ann Lee', '2026-10-27 08:00', '2026-10-27 12:00'),
+        rec('Ann Lee', '2026-10-27 12:30', '2026-10-27 16:00'), rec('Ben Ray', '2026-10-26 23:40', '2026-10-27 08:00'),
+        rec('Ben Ray', '2026-10-26 10:00', '2026-10-26 11:00', 'Meeting', { activityCategory: 'MEETING' }), rec('Ben Ray', '2026-10-27 09:00', '2026-10-27 15:00', 'Support', { recordStatus: 'REMOVED' })], 'shift lead');
+      assertEq_(scheduleCopyShiftText_(shifts.annlee['2026-10-27']), '08:00 - 16:00', 'earliest start to latest end');
       assertEq_(scheduleCopyShiftText_(shifts.benray['2026-10-26']), '23:40 - 08:00', 'overnight, meetings left out');
       assert_(!shifts.benray['2026-10-27'], 'removed records left out');
-      var a = c.aircall;
-      assertEq_([scheduleCopyIsAircall_(shifts.annakovacs['2026-10-27'], false, a), scheduleCopyIsAircall_(shifts.annakovacs['2026-10-26'], false, a),
-        scheduleCopyIsAircall_(shifts.annakovacs['2026-10-27'], true, a), scheduleCopyIsAircall_({ start: 14 * 60, end: 22 * 60, types: [] }, false, a),
-        scheduleCopyIsAircall_({ start: 17 * 60, end: 23 * 60, types: ['SSC - CS - NOR A'] }, true, a)], [true, false, false, false, true],
-        'overlapping 08:00–14:00 (not shift leads; starting at 14:00 is not), or a type ending with A');
+      var h = normalizeScheduleCopy_({ highlight: { on: true, from: '08:00', to: '14:00', typeEnds: 'A' } }).highlight;
+      assertEq_([scheduleCopyIsHighlight_(shifts.annlee['2026-10-27'], false, h), scheduleCopyIsHighlight_(shifts.annlee['2026-10-26'], false, h),
+        scheduleCopyIsHighlight_(shifts.annlee['2026-10-27'], true, h), scheduleCopyIsHighlight_({ start: 14 * 60, end: 22 * 60, types: [] }, false, h),
+        scheduleCopyIsHighlight_({ start: 17 * 60, end: 23 * 60, types: ['Support A'] }, true, h), scheduleCopyIsHighlight_(shifts.annlee['2026-10-27'], false, c.highlight)],
+        [true, false, false, false, true, false], 'overlapping 08:00–14:00 (not shift leads; starting at 14:00 is not), or a type ending with A; off by default');
       assertEq_([scheduleCopyStyle_('', false, false), scheduleCopyStyle_('17:00 - 23:00', false, false), scheduleCopyStyle_('17:00 - 23:00', true, false),
         scheduleCopyStyle_('08:00 - 14:00', false, true), scheduleCopyStyle_('Vacation', false, false)].map(function (x) { return [x.value, x.bg, x.fc]; }),
         [['Day Off', '#b6d7a8', '#000000'], ['17:00 - 23:00', '#ffe599', '#000000'], ['17:00 - 23:00', '#d9d9d9', '#000000'], ['08:00 - 14:00', '#b4a7d6', '#000000'], ['Vacation', '#4283ee', '#ffffff']]);
     }],
     ['Schedule copy: only the chosen days and the team\'s people are written; absences are kept', function () {
-      var shifts = scheduleCopyShifts_([rec('Anna Kovács', '2026-10-26 17:00', '2026-10-26 23:00'), rec('Ben Ray', '2026-10-27 09:00', '2026-10-27 15:00')], 'shift lead');
-      var known = { annakovacs: true, benray: true, cidmoe: true };
+      var shifts = scheduleCopyShifts_([rec('Ann Lee', '2026-10-26 17:00', '2026-10-26 23:00'), rec('Ben Ray', '2026-10-27 09:00', '2026-10-27 15:00')], 'shift lead');
+      var known = { annlee: true, benray: true, cidmoe: true };
       var block = { dates: ['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01'] };
       var row = function (v) { return [v, v, v, v, v, v, v]; };
       var grid = { values: [row('x'), row('x'), row('Vacation'), row('x'), row('x')], bgs: [row('#fff'), row('#fff'), row('#fff'), row('#fff'), row('#fff')], fcs: [row('k'), row('k'), row('k'), row('k'), row('k')] };
-      var names = ['Anna Kovács 🇳🇴', 'Shift Lead - Ben Ray', 'Cid Moe', 'Someone Else', ''];
+      var names = ['Ann Lee ⭐', 'Shift Lead - Ben Ray', 'Cid Moe', 'Someone Else', ''];
       var f = scheduleCopyFill_(block, names, grid, { '2026-10-26': true, '2026-10-27': true }, shifts, known, c);
       assertEq_(grid.values.map(function (r) { return r.slice(0, 3); }), [['17:00 - 23:00', 'Day Off', 'x'], ['Day Off', '09:00 - 15:00', 'x'], ['Vacation', 'Vacation', 'Vacation'], ['x', 'x', 'x'], ['x', 'x', 'x']]);
-      assertEq_([grid.bgs[1][1], grid.bgs[0][0]], ['#d9d9d9', '#ffe599'], 'a shift lead\'s shift is grey (not Aircall)');
-      assertEq_([f.shifts, f.dayOff, f.kept, Object.keys(f.matched).sort()], [2, 2, 2, ['annakovacs', 'benray', 'cidmoe']]);
+      assertEq_([grid.bgs[1][1], grid.bgs[0][0]], ['#d9d9d9', '#ffe599'], 'a shift lead\'s shift is grey');
+      assertEq_([f.shifts, f.dayOff, f.kept, Object.keys(f.matched).sort()], [2, 2, 2, ['annlee', 'benray', 'cidmoe']]);
       var g2 = { values: [row('x')], bgs: [row('')], fcs: [row('')] };
-      scheduleCopyFill_(block, ['Anna Kovács NOR'], g2, { '2026-10-26': true }, shifts, known, c);
+      scheduleCopyFill_(block, ['Ann Lee ABC'], g2, { '2026-10-26': true }, shifts, known, c);
       assertEq_(g2.values[0][0], '17:00 - 23:00', 'a short suffix after the name still matches');
+      // Lead words "Support Shift Lead" (the role): the block lists "Shift Lead - Ben Ray" (the prefix), which must still match.
+      var c2 = normalizeScheduleCopy_({ leadWords: 'Support Shift Lead', teamIds: ['T1'] });
+      var names2 = scheduleCopyBlockNames_([{ name: 'Ben Ray', role: 'Support Shift Lead' }, { name: 'Ann Lee', role: 'Agent' }], c2).map(function (r) { return r[0]; });
+      assertEq_(names2, ['Ann Lee', '', '', 'Shift Lead - Ben Ray']);
+      var s2 = scheduleCopyShifts_([rec('Ann Lee', '2026-10-27 09:00', '2026-10-27 15:00'), rec('Ben Ray', '2026-10-27 16:00', '2026-10-28 00:30')], scheduleCopyNameWords_(c2));
+      var g3 = { values: names2.map(function () { return row(''); }), bgs: names2.map(function () { return row(''); }), fcs: names2.map(function () { return row(''); }) };
+      var f3 = scheduleCopyFill_(block, names2, g3, { '2026-10-27': true }, s2, { annlee: true, benray: true }, c2);
+      assertEq_([g3.values[0][1], g3.values[3][1], g3.bgs[3][1], f3.shifts], ['09:00 - 15:00', '16:00 - 00:30', '#d9d9d9', 2], 'the shift lead is filled, in grey');
     }]
   ];
 }
