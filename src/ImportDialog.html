@@ -495,6 +495,7 @@
           '<div class="stats">' + stat('New', r.inserted, 'good') + stat('Updated', r.updated) + stat('Removed', r.removed, r.removed ? 'warn' : '') + stat('Unchanged', r.unchanged) +
           stat('Excluded (shift type)', r.excluded) + stat('Skipped', r.skipped) + stat('Rejected', r.rejected, r.rejected ? 'bad' : '') + '</div>' +
           (r.warnings.length ? alertHtml('warning', 'Warnings', '', r.warnings) : '') +
+          ((r.notes || []).length ? alertHtml('success', 'Also done', '', r.notes) : '') +
           '<p class="hint">To roll back, use Schedule Import → Undo Last Import.</p>' +
           (r.teams.length ? '<div class="cluster mt-3"><button type="button" class="btn primary" onclick="openTeam(\'' + esc(r.teams[0].teamId) + '\',\'' + esc(r.dateFrom) + '\')">Open ' + esc(r.teams[0].teamName) + ' on ' + esc(r.dateFrom) + '</button></div>' : '');
         insp = null;

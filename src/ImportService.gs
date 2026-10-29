@@ -1147,8 +1147,21 @@ function commitImport_(req) {
     if (!renderTeamViewSafe_(team, opts)) post.push('The view of "' + team.teamName + '" could not be refreshed; use Refresh Schedule Data.');
   });
   rebuildDashboardSafe_();
+  // Extension files with an afterImport step (e.g. ScheduleCopy.gs copies the shifts to another sheet): {notes, warnings}.
+  var notes = [];
+  smExtensions_().forEach(function (e) {
+    if (!e.afterImport) return;
+    try {
+      var r = e.afterImport({ teamIds: S.teams.map(function (t) { return t.teamId; }), dateFrom: S.dateFrom, dateTo: S.dateTo }) || {};
+      notes = notes.concat(r.notes || []);
+      post = post.concat(r.warnings || []);
+    } catch (e5) {
+      logError_('commitImport_.' + e.id, e5);
+      post.push(e.title + ': ' + toUserError_(e5).message);
+    }
+  });
   return {
-    status: 'COMMITTED', importId: importId,
+    status: 'COMMITTED', importId: importId, notes: notes,
     inserted: S.insert + S.restore, updated: S.update, removed: S.remove,
     unchanged: S.unchanged, skipped: S.skippedExisting + S.duplicatesInFile + S.otherTeamRows,
     excluded: S.excludedByShiftType, rejected: S.rejectedRows, teams: S.teams,

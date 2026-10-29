@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .panel { max-width: 860px; }
+    .section { margin-top: var(--s4, 20px); }
+    .section:first-child { margin-top: 0; }
+    .checks { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+    .steps { margin: 0; padding-left: 20px; }
+    .steps li { margin-bottom: 6px; }
+    .swatch { display: inline-block; width: 12px; height: 12px; border: 1px solid #999; vertical-align: -1px; margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Copy Schedules to Another Sheet</h1>
+    <p class="subtitle">After each Quinyx import, the imported days are written into another spreadsheet's weekly blocks ("Week N", the dates, one row per person), in the old colors. New week blocks get the team's staff from this spreadsheet.</p>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+
+    <section class="panel">
+      <div class="cluster">
+        <label class="label" for="copySel" style="margin:0">Copy</label>
+        <select id="copySel" onchange="pick(this.value)" style="width:auto"></select>
+        <button type="button" class="btn sm ghost" onclick="addCopy()">New copy</button>
+        <button type="button" class="btn sm ghost" id="delBtn" onclick="removeCopy()">Delete this copy</button>
+      </div>
+      <div id="confirmBox" class="hidden mt-2"></div>
+
+      <div id="editor" class="hidden">
+        <div class="section">
+          <h2>Where</h2>
+          <div class="row">
+            <div class="field"><label class="label" for="cName">Name</label><input type="text" id="cName" maxlength="60"></div>
+            <div class="field"><label class="label" for="cTab">Tab in the other spreadsheet</label><input type="text" id="cTab" maxlength="100"></div>
+          </div>
+          <div class="field"><label class="label" for="cUrl">Link of the other spreadsheet</label><input type="url" id="cUrl" placeholder="https://docs.google.com/spreadsheets/d/…">
+            <p class="hint">You (and whoever imports) need edit access to it. It needs no script.</p></div>
+          <div class="cluster"><button type="button" class="btn sm" onclick="check()">Check the sheet</button><span class="small" id="checkInfo"></span></div>
+          <label class="check mt-2"><input type="checkbox" id="cOn"> <span>Copy after each Quinyx import</span></label>
+        </div>
+
+        <div class="section">
+          <h2>Which team</h2>
+          <div class="checks" id="cTeams"></div>
+          <p class="hint">Only rows of these teams' people are written; other rows of the tab stay as they are.</p>
+        </div>
+
+        <div class="section">
+          <h2>Cells</h2>
+          <p class="hint mt-0">
+            <span class="swatch" style="background:#ffe599"></span>Shift
+            <span class="swatch" style="background:#d9d9d9;margin-left:10px"></span>Shift lead
+            <span class="swatch" style="background:#b4a7d6;margin-left:10px"></span>Aircall
+            <span class="swatch" style="background:#b6d7a8;margin-left:10px"></span>Day Off
+            <span class="swatch" style="background:#4283ee;margin-left:10px"></span>Vacation
+            <span class="swatch" style="background:#e06666;margin-left:10px"></span>Sick
+            <span class="swatch" style="background:#ea9999;margin-left:10px"></span>Paid leave</p>
+          <label class="check"><input type="checkbox" id="arOn"> <span><b>Aircall</b> when a shift overlaps
+            <input type="time" id="arFrom" style="width:auto" aria-label="Aircall from"> – <input type="time" id="arTo" style="width:auto" aria-label="Aircall until">
+            <span class="hint">(not shift leads)</span></span></label>
+          <div class="row mt-2">
+            <div class="field"><label class="label" for="arType">…or its shift type ends with</label><input type="text" id="arType" maxlength="20">
+              <p class="hint">E.g. A for "SSC - CS - NOR A". Empty = not used.</p></div>
+            <div class="field"><label class="label" for="cKeep">Kept when there is no shift</label><input type="text" id="cKeep" maxlength="200">
+              <p class="hint">Comma separated: a cell with one of these words is not changed to Day Off.</p></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>New week blocks</h2>
+          <label class="check"><input type="checkbox" id="cAdd"> <span>Add missing week blocks at the bottom of the tab</span></label>
+          <p class="hint">Like the old "Create a new weekly block": two empty rows, Week N, Support Associate and the dates, then the team's staff from this spreadsheet A–Z, two empty rows and the shift leads.</p>
+          <div class="row">
+            <div class="field"><label class="label" for="cLead">Shift leads have this in their role or name</label><input type="text" id="cLead" maxlength="100"></div>
+            <div class="field"><label class="label" for="cPrefix">…and are listed as</label><input type="text" id="cPrefix" maxlength="40">
+              <p class="hint">Before the name, e.g. "Shift Lead - ".</p></div>
+          </div>
+          <p class="hint"><b>Every Sunday:</b> once, in the Apps Script editor: <b>Triggers</b> (clock icon) → <b>Add trigger</b> → function <code>scheduleCopyWeeklyTick</code>,
+            event source <b>Time-driven</b>, <b>Week timer</b>, <b>Every Sunday</b>, <b>6am to 7am</b>. It adds next week's block; an import also adds any week it needs.</p>
+        </div>
+
+        <div class="section">
+          <h2>Copy now</h2>
+          <div class="cluster">
+            <label class="sr-only" for="nowFrom">From</label><input type="date" id="nowFrom" style="width:auto">
+            <span>–</span>
+            <label class="sr-only" for="nowTo">To</label><input type="date" id="nowTo" style="width:auto">
+            <button type="button" class="btn" onclick="copyNow()">Copy these days</button>
+          </div>
+          <p class="hint">With the settings above, also before you save. Writes only these days.</p>
+        </div>
+      </div>
+      <div id="emptyBox"></div>
+    </section>
+  </main>
+  <footer class="app-footer">
+    <button type="button" class="btn" onclick="closeDialog()">Close</button>
+    <span class="spacer"></span>
+    <a class="btn hidden" id="sheetLink" target="_blank" style="text-decoration:none">Open the other sheet</a>
+    <button type="button" class="btn primary" onclick="save()">Save</button>
+  </footer>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null, copies = [], current = -1;
+
+    function teamBoxes(selected) {
+      $('cTeams').innerHTML = data.teams.map(function (t) {
+        return '<label class="check"><input type="checkbox" data-team="' + esc(t.teamId) + '"' + (selected.indexOf(t.teamId) >= 0 ? ' checked' : '') + '> <span>' + esc(t.teamName) + '</span></label>';
+      }).join('') || '<span class="hint">No teams yet.</span>';
+    }
+
+    function fill(c) {
+      $('cName').value = c.name; $('cTab').value = c.tab; $('cUrl').value = c.url; $('cOn').checked = c.on;
+      teamBoxes(c.teamIds);
+      $('arOn').checked = c.aircall.on; $('arFrom').value = c.aircall.from; $('arTo').value = c.aircall.to; $('arType').value = c.aircall.typeEnds;
+      $('cKeep').value = c.keepWords; $('cAdd').checked = c.addBlocks; $('cLead').value = c.leadWords; $('cPrefix').value = c.leadPrefix;
+      $('checkInfo').textContent = ''; show('sheetLink', false);
+    }
+
+    function read() {
+      var c = copies[current];
+      return { id: c.id, name: $('cName').value.trim() || 'Schedule copy', tab: $('cTab').value.trim(), url: $('cUrl').value.trim(), on: $('cOn').checked,
+        teamIds: Array.prototype.filter.call(document.querySelectorAll('[data-team]'), function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-team'); }),
+        aircall: { on: $('arOn').checked, from: $('arFrom').value, to: $('arTo').value, typeEnds: $('arType').value.trim() },
+        keepWords: $('cKeep').value, addBlocks: $('cAdd').checked, leadWords: $('cLead').value, leadPrefix: $('cPrefix').value };
+    }
+
+    function renderList() {
+      $('copySel').innerHTML = copies.map(function (c, i) { return '<option value="' + i + '"' + (i === current ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('');
+      show('copySel', copies.length > 0); show('delBtn', copies.length > 0); show('editor', current >= 0);
+      $('emptyBox').innerHTML = copies.length ? '' : emptyHtml('grid', 'No copy yet', 'Add one with <b>New copy</b>: the link of the other spreadsheet, its tab and the team.');
+    }
+
+    function pick(i) {
+      if (current >= 0) copies[current] = read();
+      current = +i; fill(copies[current]); renderList();
+    }
+
+    function addCopy() {
+      if (current >= 0) copies[current] = read();
+      var c = JSON.parse(JSON.stringify(data.defaults));
+      c.id = 'copy' + Date.now(); c.name = copies.length ? 'Schedule copy ' + (copies.length + 1) : 'HUN shifts';
+      copies.push(c); current = copies.length - 1; fill(c); renderList();
+    }
+
+    function removeCopy() {
+      var c = copies[current];
+      askConfirm('confirmBox', {
+        title: 'Delete "' + c.name + '"?', html: 'Its settings are removed when you save. The other spreadsheet is not changed.', confirmLabel: 'Delete',
+        onConfirm: function () { copies.splice(current, 1); current = copies.length ? 0 : -1; if (current >= 0) fill(copies[current]); renderList(); closeConfirm('confirmBox'); }
+      });
+    }
+
+    function check() {
+      showStatus('');
+      call('Opening the sheet…', 'apiScheduleCopyCheck', read()).then(function (r) {
+        $('checkInfo').textContent = '"' + r.title + '": ' + r.blocks + ' week block(s)' +
+          (r.last ? '; the last is ' + r.last.week + ' (' + r.last.from + ' – ' + r.last.to + ', ' + r.last.people + ' people)' : '; an import adds the first');
+        $('sheetLink').href = r.url; show('sheetLink', true);
+      });
+    }
+
+    function copyNow() {
+      showStatus('');
+      call('Copying…', 'apiScheduleCopyNow', read(), $('nowFrom').value, $('nowTo').value || $('nowFrom').value).then(function (r) {
+        var warn = r.notFound.length || r.missingWeeks.length;
+        showStatus(warn ? 'warn' : 'ok', esc(r.text), warn ? 'Copied, with notes' : 'Copied');
+      });
+    }
+
+    function save() {
+      showStatus('');
+      if (current >= 0) copies[current] = read();
+      call('Saving…', 'apiScheduleCopySave', { copies: copies }).then(function (r) {
+        copies = r.settings.copies; if (current >= copies.length) current = copies.length - 1;
+        if (current >= 0) fill(copies[current]); renderList();
+        showStatus('ok', 'The next Quinyx import of ' + (copies.length ? 'these teams' : 'any team') + ' is copied with these settings.', 'Saved');
+      });
+    }
+
+    function load() {
+      call('Loading…', 'apiScheduleCopyBootstrap').then(function (d) {
+        data = d; copies = d.settings.copies; current = copies.length ? 0 : -1;
+        $('nowFrom').value = d.today; $('nowTo').value = d.today;
+        if (current >= 0) fill(copies[current]);
+        renderList();
+      });
+    }
+
+    load();
+  </script>
+</body>
+</html>

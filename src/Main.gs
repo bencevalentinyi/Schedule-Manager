@@ -43,7 +43,8 @@ function onOpen() {
 
 /**
  * Optional extension files (e.g. TaxiRequests.gs) register themselves in SM_EXTENSIONS: {id, title, menu: [{label, fn}],
- * maintenance: [{label, fn}] (added to the Maintenance menu), tests}.
+ * maintenance: [{label, fn}] (added to the Maintenance menu), afterImport({teamIds, dateFrom, dateTo}) → {notes, warnings}
+ * (run after every committed import, ImportService.gs), tests}.
  * Without such a file there is no Extensions menu and nothing else changes.
  */
 function smExtensions_() {
