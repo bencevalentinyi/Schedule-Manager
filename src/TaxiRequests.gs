@@ -208,6 +208,82 @@ function taxiArrivalMinutes_(v, tz) {
   return (h * 60 + mi) % 1440;
 }
 
+/**
+ * When the request was sent (the ID column: "Time when workflow started") as local {day, min}, or null. Reads a date
+ * cell, a "yyyy-MM-dd HH:mm" text, or a Unix time (10 digits = seconds, 13 = milliseconds, Slack's "1793304000.123456"),
+ * also after a prefix such as "ann@example.com_1793304000".
+ */
+function taxiSentAt_(v, tz) {
+  var ms = null;
+  if (isDate_(v)) ms = v.getTime();
+  else if (typeof v === 'number') { if (v >= 1e9) ms = v >= 1e12 ? v : v * 1000; }
+  else {
+    var t = str_(v), u = /(?:^|\D)(\d{13}|\d{10})(?:\.\d+)?\s*$/.exec(t);
+    if (u) ms = u[1].length === 13 ? +u[1] : +u[1] * 1000;
+    else {
+      var d = taxiDateIso_(t, tz), m = taxiArrivalMinutes_(t, tz);
+      return d && m !== null ? { day: d, min: m } : null;
+    }
+  }
+  if (ms === null) return null;
+  var w = Utilities.formatDate(new Date(ms), tz, 'yyyy-MM-dd HH:mm');
+  return { day: w.substr(0, 10), min: hmToMinutes_(w.substr(11, 5)) };
+}
+
+/** A taxi is for the coming night: its time of day falls from this many minutes before the request was sent. */
+var TAXI_SENT_GRACE_MIN_ = 120;
+
+/**
+ * The dates the typed times really mean (agents sometimes pick today's date for a taxi after midnight): the arrival
+ * is the first time with its hh:mm from 2 hours before the request was sent, the shift end the nearest time with its
+ * hh:mm to the arrival. Only the times typed count. Without a send time: the arrival as typed. Pure.
+ * @return {{arrival: string, shiftEnd: string, typed: string, fixed: boolean}} "yyyy-MM-dd HH:mm" ('' when unknown);
+ *   typed = the date typed for the arrival; fixed = it was another day
+ */
+function taxiFixDates_(arrival, shiftEnd, sent, tz) {
+  var a = taxiArrivalMinutes_(arrival, tz), e = taxiTimeMinutes_(shiftEnd, tz), typed = taxiDateIso_(arrival, tz);
+  if (!sent || a === null) return { arrival: typed && a !== null ? typed + ' ' + minutesToHm_(a) : '', shiftEnd: '', typed: typed, fixed: false };
+  var from = dayNumber_(sent.day) * 1440 + sent.min - TAXI_SENT_GRACE_MIN_;
+  var at = dayNumber_(sent.day) * 1440 + a;
+  if (at < from) at += 1440; else if (at >= from + 1440) at -= 1440;
+  var et = null;
+  if (e !== null) {
+    et = Math.floor(at / 1440) * 1440 + e;
+    if (et - at > 720) et -= 1440; else if (at - et > 720) et += 1440;
+  }
+  var out = isoDateTimeFromMinutes_(at);
+  return { arrival: out, shiftEnd: et === null ? '' : isoDateTimeFromMinutes_(et), typed: typed, fixed: !!typed && typed !== out.substr(0, 10) };
+}
+
+/** The note when the typed date was another day (the same text as the checks tab's). Pure. */
+function taxiFixNote_(f) {
+  return f.fixed ? 'Date corrected: typed ' + f.typed + ', taxi on ' + f.arrival : '';
+}
+
+/** The local time zone's offset from UTC in minutes now (for the sheet formulas, which read Unix times as UTC). */
+function taxiTzOffsetMin_() {
+  var z = Utilities.formatDate(new Date(), getTz_(), 'Z'), m = /^([+-])(\d{2})(\d{2})$/.exec(z);
+  return m ? (m[1] === '-' ? -1 : 1) * (+m[2] * 60 + +m[3]) : 0;
+}
+
+/**
+ * The sheet's version of taxiSentAt_: a date-time serial in local time, or -1. A Unix time is UTC, so the offset
+ * (taxiTzOffsetMin_ when the formula was written) is added; summer time is an hour off until the next Save and
+ * apply / Repair Formatting, which the 2 hours of taxiFixDates_ absorb. Pure.
+ */
+function taxiSentExpr_(v, offMin) {
+  var num = 'IF(ISNUMBER(' + v + '),' + v + ',IFERROR(VALUE(REGEXEXTRACT(TO_TEXT(' + v + '),"(?:^|\\D)(\\d{13}|\\d{10})(?:\\.\\d+)?\\s*$")),-1))';
+  var t = taxiArrTimeExpr_(v);
+  return 'LET(n,' + num + ',IF(n>=1E9,DATE(1970,1,1)+IF(n>=1E12,n/86400000,n/86400)+' + (offMin || 0) + '/1440,IF(n>0,n,' +
+    'IFERROR(IF(' + t + '<0,-1,DATEVALUE(LEFT(' + v + ',10))+' + t + '),-1))))';
+}
+
+/** The sheet's version of taxiFixDates_'s arrival: a date-time serial, or -1 (sent and arrT are LET names). Pure. */
+function taxiArrFixExpr_() {
+  var c = 'INT(sent)+arrT', from = 'sent-' + TAXI_SENT_GRACE_MIN_ + '/1440';
+  return 'IF((sent<0)+(arrT<0),-1,' + c + '+IF(' + c + '<' + from + ',1,IF(' + c + '>=' + from + '+1,-1,0)))';
+}
+
 /** The taxi comes from `before` minutes before to `after` minutes after the shift end; times only, across midnight. Pure. */
 function taxiArrivalOk_(arrMin, endMin, before, after) {
   var gap = ((arrMin - endMin) % 1440 + 1440) % 1440;
@@ -325,7 +401,7 @@ var TAXI_DAY_FIRST_ROW_ = 5;
  * undecided first, then by time in the day; Result and Message from the checks tab (by row). Pure.
  * @param {Array<{header: string, letter: string}>} extras request columns to show
  */
-function buildTaxiDayFormula_(s, cols, extras) {
+function buildTaxiDayFormula_(s, cols, extras, offMin) {
   var R = taxiSheetRef_(s.requestTab), C = taxiSheetRef_(s.checksTab);
   var col = function (letter) { return R + '!' + letter + '2:' + letter; };
   var checks = taxiCheckHeaders_(s, cols);
@@ -335,19 +411,19 @@ function buildTaxiDayFormula_(s, cols, extras) {
   var pend = (cols.booking ? '((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE")>0)' : '(nm<>"")') + '*(res<>"DENIED")';
   var outCols = ['IF(arrT<0,"",TEXT(arrT,"hh:mm"))', 'nm'].concat(cols.booking ? ['booked'] : []).concat(['res', 'msg'])
     .concat(extras.map(function (e) { return col(e.letter); })).concat(['rowNo']);
-  var dateOf = function (v) { return 'IFERROR(INT(IF(ISNUMBER(' + v + '),' + v + ',DATEVALUE(LEFT(' + v + ',10)))),-1)'; };
-  // Before the day start the taxi belongs to the day before. Without a readable arrival (a denied request may hold
-  // "DENIED" there) the day comes from the ID column, the time the request was sent.
+  // Before the day start the taxi belongs to the day before. With an ID column the date comes from when the request
+  // was sent (taxiFixDates_: agents sometimes type today's date for a taxi after midnight); a denied request, which
+  // may hold "DENIED" instead of a time, gets the day it was sent.
   var tday = 'IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<' + ds + '),1,0))';
-  if (cols.id) tday = 'IF(arrDate>=0,' + tday + ',IF(idDate<0,-1,idDate-IF((idT>=0)*(idT<' + ds + '),1,0)))';
+  if (cols.id) tday = 'IF(arrFix>=0,INT(arrFix)-IF(arrT<' + ds + ',1,0),IF(sent>=0,INT(sent)-IF(MOD(sent,1)<' + ds + ',1,0),' + tday + '))';
   return '=ARRAYFORMULA(LET(' + [
     'nm,' + col(cols.name),
     'arr,' + col(cols.arrival)
   ].concat(cols.booking ? ['booked,' + col(cols.booking)] : []).concat([
     'rowNo,ROW(' + col(cols.name) + ')',
     'arrT,' + taxiArrTimeExpr_('arr'),
-    'arrDate,' + dateOf('arr')
-  ]).concat(cols.id ? ['idv,' + col(cols.id), 'idT,' + taxiArrTimeExpr_('idv'), 'idDate,' + dateOf('idv')] : []).concat([
+    'arrDate,IFERROR(INT(IF(ISNUMBER(arr),arr,DATEVALUE(LEFT(arr,10)))),-1)'
+  ]).concat(cols.id ? ['sent,' + taxiSentExpr_(col(cols.id), offMin), 'arrFix,' + taxiArrFixExpr_()] : []).concat([
     'tday,' + tday,
     'res,IFERROR(VLOOKUP(rowNo,{' + cl('Row') + ',' + cl('Result') + '},2,FALSE),"")',
     'msg,IFERROR(VLOOKUP(rowNo,{' + cl('Row') + ',' + cl('Message') + '},2,FALSE),"")',
@@ -370,8 +446,9 @@ function taxiTimeExpr_(hm) {
  * @param {Object} s normalized settings
  * @param {{id?: string, name: string, shiftEnd: string, arrival: string}} cols column letters in the request tab
  * @param {Array<{sheet: string, key: string, since: string, firstRow: number}>} staff staff sheets and their column letters
+ * @param {number=} offMin the time zone's offset from UTC in minutes (taxiTzOffsetMin_), to read Unix times in the ID column
  */
-function buildTaxiFormula_(s, cols, staff) {
+function buildTaxiFormula_(s, cols, staff, offMin) {
   var R = taxiSheetRef_(s.requestTab);
   var col = function (letter) { return R + '!' + letter + '2:' + letter; };
   var staffTbl = staff.length
@@ -429,13 +506,20 @@ function buildTaxiFormula_(s, cols, staff) {
     'endT,IFERROR(MOD(IF(ISNUMBER(shiftEnd),shiftEnd,TIMEVALUE(SUBSTITUTE(shiftEnd,".",":"))),1),-1)',
     // Only the hh:mm part of a text arrival (as taxiArrivalMinutes_), so a date like 25.10.2026 is never read as a time.
     'arrT,' + taxiArrTimeExpr_('arrival'),
-    'refDay,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),TODAY())',
+    'arrDate,IFERROR(INT(IF(ISNUMBER(arrival),arrival,DATEVALUE(LEFT(arrival,10)))),-1)'
+  ]).concat(withId ? [
+    // The date the taxi really is (from when the request was sent), and a note when another date was typed.
+    'sent,' + taxiSentExpr_(col(cols.id), offMin),
+    'arrFix,' + taxiArrFixExpr_(),
+    'note,IF((arrFix>=0)*(arrDate>=0)*(arrDate<>INT(arrFix)),"Date corrected: typed "&TEXT(arrDate,"yyyy-mm-dd")&", taxi on "&TEXT(arrFix,"yyyy-mm-dd hh:mm"),"")'
+  ] : ['arrFix,-1', 'note,""']).concat([
+    'refDay,IF(arrFix>=0,INT(arrFix),IF(arrDate>=0,arrDate,TODAY()))',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
     'denied,' + denied,
     'keep,reqName<>""',
     'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,' + (withBooking ? 'booked,' : '') + 'IF(denied,"DENIED",IF(msg="","OK","CHECK")),' +
-      'IF(denied,"Request denied",IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + '))),' +
+      'IF(denied,"Request denied",IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + '))&IF(note="","",CHAR(10)&note)),' +
       'IF(since="","",TEXT(since,"yyyy-mm-dd")),IF(tenure<0,"",tenure)}',
     'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(' + sorted + ',{' +
       headers.map(function () { return '""'; }).join(',') + '}))'
@@ -686,7 +770,7 @@ function applyTaxiChecks_(s) {
   var sh = ss.getSheetByName(s.checksTab) || ss.insertSheet(s.checksTab);
   var headers = taxiCheckHeaders_(s, cols);
   sh.clear();
-  sh.getRange(1, 1).setFormula(buildTaxiFormula_(s, cols, staff.sources));
+  sh.getRange(1, 1).setFormula(buildTaxiFormula_(s, cols, staff.sources, taxiTzOffsetMin_()));
   formatTaxiChecks_(sh, s, headers, cols);
   formatTaxiRequestTab_(s, cols);
   var day = s.dayTab ? applyTaxiDayTab_(s, cols) : null;
@@ -724,7 +808,7 @@ function applyTaxiDayTab_(s, cols) {
   sh.getRange('D2').setBackground(th.soft)
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(TAXI_DAY_SHOW, true).setAllowInvalid(false).build());
   sh.getRange(4, 1, 1, dh.length).setValues([dh]).setBackground(th.header).setFontColor(th.headerText).setFontWeight('bold');
-  sh.getRange(TAXI_DAY_FIRST_ROW_, 1).setFormula(buildTaxiDayFormula_(s, cols, extras));
+  sh.getRange(TAXI_DAY_FIRST_ROW_, 1).setFormula(buildTaxiDayFormula_(s, cols, extras, taxiTzOffsetMin_()));
   applySheetFont_(sh, th);
   sh.setFrozenRows(4);
   sh.setTabColor(th.accent);
@@ -811,14 +895,18 @@ function apiTaxiPreview(settings, opts) {
       for (var i = values.length - 1; i >= 0; i--) {
         var req = { name: str_(at(values[i], cols.name)), shiftEnd: at(values[i], cols.shiftEnd), arrival: at(values[i], cols.arrival) };
         if (!req.name) continue;
-        var e = taxiEvaluate_(req, staff.sinceByName, s, today, tz);
         var idv = cols.id ? at(values[i], cols.id) : '', bk = cols.booking ? at(values[i], cols.booking) : '';
+        // As the checks tab: the dates from when the request was sent, with a note when another date was typed.
+        var fix = taxiFixDates_(req.arrival, req.shiftEnd, cols.id ? taxiSentAt_(idv, tz) : null, tz);
+        var e = taxiEvaluate_(fix.arrival ? { name: req.name, shiftEnd: req.shiftEnd, arrival: fix.arrival } : req, staff.sinceByName, s, today, tz);
         var status = taxiBookingStatus_(bk, s.deniedWords, [req.shiftEnd, req.arrival]);
-        // As the checks tab: a denied request is DENIED whatever the rules say.
+        // A denied request is DENIED whatever the rules say.
         if (status === 'DENIED') e = { result: 'DENIED', message: 'Request denied', since: e.since, months: e.months };
+        else if (fix.fixed) e.message += '\n' + taxiFixNote_(fix);
         if (opts.onlyCheck && e.result !== 'CHECK') continue;
-        rows.push({ row: first + i, id: isDate_(idv) ? Utilities.formatDate(idv, tz, 'yyyy-MM-dd HH:mm:ss') : str_(idv), name: req.name, shiftEnd: isDate_(req.shiftEnd) ? Utilities.formatDate(req.shiftEnd, tz, 'HH:mm') : str_(req.shiftEnd),
-          arrival: isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd HH:mm') : str_(req.arrival),
+        rows.push({ row: first + i, id: isDate_(idv) ? Utilities.formatDate(idv, tz, 'yyyy-MM-dd HH:mm:ss') : str_(idv), name: req.name,
+          shiftEnd: fix.shiftEnd || (isDate_(req.shiftEnd) ? Utilities.formatDate(req.shiftEnd, tz, 'HH:mm') : str_(req.shiftEnd)),
+          arrival: fix.arrival || (isDate_(req.arrival) ? Utilities.formatDate(req.arrival, tz, 'yyyy-MM-dd HH:mm') : str_(req.arrival)),
           booking: bk === false ? '' : str_(bk), status: cols.booking || status === 'DENIED' ? status : '',
           result: e.result, message: e.message, since: e.since, months: e.months });
       }
@@ -850,13 +938,17 @@ function taxiEmailFor_(s, date) {
     var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
     var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
     var ia = columnNumber_(cols.arrival) - 1, ib = cols.booking ? columnNumber_(cols.booking) - 1 : -1, iname = columnNumber_(cols.name) - 1;
-    var ise = columnNumber_(cols.shiftEnd) - 1;
+    var ise = columnNumber_(cols.shiftEnd) - 1, iid = cols.id ? columnNumber_(cols.id) - 1 : -1;
     for (var r = 1; r < values.length; r++) {
-      var when = taxiDayOf_(values[r][ia], s.dayStart, tz);
+      // The dates from when the request was sent (an agent may have typed today's date for a taxi after midnight).
+      var fix = taxiFixDates_(values[r][ia], values[r][ise], iid >= 0 ? taxiSentAt_(values[r][iid], tz) : null, tz);
+      var when = taxiDayOf_(fix.arrival || values[r][ia], s.dayStart, tz);
       if (!str_(values[r][iname]) || when.day !== date) continue;
       var v = {};
       headers.forEach(function (h, i) { if (h) v[h] = shown[r][i]; });
-      rows.push({ values: v, time: when.time, order: when.order, taxiDate: taxiDateIso_(values[r][ia], tz),
+      // {Shift end} and {When the taxi should arrive} show the corrected dates.
+      if (iid >= 0 && fix.arrival) { v[headers[ia]] = fix.arrival; if (fix.shiftEnd) v[headers[ise]] = fix.shiftEnd; }
+      rows.push({ values: v, time: when.time, order: when.order, taxiDate: (fix.arrival || '').substr(0, 10) || taxiDateIso_(values[r][ia], tz),
         status: taxiBookingStatus_(ib >= 0 ? values[r][ib] : 'BOOKED', s.deniedWords, [values[r][ise], values[r][ia]]) });
     }
   }
@@ -979,7 +1071,9 @@ function taxiClearRows_(s, cols, values, tz) {
   for (var r = 1; r < values.length; r++) {
     var v = values[r];
     if (!str_(at(v, cols.name))) continue;
-    var day = taxiDayOf_(at(v, cols.arrival), s.dayStart, tz).day || (cols.id ? taxiDayOf_(at(v, cols.id), s.dayStart, tz).day : '');
+    var sent = cols.id ? taxiSentAt_(at(v, cols.id), tz) : null, fix = taxiFixDates_(at(v, cols.arrival), at(v, cols.shiftEnd), sent, tz);
+    var day = taxiDayOf_(fix.arrival || at(v, cols.arrival), s.dayStart, tz).day ||
+      (sent ? (sent.min < hmToMinutes_(s.dayStart) ? addDays_(sent.day, -1) : sent.day) : '');
     rows.push({ row: r + 1, day: day, status: taxiBookingStatus_(cols.booking ? at(v, cols.booking) : 'BOOKED', s.deniedWords, [at(v, cols.shiftEnd), at(v, cols.arrival)]) });
   }
   return rows;
@@ -1213,7 +1307,9 @@ function taxiUnitTests_() {
       assertEq_(taxiDayHeaders_(s, cols, extras), ['Time', 'Name', 'Booking done', 'Result', 'Message', 'Address', 'Phone Number', 'Row']);
       var f = buildTaxiDayFormula_(s, cols, extras);
       assert_(f.indexOf("nm,'Taxi Requests'!C2:C,arr,'Taxi Requests'!H2:H,booked,'Taxi Requests'!J2:J,") > 0, 'request columns');
-      assert_(f.indexOf("tday,IF(arrDate>=0,IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<TIME(6,0,0)),1,0)),IF(idDate<0,-1,idDate-IF((idT>=0)*(idT<TIME(6,0,0)),1,0)))") > 0, 'day start; without a readable arrival, the day of the ID');
+      assert_(f.indexOf('tday,IF(arrFix>=0,INT(arrFix)-IF(arrT<TIME(6,0,0),1,0),IF(sent>=0,INT(sent)-IF(MOD(sent,1)<TIME(6,0,0),1,0),' +
+        'IF(arrDate<0,-1,arrDate-IF((arrT>=0)*(arrT<TIME(6,0,0)),1,0))))') > 0, 'day start; the date from when it was sent; without a time, the day it was sent');
+      assert_(f.indexOf("sent,LET(n,IF(ISNUMBER('Taxi Requests'!A2:A),") > 0 && f.indexOf('arrFix,IF((sent<0)+(arrT<0),-1,INT(sent)+arrT+IF(INT(sent)+arrT<sent-120/1440,1,IF(INT(sent)+arrT>=sent-120/1440+1,-1,0)))') > 0, 'corrected date');
       assert_(f.indexOf('pend,((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE")>0)*(res<>"DENIED")') > 0, 'denied is decided');
       assert_(f.indexOf("res,IFERROR(VLOOKUP(rowNo,{'Taxi Checks'!A2:A,'Taxi Checks'!E2:E},2,FALSE),\"\")") > 0, 'Result from the checks tab by row');
       assert_(f.indexOf('keep,(nm<>"")*IF(ISNUMBER(pick),tday=INT(pick),1)*IF(show="Not decided",pend,IF(show="To check",pend*(res="CHECK"),1))') > 0, 'date and Show filters');
@@ -1225,6 +1321,26 @@ function taxiUnitTests_() {
       var plain = buildTaxiDayFormula_(normalizeTaxiSettings_({ sinceField: 'x', bookingColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H', booking: '' }, []);
       assert_(plain.indexOf('booked') < 0 && plain.indexOf('pend,(nm<>"")*(res<>"DENIED")') > 0, 'without a decision column everything not denied counts as not decided');
       assert_(plain.indexOf('idDate') < 0, 'without an ID column the day comes from the arrival only');
+    }],
+    ['Taxi: the date comes from when the request was sent, so a wrongly typed date is corrected', function () {
+      // 1793304000 = 2026-10-29 20:00 UTC.
+      assertEq_([taxiSentAt_('ann@example.com_1793304000', tz), taxiSentAt_('1793304000123', tz), taxiSentAt_(1793304000, tz), taxiSentAt_('1793304000.123456', tz)].map(function (x) { return x.day + ' ' + minutesToHm_(x.min); }),
+        ['2026-10-29 20:00', '2026-10-29 20:00', '2026-10-29 20:00', '2026-10-29 20:00'], 'Unix seconds, milliseconds, after an email, Slack time');      assertEq_([taxiSentAt_('2026-10-29 21:40:12', tz), taxiSentAt_('ann_123', tz), taxiSentAt_('', tz)], [{ day: '2026-10-29', min: 1300 }, null, null]);
+      var sent = { day: '2026-10-29', min: 1300 };
+      var f = taxiFixDates_('2026-10-29 00:00', '2026-10-29 23:45', sent, tz);
+      assertEq_(f, { arrival: '2026-10-30 00:00', shiftEnd: '2026-10-29 23:45', typed: '2026-10-29', fixed: true }, 'today typed for a taxi after midnight');
+      assertEq_(taxiFixNote_(f), 'Date corrected: typed 2026-10-29, taxi on 2026-10-30 00:00');
+      assertEq_(taxiFixDates_('2026-10-30 00:00', '00:00', sent, tz), { arrival: '2026-10-30 00:00', shiftEnd: '2026-10-30 00:00', typed: '2026-10-30', fixed: false }, 'typed right; shift end as a time only');
+      assertEq_(taxiFixDates_('2026-10-30 00:30', '2026-10-30 00:15', { day: '2026-10-30', min: 10 }, tz).arrival, '2026-10-30 00:30', 'sent after midnight: that night');
+      assertEq_(taxiFixDates_('2026-10-30 00:30', '', { day: '2026-10-30', min: 40 }, tz).arrival, '2026-10-30 00:30', 'sent a little after the taxi time: still that night');
+      assertEq_(taxiFixDates_('2026-10-28 00:20', '2026-10-28 00:00', sent, tz).shiftEnd, '2026-10-30 00:00', 'the shift end next to the taxi');
+      assertEq_(taxiFixDates_('2026-10-29 00:00', '', null, tz), { arrival: '2026-10-29 00:00', shiftEnd: '', typed: '2026-10-29', fixed: false }, 'without a send time: as typed');
+      assertEq_(taxiFixDates_('DENIED', 'DENIED', sent, tz).arrival, '', 'no time');
+      var chk = buildTaxiFormula_(s, { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' }, [], 60);
+      assert_(chk.indexOf('+60/1440,') > 0 && chk.indexOf('&IF(note="","",CHAR(10)&note)') > 0 && chk.indexOf('refDay,IF(arrFix>=0,INT(arrFix),') > 0, 'the checks tab: offset, note, tenure to the taxi date');
+      assertEq_((chk.match(/\(/g) || []).length, (chk.match(/\)/g) || []).length, 'balanced parentheses');
+      var noId = buildTaxiFormula_(normalizeTaxiSettings_({ sinceField: 'x', idColumn: '' }), { name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' }, []);
+      assert_(noId.indexOf('arrFix,-1,note,""') > 0 && noId.indexOf('sent,') < 0, 'without an ID column: as typed');
     }],
     ['Taxi: clearing old requests keeps undecided ones and rows without a date', function () {
       var o = normalizeTaxiClear_({});
