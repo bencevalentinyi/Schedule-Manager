@@ -6,8 +6,10 @@
   <?!= include('Styles') ?>
   <style>
     a.btn { text-decoration: none; }
-    .actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s2); }
-    .actions-row .btn { justify-content: flex-start; height: 40px; }
+    .actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s2); }
+    /* A long label wraps inside its button (taller, never past the edge), whatever the theme's font or the zoom. */
+    .actions-row .btn { justify-content: flex-start; height: auto; min-height: 40px; padding-top: 8px; padding-bottom: 8px;
+      white-space: normal; text-align: left; line-height: 1.25; overflow-wrap: anywhere; min-width: 0; }
     .tool-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 var(--s4); }
     .tool-list a { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--rule); color: var(--text); text-decoration: none; font-weight: 600; }
     .tool-list a::after { content: ""; width: 6px; height: 6px; border-top: 1.6px solid var(--text-3); border-right: 1.6px solid var(--text-3); transform: rotate(45deg); }
