@@ -407,6 +407,34 @@ function currentUserEmail_() {
 }
 
 /**
+ * A read memo for one read-only run (a web page's data, a page refresh): while it is on, the schedule data
+ * (queryScheduleRecords_), staff sheets (readStaff_) and the team list are read from the spreadsheet once and
+ * then served from memory. Only for code that does not write: writes inside it would not be seen. Nested calls
+ * share the outer memo. With a label, the run's time and reads are written to the execution log.
+ */
+var READ_MEMO_ = null;
+function withReadMemo_(fn, label) {
+  if (READ_MEMO_) return fn();
+  var started = Date.now();
+  READ_MEMO_ = { staff: {}, teams: null, stats: { scheduleQueries: 0, scheduleMs: 0, scheduleRows: 0, staffReads: 0, staffHits: 0, staffMs: 0 } };
+  try {
+    var out = fn();
+    if (label) console.log(label + ': ' + (Date.now() - started) + ' ms (' + readMemoSummary_(READ_MEMO_.stats) + ')');
+    return out;
+  } finally {
+    LAST_READ_STATS_ = READ_MEMO_.stats;
+    READ_MEMO_ = null;
+  }
+}
+var LAST_READ_STATS_ = null;
+
+/** "schedule: 11 queries, 1 read of 24000 rows, 900 ms; staff sheets: 3 read (8 reused), 400 ms". Pure. */
+function readMemoSummary_(st) {
+  return 'schedule: ' + st.scheduleQueries + ' quer' + (st.scheduleQueries === 1 ? 'y' : 'ies') + (st.scheduleQueries ? ', ' + st.scheduleRows + ' rows, ' + st.scheduleMs + ' ms' : '') +
+    '; staff sheets: ' + st.staffReads + ' read' + (st.staffHits ? ' (' + st.staffHits + ' reused)' : '') + (st.staffReads ? ', ' + st.staffMs + ' ms' : '');
+}
+
+/**
  * Runs fn while holding the document lock. Only public API entry points take the
  * lock; internal functions never do, so locks are never nested.
  */
@@ -463,6 +491,11 @@ function apiCall_(name, fn) {
     logError_(name, e);
     return { ok: false, error: toUserError_(e) };
   }
+}
+
+/** apiCall_ for a read-only API (web page data and refreshes): inside one read memo, with its time in the log. */
+function apiRead_(name, fn) {
+  return apiCall_(name, function () { return withReadMemo_(fn, name); });
 }
 
 /** Embeds JSON safely in an HTML template (prevents </script> injection). */

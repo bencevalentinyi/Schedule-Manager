@@ -1516,6 +1516,31 @@ function runIntegrationTests() {
       assert_(formulas.some(function (f) { return /^=LEFT\(\$[A-Z]+7,7\)="Meeting"$/.test(f); }), 'meeting row rule present: ' + formulas.join(' | '));
       assert_(!apiViewerRender('NO_SUCH_TEAM', '', null).ok, 'unknown team is refused');
     }],
+    ['Read memo: the same records, teams and staff as reading the sheets, with fewer reads', function () {
+      var ids = listTeams_().map(function (t) { return t.teamId; });
+      var filters = [{ dates: ['2026-10-15'] }, { teamIds: ids.slice(0, 1), dates: ['2026-10-14', '2026-10-15', '2026-10-16'] }, { teamIds: ids }, {}];
+      var key = function (recs) { return recs.map(function (r) { return [r._row, r.recordKey, r.shiftStart, r.employeeName].join('|'); }).sort().join('\n'); };
+      var plain = filters.map(function (f) { return key(queryScheduleRecords_(f)); });
+      var plainTeams = JSON.stringify(listTeams_().map(function (t) { return [t.teamId, t.teamName, t.settings.display.operatingHoursMode]; }));
+      var team = getTeam_(ctx.teams.alpha.teamId), plainStaff = readStaff_(team).rows.length;
+      var memo = withReadMemo_(function () {
+        var out = filters.map(function (f) { return key(queryScheduleRecords_(f)); });
+        // A second time: served from memory, and a caller changing a record does not change the next answer.
+        var again = queryScheduleRecords_(filters[0]);
+        if (again[0]) again[0].employeeName = 'Changed';
+        out.push(key(queryScheduleRecords_(filters[0])));
+        var t = listTeams_()[0]; t.settings.display.operatingHoursMode = 'CHANGED';
+        return { recs: out, teams: JSON.stringify(listTeams_().map(function (x) { return [x.teamId, x.teamName, x.settings.display.operatingHoursMode]; })),
+          staff: [readStaff_(team).rows.length, readStaff_(team).rows.length], stats: READ_MEMO_.stats };
+      });
+      assertEq_(memo.recs.slice(0, filters.length), plain, 'same records for every filter');
+      assertEq_(memo.recs[filters.length], plain[0], 'records are rebuilt for each caller');
+      assertEq_(memo.teams, plainTeams, 'same teams; a caller changing one does not change the memo');
+      assertEq_(memo.staff, [plainStaff, plainStaff], 'same staff');
+      assertEq_([memo.stats.scheduleQueries, memo.stats.staffReads, memo.stats.staffHits], [filters.length + 2, 1, 1], 'the schedule columns and the staff sheet are read once');
+      assert_(READ_MEMO_ === null, 'the memo ends with the run');
+      assert_(/schedule: 6 queries, \d+ rows, \d+ ms; staff sheets: 1 read \(1 reused\), \d+ ms/.test(readMemoSummary_(memo.stats)), readMemoSummary_(memo.stats));
+    }],
     ['Recover from a missing team worksheet', function () {
       var team = getTeam_(ctx.teams.beta.teamId);
       ss.deleteSheet(resolveTeamSheet_(team, 'schedule'));

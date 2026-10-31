@@ -154,7 +154,7 @@ function buildWebPage_(params) {
   // Before setup only Home, Setup and Help open; the others need the system sheets.
   if (pages[key].init !== false && !isInitialized_()) key = 'setup';
   var out = renderWebPage_(key, params);
-  console.log('Web page "' + key + '": ' + (Date.now() - started) + ' ms, of which page data ' + out.dataMs + ' ms');
+  console.log('Web page "' + key + '": ' + (Date.now() - started) + ' ms, of which page data ' + out.dataMs + ' ms' + (out.reads ? ' (' + readMemoSummary_(out.reads) + ')' : ''));
   return out;
 }
 
@@ -194,14 +194,16 @@ function renderWebPage_(key, params) {
   t.bootJson = jsonForHtml_(data);
   var url = webAppUrl_();
   var dataStarted = Date.now();
-  var prefetch = page.prefetch ? webPrefetch_(page.prefetch(params, data)) : {};
-  var dataMs = Date.now() - dataStarted;
+  // The page's data is read-only: one read memo, so its calls read each sheet once (see withReadMemo_).
+  LAST_READ_STATS_ = null;
+  var prefetch = page.prefetch ? withReadMemo_(function () { return webPrefetch_(page.prefetch(params, data)); }) : {};
+  var dataMs = Date.now() - dataStarted, reads = page.prefetch ? LAST_READ_STATS_ : null;
   var client = { url: url, page: key, back: page.back || 'home', spreadsheetUrl: getSs_().getUrl(), prefetch: prefetch };
   var head = '<script>window.WEB_APP = ' + jsonForHtml_(client) + ';</script>' + webWidthStyle_(page);
   var content = t.evaluate().getContent();
   // Sidebar pages (Schedule, Staff) have no page header; give them one so the theme's mark and top bar show.
   var top = webShellHtml_(key, url, client.spreadsheetUrl) + webPageHeader_(content, data.title || page.title);
-  return { html: injectWebShell_(content, head, top), title: data.title || page.title, dataMs: dataMs };
+  return { html: injectWebShell_(content, head, top), title: data.title || page.title, dataMs: dataMs, reads: reads };
 }
 
 function webWidthStyle_(page) {
@@ -292,7 +294,7 @@ function escapeHtml_(s) {
 
 /** Home page: setup state, teams with links to their sheets, the last import and the Monitoring Links sheet. */
 function apiWebHome() {
-  return apiCall_('apiWebHome', function () {
+  return apiRead_('apiWebHome', function () {
     var ss = getSs_();
     // Quick check from the (cached) configuration; the full sheet inspection only before setup.
     var state = isInitialized_()

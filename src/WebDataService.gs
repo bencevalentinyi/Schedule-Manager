@@ -49,7 +49,7 @@ function readyTeams_() {
  * headcount per team, plus the headcount of all of them together.
  */
 function apiWebDay(dateIso, teamIds) {
-  return apiCall_('apiWebDay', function () {
+  return apiRead_('apiWebDay', function () {
     requireInitialized_();
     var cfg = getConfig_();
     var today = todayIso_(cfg.TIMEZONE);
@@ -90,7 +90,7 @@ function weekdayOf_(dateIso) {
 
 /** Dashboard page: every team's day in numbers (as the Dashboard sheet), totals and recent imports. */
 function apiWebDashboard(dateIso) {
-  return apiCall_('apiWebDashboard', function () {
+  return apiRead_('apiWebDashboard', function () {
     requireInitialized_();
     var cfg = getConfig_();
     var tz = getTz_();
@@ -136,7 +136,7 @@ function weekStartOf_(dateIso) {
 
 /** Person page: one person's shifts and meetings for a week (Monday–Sunday) in every team, and their staff details. */
 function apiWebPerson(key, weekIso) {
-  return apiCall_('apiWebPerson', function () {
+  return apiRead_('apiWebPerson', function () {
     requireInitialized_();
     key = str_(key);
     if (!/^(ID|NM):./.test(key)) fail_('VALIDATION', 'No person was chosen. Open a person from the Schedule or Staff page.');
@@ -195,7 +195,7 @@ function apiWebPerson(key, weekIso) {
 
 /** Staff page: the ready teams and the chosen team's whole staff list (searched in the browser). */
 function apiWebStaff(teamId) {
-  return apiCall_('apiWebStaff', function () {
+  return apiRead_('apiWebStaff', function () {
     requireInitialized_();
     var teams = readyTeams_();
     if (!teams.length) return { teams: [], teamId: '', list: null };
@@ -226,7 +226,7 @@ function apiWebStaffDelete(teamId, employeeId) {
  * (with today's staff IDs). Also the sheet layout and CSV export settings, so the page edits them in place.
  */
 function apiWebLinksDay(dateIso) {
-  return apiCall_('apiWebLinksDay', function () {
+  return apiRead_('apiWebLinksDay', function () {
     requireInitialized_();
     var ctx = linkRunContext_(isIsoDate_(str_(dateIso)) ? str_(dateIso) : '');
     var teams = teamsByIdForLinks_(), cache = {}, label = {};

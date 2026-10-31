@@ -948,7 +948,7 @@ function taxiCurrentNight_(todayIso, nowMin, dayStart) {
  * night's email text. Nothing is written.
  */
 function apiTaxiNight(dateIso) {
-  return apiCall_('apiTaxiNight', function () {
+  return apiRead_('apiTaxiNight', function () {
     requireInitialized_();
     var s = getTaxiSettings_(), tz = getTz_(), today = todayIso_(tz);
     var nowNight = taxiCurrentNight_(today, hmToMinutes_(Utilities.formatDate(new Date(), tz, 'HH:mm')), s.dayStart);
@@ -961,9 +961,12 @@ function apiTaxiNight(dateIso) {
     var checks = getSs_().getSheetByName(s.checksTab), day = s.dayTab ? getSs_().getSheetByName(s.dayTab) : null;
     out.links = { requests: sheetLink_(sh).url, checks: checks ? sheetLink_(checks).url : '', day: day ? sheetLink_(day).url : '' };
     var weekFrom = addDays_(night, -6), counts = {};
+    // The tab is read once: the night's rows, the week's counts and the email text all come from it.
+    var pre = { cols: cols, values: [], shown: [] };
     if (sh.getLastRow() >= 2) {
       var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
       var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
+      pre.values = values; pre.shown = shown;
       var at = function (row, letter) { return letter ? row[columnNumber_(letter) - 1] : ''; };
       var extras = s.dayColumns.map(function (h) { return { label: h, i: columnNumber_(taxiColumnLetter_(headers, h) || 'A') - 1, ok: !!taxiColumnLetter_(headers, h) }; }).filter(function (e) { return e.ok; });
       for (var r = 1; r < values.length; r++) {
@@ -993,21 +996,24 @@ function apiTaxiNight(dateIso) {
     }
     out.rows.sort(function (a, b) { return taxiOrderKey_(a) - taxiOrderKey_(b); });
     for (var k = 6; k >= 0; k--) { var d = addDays_(night, -k); out.week.push({ night: d, total: (counts[d] || {}).total || 0, open: ((counts[d] || {}).check || 0) + ((counts[d] || {}).open || 0) }); }
-    var em = taxiEmailFor_(s, night);
+    var em = taxiEmailFor_(s, night, pre);
     out.email = { text: em.text, count: em.count, denied: em.denied, pending: em.pending, taxiDate: em.taxiDate };
     return out;
   });
 }
 
-/** The email text for one taxi day, read from the request tab (see buildTaxiEmail_). */
-function taxiEmailFor_(s, date) {
+/**
+ * The email text for one taxi day, read from the request tab (see buildTaxiEmail_).
+ * @param {{cols, values, shown}=} pre the tab already read (the night view), so it is not read again
+ */
+function taxiEmailFor_(s, date, pre) {
   var tz = getTz_();
-  var cols = taxiRequestColumns_(s);
-  var sh = getSs_().getSheetByName(s.requestTab);
+  var cols = pre ? pre.cols : taxiRequestColumns_(s);
+  var sh = pre ? null : getSs_().getSheetByName(s.requestTab);
   var rows = [];
-  if (sh.getLastRow() >= 2) {
-    var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
-    var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
+  if (pre ? pre.values.length >= 2 : sh.getLastRow() >= 2) {
+    var range = pre ? null : sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
+    var values = pre ? pre.values : range.getValues(), shown = pre ? pre.shown : range.getDisplayValues(), headers = shown[0];
     var ia = columnNumber_(cols.arrival) - 1, ib = cols.booking ? columnNumber_(cols.booking) - 1 : -1, iname = columnNumber_(cols.name) - 1;
     var ise = columnNumber_(cols.shiftEnd) - 1, iid = cols.id ? columnNumber_(cols.id) - 1 : -1;
     for (var r = 1; r < values.length; r++) {

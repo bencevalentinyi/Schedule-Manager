@@ -68,6 +68,7 @@ function readAllScheduleRecords_() {
  * @param {{teamIds?: string[], dates?: string[]}} filter
  */
 function queryScheduleRecords_(filter) {
+  if (READ_MEMO_) return queryScheduleRecordsMemo_(filter);
   var sh = requireSheet_(T_SCHEDULE.sheet);
   var lr = sh.getLastRow();
   if (lr < 2) return [];
@@ -110,6 +111,59 @@ function queryScheduleRecords_(filter) {
     var vals = sh.getRange(run.start + 2, 1, run.end - run.start + 1, width).getValues();
     vals.forEach(function (row, k) { out.push(rowToRecord_(row, hi.idx, tz, run.start + 2 + k)); });
   });
+  return out;
+}
+
+/**
+ * queryScheduleRecords_ inside withReadMemo_: the Team ID and Shift Date columns are read once per run (and each
+ * distinct date converted once), and every data row once, however many queries a page makes (the Links page
+ * makes one per item). Records are built fresh from the stored rows each time, so callers may change them.
+ */
+function queryScheduleRecordsMemo_(filter) {
+  var M = READ_MEMO_, t0 = Date.now();
+  if (!M.sched) {
+    var sh = requireSheet_(T_SCHEDULE.sheet), lr = sh.getLastRow();
+    M.sched = { sh: sh, n: Math.max(0, lr - 1), rows: {} };
+    if (lr >= 2) {
+      var header = readHeader_(sh), hi = headerIndex_(T_SCHEDULE, header);
+      if (hi.missing.length) fail_('SCHEMA', '_SCHEDULE_DATA is missing column(s): ' + hi.missing.join(', ') + '. Run Setup → Repair.');
+      var tz = getTz_(), isoOf = {};
+      var teamCol = sh.getRange(2, hi.idx.teamId + 1, lr - 1, 1).getValues(), dateCol = sh.getRange(2, hi.idx.shiftDate + 1, lr - 1, 1).getValues();
+      M.sched.idx = hi.idx; M.sched.width = header.length; M.sched.tz = tz;
+      M.sched.team = teamCol.map(function (r) { return str_(r[0]); });
+      M.sched.date = dateCol.map(function (r) {
+        var v = r[0], k = isDate_(v) ? 'd' + v.getTime() : 's' + v;
+        if (!(k in isoOf)) isoOf[k] = cellToIsoDate_(v, tz);
+        return isoOf[k];
+      });
+    }
+    M.stats.scheduleRows = M.sched.n;
+  }
+  var S = M.sched;
+  M.stats.scheduleQueries++;
+  if (!S.n) { M.stats.scheduleMs += Date.now() - t0; return []; }
+  var teams = filter.teamIds || null, dates = filter.dates || null, matches = [], need = [];
+  for (var i = 0; i < S.n; i++) {
+    if (teams && teams.indexOf(S.team[i]) < 0) continue;
+    if (dates && dates.indexOf(S.date[i]) < 0) continue;
+    matches.push(i);
+    if (!S.rows[i]) need.push(i);
+  }
+  // Rows not read yet in this run: contiguous runs, or the whole table when they are scattered.
+  if (need.length) {
+    var runs = [];
+    need.forEach(function (i) { var last = runs[runs.length - 1]; if (last && i === last.end + 1) last.end = i; else runs.push({ start: i, end: i }); });
+    if (runs.length > 40) {
+      var all = S.sh.getRange(2, 1, S.n, S.width).getValues();
+      all.forEach(function (row, i) { S.rows[i] = row; });
+    } else {
+      runs.forEach(function (run) {
+        S.sh.getRange(run.start + 2, 1, run.end - run.start + 1, S.width).getValues().forEach(function (row, k) { S.rows[run.start + k] = row; });
+      });
+    }
+  }
+  var out = matches.map(function (i) { return rowToRecord_(S.rows[i], S.idx, S.tz, i + 2); });
+  M.stats.scheduleMs += Date.now() - t0;
   return out;
 }
 

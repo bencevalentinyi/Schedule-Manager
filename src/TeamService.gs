@@ -71,6 +71,14 @@ function teamShiftTypeFilter_(team) {
 }
 
 function listTeams_() {
+  // Inside withReadMemo_ the team list is read once per run (each caller gets its own copies).
+  if (READ_MEMO_) {
+    if (!READ_MEMO_.teams) READ_MEMO_.teams = readTable_(T_TEAMS).rows;
+    return READ_MEMO_.teams.map(function (r) {
+      // A copy of the settings (plain JSON), so a caller changing a team's settings never changes the memo.
+      return rowToTeam_(Object.assign({}, r, { settings: r.settings && typeof r.settings === 'object' ? JSON.parse(JSON.stringify(r.settings)) : r.settings }));
+    }).filter(function (t) { return t.teamId; });
+  }
   return readTable_(T_TEAMS).rows.map(rowToTeam_).filter(function (t) { return t.teamId; });
 }
 

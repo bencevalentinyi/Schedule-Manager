@@ -236,6 +236,18 @@ function layoutStaffSheet_(sh, team) {
  *   rows: {_row, employeeId, employeeName, active, values: {label: v}, fields: {key: v}}
  */
 function readStaff_(team) {
+  // Inside withReadMemo_ (read-only page data) each team's staff sheet is read once per run.
+  if (READ_MEMO_) {
+    var key = team.teamId + '|' + (team.settings && team.settings.staffSheetId);
+    if (READ_MEMO_.staff[key]) { READ_MEMO_.stats.staffHits++; return READ_MEMO_.staff[key]; }
+    var t0 = Date.now(), memo = READ_MEMO_, st = readStaffFromSheet_(team);
+    memo.staff[key] = st; memo.stats.staffReads++; memo.stats.staffMs += Date.now() - t0;
+    return st;
+  }
+  return readStaffFromSheet_(team);
+}
+
+function readStaffFromSheet_(team) {
   var sh = resolveTeamSheet_(team, 'staff');
   if (!sh) fail_('MISSING_SHEET', 'The staff sheet of team "' + team.teamName + '" is missing. Run Maintenance → Rebuild Missing Sheets.');
   var cfg = getConfig_();
