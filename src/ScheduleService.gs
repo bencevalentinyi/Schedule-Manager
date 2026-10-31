@@ -72,6 +72,8 @@ function queryScheduleRecords_(filter) {
   var sh = requireSheet_(T_SCHEDULE.sheet);
   var lr = sh.getLastRow();
   if (lr < 2) return [];
+  // A small table: one fresh read of it is faster than its columns plus the matching rows piece by piece.
+  if (lr * sh.getLastColumn() <= SCHEDULE_ONE_READ_CELLS_) return withReadMemo_(function () { return queryScheduleRecordsMemo_(filter); });
   var header = readHeader_(sh);
   var hi = headerIndex_(T_SCHEDULE, header);
   if (hi.missing.length) fail_('SCHEMA', '_SCHEDULE_DATA is missing column(s): ' + hi.missing.join(', ') + '. Run Setup → Repair.');
@@ -119,16 +121,29 @@ function queryScheduleRecords_(filter) {
  * distinct date converted once), and every data row once, however many queries a page makes (the Links page
  * makes one per item). Records are built fresh from the stored rows each time, so callers may change them.
  */
+var SCHEDULE_ONE_READ_CELLS_ = 300000; // about 12 000 rows: still one fast read
 function queryScheduleRecordsMemo_(filter) {
   var M = READ_MEMO_, t0 = Date.now();
   if (!M.sched) {
-    var sh = requireSheet_(T_SCHEDULE.sheet), lr = sh.getLastRow();
+    var sh = requireSheet_(T_SCHEDULE.sheet), lr = sh.getLastRow(), lc = sh.getLastColumn();
     M.sched = { sh: sh, n: Math.max(0, lr - 1), rows: {} };
     if (lr >= 2) {
-      var header = readHeader_(sh), hi = headerIndex_(T_SCHEDULE, header);
+      // Every Sheets call costs a fixed time: a table up to SCHEDULE_ONE_READ_CELLS_ cells is read in one call
+      // (header and all rows); a bigger one by its two filter columns first, then only the rows it needs.
+      var whole = lr * lc <= SCHEDULE_ONE_READ_CELLS_;
+      var all = whole ? sh.getRange(1, 1, lr, lc).getValues() : null;
+      var header = whole ? all[0].map(str_) : readHeader_(sh), hi = headerIndex_(T_SCHEDULE, header);
       if (hi.missing.length) fail_('SCHEMA', '_SCHEDULE_DATA is missing column(s): ' + hi.missing.join(', ') + '. Run Setup → Repair.');
       var tz = getTz_(), isoOf = {};
-      var teamCol = sh.getRange(2, hi.idx.teamId + 1, lr - 1, 1).getValues(), dateCol = sh.getRange(2, hi.idx.shiftDate + 1, lr - 1, 1).getValues();
+      var teamCol, dateCol;
+      if (whole) {
+        for (var w = 1; w < all.length; w++) M.sched.rows[w - 1] = all[w];
+        teamCol = all.slice(1).map(function (r) { return [r[hi.idx.teamId]]; });
+        dateCol = all.slice(1).map(function (r) { return [r[hi.idx.shiftDate]]; });
+      } else {
+        teamCol = sh.getRange(2, hi.idx.teamId + 1, lr - 1, 1).getValues();
+        dateCol = sh.getRange(2, hi.idx.shiftDate + 1, lr - 1, 1).getValues();
+      }
       M.sched.idx = hi.idx; M.sched.width = header.length; M.sched.tz = tz;
       M.sched.team = teamCol.map(function (r) { return str_(r[0]); });
       M.sched.date = dateCol.map(function (r) {

@@ -46,8 +46,11 @@ function listStaffFields_() {
 
 /** fieldKey -> field */
 function getStaffFieldMap_() {
+  // Inside withReadMemo_ (read-only page data) the field list is read once per run, not once per staff sheet.
+  if (READ_MEMO_ && READ_MEMO_.fieldMap) return READ_MEMO_.fieldMap;
   var m = {};
   listStaffFields_().forEach(function (f) { m[f.fieldKey] = f; });
+  if (READ_MEMO_) READ_MEMO_.fieldMap = m;
   return m;
 }
 

@@ -128,6 +128,11 @@ function resolveTeamSheet_(team, kind) {
   var nameKey = kind === 'schedule' ? 'scheduleSheet' : 'staffSheet';
   var idKey = kind === 'schedule' ? 'scheduleSheetId' : 'staffSheetId';
   var id = team.settings[idKey];
+  // Usually the sheet still has its stored name: found directly (one call), without listing every sheet.
+  if (id !== null && id !== undefined && id !== '' && team[nameKey]) {
+    var quick = getSs_().getSheetByName(team[nameKey]);
+    if (quick && quick.getSheetId() === Number(id)) return quick;
+  }
   var byId = findSheetById_(id);
   if (byId) {
     if (byId.getName() !== team[nameKey]) {
