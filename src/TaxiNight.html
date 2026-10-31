@@ -6,7 +6,10 @@
   <?!= include('Styles') ?>
   <style>
     .night { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .night .when { font: 700 26px/1.1 var(--figure); letter-spacing: -.01em; }
+    .night .when { font: 700 26px/1.1 var(--figure); letter-spacing: -.01em; white-space: nowrap; flex: 0 0 auto; margin-right: 6px; }
+    /* The requests panel is as tall as the column next to it: an empty night sits in its middle. */
+    .rq-panel { display: flex; flex-direction: column; }
+    .rq-empty { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: 0 14px 14px; }
     .night .when small { display: block; font: 600 12px/1.3 var(--font); color: var(--text-2); letter-spacing: 0; text-transform: uppercase; }
     .night .nav-btn { width: 34px; padding: 0; justify-content: center; }
     .night input[type=date] { width: auto; }
@@ -112,7 +115,7 @@
 
       var F = [['ALL', 'All'], ['check', 'To check'], ['open', 'Not decided'], ['booked', 'Booked'], ['denied', 'Denied']];
       var list = rows.filter(function (r) { return showKind === 'ALL' || r.kind === showKind; });
-      html += '<section class="panel flush w8">' + moduleHead('Requests', list.length,
+      html += '<section class="panel flush w8 rq-panel">' + moduleHead('Requests', list.length,
         '<div class="seg" role="group" aria-label="Show">' + F.map(function (f) { return '<button type="button" class="btn sm" aria-pressed="' + (showKind === f[0]) + '" onclick="showKind=\'' + f[0] + '\';render()">' + f[1] + '</button>'; }).join('') + '</div>') +
         (list.length ? list.map(function (r) {
           var L = LABEL[r.kind];
@@ -123,7 +126,7 @@
             '<div><div class="nm">' + esc(r.name) + '</div><div class="meta">' + r.extras.map(function (x) { return '<b>' + esc(x.label) + ':</b> ' + esc(x.value); }).join('<br>') + '</div></div>' +
             '<div class="msg">' + msg + '</div><div class="dec">' + badge(L[0], L[1]) + '<div class="small mt-1">' + (r.decidedBy ? 'by ' + esc(r.decidedBy) : r.kind === 'booked' || r.kind === 'denied' ? '' : 'waiting in Slack') + '</div>' +
             '<div class="small muted">row ' + r.row + '</div></div></div>';
-        }).join('') : '<div style="padding:0 14px 14px">' + emptyHtml('🚕', rows.length ? 'Nothing here' : 'No taxi requests this night', rows.length ? 'No request matches this filter.' : 'Requests from the Slack workflow show here as they come in.') + '</div>') + '</section>';
+        }).join('') : '<div class="rq-empty">' + emptyHtml('🚕', rows.length ? 'Nothing here' : 'No taxi requests this night', rows.length ? 'No request matches this filter.' : 'Requests from the Slack workflow show here as they come in.') + '</div>') + '</section>';
 
       // The night timeline and the email text.
       var ds = hm(data.settings.dayStart) || 360, len = ((ds - AXIS_FROM + 1440) % 1440) || 1440;

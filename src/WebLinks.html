@@ -6,7 +6,7 @@
   <?!= include('Styles') ?>
   <style>
     .day { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .day .when { font: 700 26px/1.1 var(--figure); letter-spacing: -.01em; }
+    .day .when { font: 700 26px/1.1 var(--figure); letter-spacing: -.01em; white-space: nowrap; flex: 0 0 auto; margin-right: 6px; }
     .day .when small { display: block; font: 600 12px/1.3 var(--font); color: var(--text-2); text-transform: uppercase; letter-spacing: 0; }
     .day .nav-btn { width: 34px; padding: 0; justify-content: center; }
     .day input[type=date] { width: auto; }
@@ -28,7 +28,9 @@
     .urlrow { grid-column: 2; font: 11px/1.45 var(--mono); color: var(--text-2); word-break: break-all; display: none; }
     .showurl .urlrow { display: block; }
     /* Daily plan, as Slack shows it */
-    .slack { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; background: #fff; color: #1d1c1d; font: 14px/1.5 -apple-system, "Segoe UI", Lato, Roboto, sans-serif; max-height: 420px; overflow: auto; }
+    .slack { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; background: #fff; color: #1d1c1d; font: 14px/1.5 -apple-system, "Segoe UI", Lato, Roboto, sans-serif; max-height: 520px; overflow: auto; overflow-wrap: anywhere; }
+    .plan-pick { margin: 0 0 8px; }
+    .plan-pick select { width: 100%; max-width: 100%; }
     .slack .h { font-weight: 900; margin-top: 8px; } .slack .h:first-child { margin-top: 0; }
     .slack .ln { white-space: pre-wrap; min-height: 1.5em; }
     .slack .men { background: rgba(29,155,209,.1); color: #1264a3; border-radius: 3px; padding: 0 2px; }
@@ -49,7 +51,8 @@
     .ord .t { font-weight: 600; min-width: 0; overflow-wrap: anywhere; } .ord .t span { display: block; font-weight: 400; font-size: 12.5px; color: var(--text-2); }
     .ord .mv { display: flex; gap: 2px; }
     .ord .mv .btn.sq { width: 28px; padding: 0; justify-content: center; }
-    #lyPreview th, #lyPreview td { white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+    #lyPreview { table-layout: fixed; width: 100%; }
+    #lyPreview th, #lyPreview td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
     @media (max-width: 700px) { .team { grid-template-columns: 1fr; } .urlrow { grid-column: 1; } .ord { grid-template-columns: 48px minmax(0, 1fr); } .ord .no { display: none; } .ord .mv { grid-column: 2; } }
   </style>
 </head>
@@ -138,9 +141,11 @@
       // Daily plan, one at a time.
       if (planIx >= plans.length) planIx = 0;
       var p = plans[planIx], pi = p ? data.items.indexOf(p) : -1;
-      html += '<section class="panel w5">' + moduleHead('Daily plan', plans.length || null,
-        plans.length > 1 ? '<div class="seg" role="group" aria-label="Plan">' + plans.map(function (x, i) { return '<button type="button" class="btn sm" aria-pressed="' + (i === planIx) + '" onclick="planIx=' + i + ';render()">' + esc(x.name) + '</button>'; }).join('') + '</div>' : '') +
-        (p ? '<p class="small mt-0">' + esc(p.name) + ' · ' + esc(teamLabel(p)) + ' · ' + p.count + ' line(s)' + (p.missing.length ? ' · <span style="color:var(--warning)">no ID: ' + esc(p.missing.join(', ')) + '</span>' : '') + '</p>' +
+      // A dropdown, not buttons: any number of plans with long names fits the panel.
+      html += '<section class="panel w5">' + moduleHead('Daily plans', plans.length || null) +
+        (plans.length > 1 ? '<div class="plan-pick"><label class="sr-only" for="planSel">Daily plan</label><select id="planSel" onchange="planIx=+this.value;render()">' +
+          plans.map(function (x, i) { return '<option value="' + i + '"' + (i === planIx ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div>' : '') +
+        (p ? '<p class="small mt-0">' + (plans.length > 1 ? '' : esc(p.name) + ' · ') + esc(teamLabel(p)) + ' · ' + p.count + ' line(s)' + (p.missing.length ? ' · <span style="color:var(--warning)">no ID: ' + esc(p.missing.join(', ')) + '</span>' : '') + '</p>' +
           '<div class="slack" id="planText">' + (p.error ? '<em>' + esc(p.error) + '</em>' : slackHtml(p.text)) + '</div>' +
           '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="copyText(' + pi + ')">Copy text</button><span class="small">As Slack shows it; the sheet holds the plain text.</span></div>'
           : emptyHtml('📋', 'No daily plans', 'A daily plan is a text list of who works when, e.g. for a Slack message.')) + '</section>';
@@ -209,7 +214,7 @@
           if (x.kind !== 'LINK') { head.push(x.name); vals.push(x.kind === 'LIST' ? x.values.join(', ') : (x.text || '').split('\n')[0] + '…'); return; }
           (x.urls.length ? x.urls : ['']).forEach(function (u, j) { head.push(x.name + (j ? ' ' + (j + 1) : '')); vals.push(u); });
         });
-        var n = Math.min(head.length, 6), more = head.length - n;
+        var n = Math.min(head.length, 5), more = head.length - n;
         $('lyPreview').innerHTML = '<thead><tr>' + head.slice(0, n).map(function (c, i) { return '<th scope="col">' + String.fromCharCode(65 + i) + '</th>'; }).join('') + (more ? '<th scope="col">+' + more + '</th>' : '') + '</tr></thead><tbody>' +
           '<tr>' + head.slice(0, n).map(function (c) { return '<td title="' + esc(c) + '"><b>' + esc(c) + '</b></td>'; }).join('') + (more ? '<td></td>' : '') + '</tr>' +
           '<tr>' + vals.slice(0, n).map(function (c) { return '<td title="' + esc(c) + '">' + esc(c) + '</td>'; }).join('') + (more ? '<td></td>' : '') + '</tr></tbody>';
