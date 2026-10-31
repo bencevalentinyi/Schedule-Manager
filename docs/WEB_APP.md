@@ -9,8 +9,10 @@ The web app shows Schedule Manager in a normal browser tab, so day-to-day work d
 | **Dashboard** | Every team's day in numbers (shifts, staff, hours, peak, overlaps, unknown employees), headcount for all teams, recent imports. Click a number to see those people. |
 | **Person** | One person's week (Monday–Sunday) in every team, with daily hours and their staff-sheet details |
 | **Staff** | A team's staff sheet as a table: instant search, add, edit, remove, and "Find unknown employees" (people in the schedule but not in the staff sheet) |
-| **Import**, **Teams**, **Links**, **Settings** | The same tools as the Sheets menu |
-| **Links → See output** | What the Monitoring Links sheet holds now (what Slack reads), with copy buttons and the last generated time |
+| **Links** | One day's monitoring links (as buttons, grouped by team, with how many people each holds), daily plans as Slack shows them, agent lists, missing IDs, the item order, the sheet layout and Export CSV. Today is what the sheet holds; ◀ ▶ previews other days from the stored schedule (**Write this day to the sheet** writes one). **Edit or add items** opens the editor (`linkedit`) |
+| **Taxi** (Taxi extension) | One taxi night, as Taxi Day: the requests by time, colored by status (to check, not decided, booked, denied) with the broken rules and corrected dates, a timeline of the night, the email text, and the last 7 nights. The rules and settings open from **Settings** (`taxirules`, `&tab=rules`…) |
+| **Import**, **Teams**, **Settings** | The same tools as the Sheets menu |
+| **See output** (`output`) | The Monitoring Links sheet exactly as it is now (what Slack reads), with copy buttons |
 
 The daily sheets, staff sheets and the Dashboard sheet still exist and stay up to date. Every page links to its sheet ("Open in Sheets ↗").
 
@@ -85,7 +87,7 @@ Operations from the web app and from Sheets wait for each other (one lock for bo
 - `dashboard`, with `&date=` as an option
 - `person`, with `&key=ID:1234` (or `NM:Name`) and `&week=` as an option
 - `staff`, with `&teamId=` and `&q=` as options
-- `import`, `teams`, `team` (`&teamId=…` to edit one), `links`, `output`, `settings`, `history`, `fields`, `ids`
+- `import`, `teams`, `team` (`&teamId=…` to edit one), `links` (`&date=yyyy-MM-dd`), `linkedit`, `output`, `taxi` (`&date=`), `taxirules` (`&tab=`), `settings`, `history`, `fields`, `ids`
 - `viewer` (the sheet Schedule Viewer), `directory` (the staff sidebar), `setup`, `help`
 
 Schedule, Dashboard, Person and Staff keep their date/team in the address, so you can bookmark a view. Before setup, every page opens Setup.

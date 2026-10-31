@@ -93,7 +93,7 @@
         '<section class="panel w4">' + moduleHead('Last import') + lastHtml + '</section>' +
         '<section class="panel flush w8">' + moduleHead('Teams', d.teams.length, pageLink('teams', 'Manage teams', 'sm') + pageLink('team', 'New team', 'sm')) + teams + '</section>' +
         '<section class="panel w4">' + moduleHead('Monitoring Links', d.linkItems) + '<p class="small">' + (d.linkItems ? d.linkItems + ' saved link(s) and plan(s).' : 'No links or plans saved yet.') + '</p><div class="cluster">' +
-          pageLink('links', 'Edit links and plans', 'sm') + pageLink('output', 'See output', 'sm') + (d.linksSheet ? sheetLink(d.linksSheet, 'Monitoring Links sheet') : '<span class="small muted">The sheet appears after the first Generate.</span>') + '</div></section>' +
+          pageLink('links', "Today's links and plans", 'sm') + pageLink('linkedit', 'Edit links and plans', 'sm') + (d.linksSheet ? sheetLink(d.linksSheet, 'Monitoring Links sheet') : '<span class="small muted">The sheet appears after the first Generate.</span>') + '</div></section>' +
         '<section class="panel w6">' + moduleHead('More tools') + '<div class="tool-list">' +
           toolLink('viewer', 'Sheet schedule viewer') + toolLink('ids', 'Import staff data') + toolLink('fields', 'Configure staff fields') +
           toolLink('settings', 'Display settings') + toolLink('setup', 'Setup') + toolLink('help', 'About / Help') + '</div></section>' +

@@ -221,6 +221,37 @@ function apiWebStaffDelete(teamId, employeeId) {
 }
 
 /**
+ * Links page (WebLinks.html): every saved item built for one day, as Generate builds it, without writing
+ * anything. Today is what the trigger writes to the sheet; another day is a preview from the stored schedule
+ * (with today's staff IDs). Also the sheet layout and CSV export settings, so the page edits them in place.
+ */
+function apiWebLinksDay(dateIso) {
+  return apiCall_('apiWebLinksDay', function () {
+    requireInitialized_();
+    var ctx = linkRunContext_(isIsoDate_(str_(dateIso)) ? str_(dateIso) : '');
+    var teams = teamsByIdForLinks_(), cache = {}, label = {};
+    linkIdFieldOptions_().forEach(function (f) { label[f.key] = f.label; });
+    label[LIST_NAME_FIELD_] = 'Name';
+    var items = loadLinkTemplates_().map(function (t) {
+      var base = { id: t.id, name: t.name, kind: t.kind, idLabel: label[t.idField] || t.idField, allTeams: !t.teamIds.length };
+      try {
+        var r = generateLink_(t, ctx, teams, cache);
+        return Object.assign(base, { teams: r.teams, when: r.whenLabel, urls: r.urls, text: r.text, values: r.values || [], count: r.count,
+          people: r.people, missing: r.missing, empty: t.kind === 'PLAN' && str_(r.text) === str_(t.emptyText), maxPerLink: t.maxPerLink });
+      } catch (e) {
+        logError_('apiWebLinksDay.' + t.id, e);
+        return Object.assign(base, { teams: [], error: toUserError_(e).message, urls: [], values: [], missing: [], count: 0, people: 0 });
+      }
+    });
+    var sh = getSs_().getSheetByName(LINKS_SHEET_);
+    return { date: ctx.date, today: ctx.today, updated: linksLastRun_(), sheet: sh ? sheetLink_(sh) : null, items: items,
+      sheetSettings: loadLinkSheetSettings_(), layouts: LINK_SHEET_LAYOUTS, dateText: formatLinkDate_(ctx.date, loadLinkSheetSettings_().dateFormat),
+      csvSettings: normalizeLinkCsvSettings_(parseJson_(getConfig_().LINK_CSV_SETTINGS, {})), csvLayouts: LINK_CSV_LAYOUTS, csvDelimiters: LINK_CSV_DELIMITERS,
+      idFields: linkIdFieldOptions_(), listNameField: LIST_NAME_FIELD_, kinds: LINK_KINDS };
+  });
+}
+
+/**
  * Monitoring Links output: what the "Monitoring Links" sheet holds now (what a Slack Workflow reads),
  * item by item, and when it was last generated.
  */

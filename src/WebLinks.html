@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .day { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .day .when { font: 700 26px/1.1 var(--figure); letter-spacing: -.01em; }
+    .day .when small { display: block; font: 600 12px/1.3 var(--font); color: var(--text-2); text-transform: uppercase; letter-spacing: 0; }
+    .day .nav-btn { width: 34px; padding: 0; justify-content: center; }
+    .day input[type=date] { width: auto; }
+    .gen { font-size: var(--fs-small); color: var(--text-2); }
+    .gen b { color: var(--text); }
+    /* One row per team: its links as buttons with the number of people in them */
+    .team { padding: 12px 14px; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 14px; align-items: start; }
+    .team:first-child { border-top: 0; }
+    .team .tn { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+    .team .tn small { display: block; font-weight: 400; font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .links { display: flex; flex-wrap: wrap; gap: 8px; }
+    .lk { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 6px 10px; text-decoration: none; color: var(--text); background: var(--surface); font-weight: 600; font-size: 13px; }
+    .lk:hover { border-color: var(--text); }
+    .lk .n { font: 700 13px/1 var(--figure); background: var(--surface-2); border-radius: 3px; padding: 3px 6px; }
+    .lk .sw { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+    .lk.warn { border-color: var(--warning); }
+    .lk.none { opacity: .6; cursor: default; }
+    .miss { font-size: 12px; color: var(--warning); margin-top: 4px; }
+    .urlrow { grid-column: 2; font: 11px/1.45 var(--mono); color: var(--text-2); word-break: break-all; display: none; }
+    .showurl .urlrow { display: block; }
+    /* Daily plan, as Slack shows it */
+    .slack { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; background: #fff; color: #1d1c1d; font: 14px/1.5 -apple-system, "Segoe UI", Lato, Roboto, sans-serif; max-height: 420px; overflow: auto; }
+    .slack .h { font-weight: 900; margin-top: 8px; } .slack .h:first-child { margin-top: 0; }
+    .slack .ln { white-space: pre-wrap; min-height: 1.5em; }
+    .slack .men { background: rgba(29,155,209,.1); color: #1264a3; border-radius: 3px; padding: 0 2px; }
+    .slack .emo { background: #ede7f6; border-radius: 4px; padding: 0 4px; font-size: 12px; color: #5e35b1; font-weight: 700; }
+    /* Agent lists */
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .chip { font-size: 12px; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 9px; background: var(--surface); font-family: var(--mono); overflow-wrap: anywhere; }
+    .chip.warn { border-color: var(--warning); color: var(--warning); font-family: var(--font); }
+    .listrow { padding: 10px 14px; border-top: 1px solid var(--rule); }
+    .listrow:first-child { border-top: 0; }
+    .listrow .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .listrow .note { font-size: 12px; color: var(--text-2); }
+    /* Items */
+    .ord { display: grid; grid-template-columns: 22px 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--rule); }
+    .ord:first-child { border-top: 0; }
+    .ord .no { font: 700 12px/1 var(--figure); color: var(--text-2); text-align: right; }
+    .ord .kind { font: 700 10px/1 var(--figure); text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--border-strong); border-radius: 3px; padding: 4px 0; text-align: center; }
+    .ord .t { font-weight: 600; min-width: 0; overflow-wrap: anywhere; } .ord .t span { display: block; font-weight: 400; font-size: 12.5px; color: var(--text-2); }
+    .ord .mv { display: flex; gap: 2px; }
+    .ord .mv .btn.sq { width: 28px; padding: 0; justify-content: center; }
+    #lyPreview th, #lyPreview td { white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+    @media (max-width: 700px) { .team { grid-template-columns: 1fr; } .urlrow { grid-column: 1; } .ord { grid-template-columns: 48px minmax(0, 1fr); } .ord .no { display: none; } .ord .mv { grid-column: 2; } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="day">
+      <button type="button" class="btn nav-btn" onclick="move(-1)" aria-label="Day before">&#9664;</button>
+      <div class="when" id="when"></div>
+      <button type="button" class="btn nav-btn" onclick="move(1)" aria-label="Day after">&#9654;</button>
+      <button type="button" class="btn sm ghost" onclick="go('')">Today</button>
+      <label class="sr-only" for="pick">Choose a day</label><input type="date" id="pick" onchange="go(this.value)">
+      <span class="spacer"></span>
+      <span class="gen" id="gen"></span>
+      <button type="button" class="btn sm" onclick="toggleExport()">Export CSV…</button>
+      <button type="button" class="btn sm primary" id="genBtn" onclick="generate()">Generate now</button>
+      <a class="btn sm ghost hidden" id="sheetBtn" target="_blank" rel="noopener" style="text-decoration:none">Open sheet ↗</a>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div id="out"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Building the day…</div></div>
+  </main>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null, planIx = 0, showUrls = false, exportOpen = false;
+    // Neutral colors for a team's links, by position (no brand colors).
+    var SWATCH = ['#1a73e8', '#e37400', '#188038', '#9334e6', '#d93025', '#12b5cb', '#5f6368'];
+    var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    function addDay(iso, k) { return new Date(Date.parse(iso + 'T12:00:00Z') + k * 864e5).toISOString().slice(0, 10); }
+    function dayDiff(a, b) { return Math.round((Date.parse(b + 'T12:00:00Z') - Date.parse(a + 'T12:00:00Z')) / 864e5); }
+    function load(date) { return call('Building the day…', 'apiWebLinksDay', date).then(function (d) { data = d; render(); }); }
+    function go(date) { load(date || ''); }
+    function move(k) { go(addDay(data.date, k)); }
+    function byKind(k) { return data.items.filter(function (x) { return x.kind === k; }); }
+    function teamLabel(x) { return x.allTeams ? 'All teams' : (x.teams.length ? x.teams.join(', ') : 'No active team'); }
+
+    function render() {
+      var d = new Date(data.date + 'T12:00:00Z'), diff = dayDiff(data.today, data.date), isToday = diff === 0;
+      $('when').innerHTML = '<small>' + (isToday ? 'Today' : diff === 1 ? 'Tomorrow' : diff === -1 ? 'Yesterday' : diff > 0 ? 'In ' + diff + ' days' : (-diff) + ' days ago') + '</small>' +
+        DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MON[d.getUTCMonth()];
+      $('pick').value = data.date;
+      $('gen').innerHTML = isToday ? (data.updated ? 'In the sheet since <b>' + esc(data.updated.slice(11) || data.updated) + '</b>' + (data.updated.slice(0, 10) !== data.today ? ' (' + esc(data.updated.slice(0, 10)) + ')' : '') : 'Not in the sheet yet')
+        : '<b>Preview</b> · from the stored schedule, today\'s staff IDs · not in the sheet';
+      $('genBtn').textContent = isToday ? 'Generate now' : 'Write this day to the sheet';
+      if (data.sheet) { $('sheetBtn').href = data.sheet.url; show('sheetBtn', true); }
+      if (!data.items.length) {
+        $('out').innerHTML = emptyHtml('🔗', 'No links or plans yet', 'Add a monitoring link, daily plan or agent list, then they show here for any day.',
+          '<a class="btn primary" href="' + esc(webHref('linkedit')) + '">Add an item</a>');
+        return;
+      }
+      var links = byKind('LINK'), plans = byKind('PLAN'), lists = byKind('LIST');
+      var urlN = links.reduce(function (n, x) { return n + x.urls.length; }, 0);
+      var missing = {};
+      data.items.forEach(function (x) { (x.missing || []).forEach(function (n) { (missing[n] = missing[n] || []).push(x); }); });
+      var missNames = Object.keys(missing).sort(function (a, b) { return a.localeCompare(b); });
+      var stat = function (l, v, cls) { return '<div class="stat ' + (cls || '') + '"><b>' + v + '</b><span>' + l + '</span></div>'; };
+      var html = '<div class="mosaic">' + exportPanel() +
+        '<section class="panel flush"><div class="stats">' + stat('Links', links.length) + stat('URLs', urlN) + stat('Daily plans', plans.length) + stat('Agent lists', lists.length) +
+          stat('Missing IDs', missNames.length, missNames.length ? 'warn' : '') + '</div></section>';
+
+      // Dashboards: link items grouped by their teams.
+      var groups = [], at = {};
+      links.forEach(function (x) { var k = teamLabel(x); if (!(k in at)) { at[k] = groups.length; groups.push({ label: k, items: [] }); } groups[at[k]].items.push(x); });
+      html += '<section class="panel flush w7' + (showUrls ? ' showurl' : '') + '" id="dash">' + moduleHead('Monitoring links', links.length,
+        links.length ? '<button type="button" class="btn sm ghost" onclick="toggleUrls()">' + (showUrls ? 'Hide URLs' : 'Show URLs') + '</button>' : '') +
+        (links.length ? groups.map(function (g) {
+          var people = g.items.reduce(function (n, x) { return Math.max(n, x.people || 0); }, 0);
+          var miss = [];
+          g.items.forEach(function (x) { if (x.missing.length) miss.push(x.idLabel + ': ' + x.missing.join(', ')); });
+          return '<div class="team"><div class="tn">' + esc(g.label) + '<small>' + people + ' working in the busiest link</small></div><div><div class="links">' +
+            g.items.map(function (x, i) {
+              var c = SWATCH[i % SWATCH.length];
+              if (x.error) return '<span class="lk warn none" title="' + esc(x.error) + '"><span class="sw" style="background:' + c + '"></span>' + esc(x.name) + ' ⚠</span>';
+              if (!x.urls.length) return '<span class="lk none"><span class="sw" style="background:' + c + '"></span>' + esc(x.name) + ' <span class="n">0</span></span>';
+              return x.urls.map(function (u, k) {
+                return '<a class="lk' + (x.missing.length ? ' warn' : '') + '" href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(x.name + ' · ' + x.when + (x.urls.length > 1 ? ' · link ' + (k + 1) + ' of ' + x.urls.length : '')) + '">' +
+                  '<span class="sw" style="background:' + c + '"></span>' + esc(x.name) + (x.urls.length > 1 ? ' ' + (k + 1) : '') + ' <span class="n">' + x.count + (x.missing.length ? '/' + x.people : '') + '</span> ↗</a>';
+              }).join('');
+            }).join('') + '</div>' + (miss.length ? '<div class="miss">⚠ No ID: ' + esc(miss.join(' · ')) + '</div>' : '') + '</div>' +
+            '<div class="urlrow">' + g.items.map(function (x) { return x.urls.map(function (u) { return '<b>' + esc(x.name) + '</b> ' + esc(u); }).join('<br>'); }).join('<br>') + '</div></div>';
+        }).join('') : '<div style="padding:0 14px 14px">' + emptyHtml('🔗', 'No monitoring links', 'A monitoring link is a dashboard URL filled with the IDs of the people working.') + '</div>') + '</section>';
+
+      // Daily plan, one at a time.
+      if (planIx >= plans.length) planIx = 0;
+      var p = plans[planIx], pi = p ? data.items.indexOf(p) : -1;
+      html += '<section class="panel w5">' + moduleHead('Daily plan', plans.length || null,
+        plans.length > 1 ? '<div class="seg" role="group" aria-label="Plan">' + plans.map(function (x, i) { return '<button type="button" class="btn sm" aria-pressed="' + (i === planIx) + '" onclick="planIx=' + i + ';render()">' + esc(x.name) + '</button>'; }).join('') + '</div>' : '') +
+        (p ? '<p class="small mt-0">' + esc(p.name) + ' · ' + esc(teamLabel(p)) + ' · ' + p.count + ' line(s)' + (p.missing.length ? ' · <span style="color:var(--warning)">no ID: ' + esc(p.missing.join(', ')) + '</span>' : '') + '</p>' +
+          '<div class="slack" id="planText">' + (p.error ? '<em>' + esc(p.error) + '</em>' : slackHtml(p.text)) + '</div>' +
+          '<div class="cluster mt-2"><button type="button" class="btn sm" onclick="copyText(' + pi + ')">Copy text</button><span class="small">As Slack shows it; the sheet holds the plain text.</span></div>'
+          : emptyHtml('📋', 'No daily plans', 'A daily plan is a text list of who works when, e.g. for a Slack message.')) + '</section>';
+
+      // Agent lists.
+      html += '<section class="panel flush w7">' + moduleHead('Agent lists', lists.length || null, '<span class="note">e.g. who to add to or remove from a channel</span>') +
+        (lists.length ? lists.map(function (x) {
+          var i = data.items.indexOf(x);
+          return '<div class="listrow"><div class="top"><b>' + esc(x.name) + '</b><span class="count-tag quiet">' + x.count + '</span><span class="note">' + esc(teamLabel(x) + ' · ' + (x.when || '')) + '</span><span class="spacer"></span>' +
+            '<button type="button" class="btn sm ghost" onclick="copyText(' + i + ')">Copy</button></div><div class="chips">' +
+            (x.error ? '<span class="chip warn">' + esc(x.error) + '</span>' : x.values.length ? x.values.map(function (v) { return '<span class="chip">' + esc(v) + '</span>'; }).join('') : '<span class="small">Nobody</span>') +
+            x.missing.map(function (n) { return '<span class="chip warn" title="No ' + esc(x.idLabel) + '">' + esc(n) + ' ⚠</span>'; }).join('') + '</div></div>';
+        }).join('') : '<div style="padding:0 14px 14px">' + emptyHtml('👥', 'No agent lists', 'An agent list writes one value per person working, e.g. their Slack ID or email.') + '</div>') + '</section>';
+
+      // Missing IDs.
+      html += '<section class="panel w5">' + moduleHead('Missing IDs', missNames.length) + '<p class="small mt-0">In an item for this day, but their staff row has no value in its ID column, so they are left out of it.</p>' +
+        (missNames.length ? '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Person</th><th scope="col">Missing</th><th scope="col">Left out of</th></tr></thead><tbody>' +
+          missNames.map(function (n) {
+            var its = missing[n], cols = its.map(function (x) { return x.idLabel; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+            return '<tr><td>' + esc(n) + '</td><td>' + cols.map(function (c) { return badge('warn', c); }).join(' ') + '</td><td class="small">' + its.map(function (x) { return esc(x.name); }).join(', ') + '</td></tr>';
+          }).join('') + '</tbody></table></div><div class="cluster mt-2"><a class="btn sm" href="' + esc(webHref('staff')) + '">Fill them in Staff →</a></div>'
+          : '<p class="small">Everyone in this day\'s items has their IDs.</p>') + '</section>';
+
+      // Items (their order is the sheet's column / row order).
+      html += '<section class="panel w7">' + moduleHead('Items', data.items.length, '<a class="btn sm" href="' + esc(webHref('linkedit')) + '">Edit or add items</a>') +
+        '<p class="small mt-0">This order is the order in the sheet (what Slack reads).</p>' +
+        data.items.map(function (x, i) {
+          var sum = teamLabel(x) + (x.when ? ' · ' + x.when : '') + (x.kind !== 'PLAN' ? ' · ' + x.idLabel : '') + (x.maxPerLink ? ' · at most ' + x.maxPerLink + ' per link' : '');
+          return '<div class="ord"><span class="no">' + (i + 1) + '</span><span class="kind">' + esc({ LINK: 'Link', PLAN: 'Plan', LIST: 'List' }[x.kind]) + '</span><span class="t">' + esc(x.name) + '<span>' + esc(sum) + '</span></span>' +
+            '<span class="mv"><button type="button" class="btn sm ghost sq" onclick="moveItem(' + i + ',-1)" aria-label="Move ' + esc(x.name) + ' up"' + (i ? '' : ' disabled') + '>↑</button>' +
+            '<button type="button" class="btn sm ghost sq" onclick="moveItem(' + i + ',1)" aria-label="Move ' + esc(x.name) + ' down"' + (i < data.items.length - 1 ? '' : ' disabled') + '>↓</button></span></div>';
+        }).join('') + '</section>';
+
+      // Sheet layout (the output settings).
+      var s = data.sheetSettings;
+      html += '<section class="panel w5">' + moduleHead('Sheet layout', null, '<span class="note">What Slack reads</span>') +
+        '<div class="field"><label class="label" for="lyLayout">Layout of the "Monitoring Links" sheet</label><select id="lyLayout" onchange="layoutPreview()">' + options(kv(data.layouts), 'k', 'l', s.layout) + '</select></div>' +
+        '<div id="lyRowBox"><div class="row"><div class="field"><label class="label" for="lyKeyHeader">A1: key column name</label><input type="text" id="lyKeyHeader" value="' + esc(s.keyHeader) + '" oninput="layoutPreview()"></div>' +
+        '<div class="field"><label class="label" for="lyKeyValue">A2: key value</label><input type="text" id="lyKeyValue" value="' + esc(s.keyValue) + '" oninput="layoutPreview()"></div></div>' +
+        '<div class="row"><div class="field"><label class="label" for="lyDateHeader">B1: date column name</label><input type="text" id="lyDateHeader" value="' + esc(s.dateHeader) + '" oninput="layoutPreview()"></div>' +
+        '<div class="field"><label class="label" for="lyDateFormat">B2: date format</label><input type="text" id="lyDateFormat" value="' + esc(s.dateFormat) + '" spellcheck="false">' +
+        '<p class="hint">e.g. <code>yyyy-MM-dd</code>, <code>yyyy. MM. dd</code>, <code>dd/MM/yyyy</code></p></div></div></div>' +
+        '<div class="eyebrow" style="margin:6px 0 4px">Preview of the sheet</div><div class="table-wrap"><table class="table" id="lyPreview"></table></div><p class="hint" id="lyHint"></p>' +
+        '<div class="cluster"><button type="button" class="btn sm primary" onclick="saveLayout()">Save layout</button><span class="small">The <code>generateMonitoringLinks</code> trigger or Generate now rewrites the sheet.</span></div></section>';
+
+      $('out').innerHTML = html + '</div>';
+      layoutPreview();
+      if (exportOpen) fillExport();
+    }
+
+    /** A plan's plain text as Slack shows it: lines without a time are headings, @mentions and :emoji: marked. */
+    function slackHtml(text) {
+      return String(text || '').split('\n').map(function (l) {
+        var e = esc(l).replace(/(^|\s)(@[^\s:@][^@\n]*?)(?=\s:[\w+-]+:|\s*$)/g, '$1<span class="men">$2</span>').replace(/:([\w+-]+):/g, '<span class="emo">:$1:</span>');
+        return !l.trim() ? '<div class="ln"></div>' : !/\d/.test(l) && l.trim().length < 60 ? '<div class="h">' + e + '</div>' : '<div class="ln">' + e + '</div>';
+      }).join('');
+    }
+
+    function layoutPreview() {
+      var row = $('lyLayout').value === 'ROW';
+      show('lyRowBox', row);
+      var head = [], vals = [];
+      if (row) {
+        head = [$('lyKeyHeader').value || 'Key', $('lyDateHeader').value || 'Header_Date']; vals = [$('lyKeyValue').value || 'DAILY', data.dateText];
+        data.items.forEach(function (x) {
+          if (x.kind !== 'LINK') { head.push(x.name); vals.push(x.kind === 'LIST' ? x.values.join(', ') : (x.text || '').split('\n')[0] + '…'); return; }
+          (x.urls.length ? x.urls : ['']).forEach(function (u, j) { head.push(x.name + (j ? ' ' + (j + 1) : '')); vals.push(u); });
+        });
+        var n = Math.min(head.length, 6), more = head.length - n;
+        $('lyPreview').innerHTML = '<thead><tr>' + head.slice(0, n).map(function (c, i) { return '<th scope="col">' + String.fromCharCode(65 + i) + '</th>'; }).join('') + (more ? '<th scope="col">+' + more + '</th>' : '') + '</tr></thead><tbody>' +
+          '<tr>' + head.slice(0, n).map(function (c) { return '<td title="' + esc(c) + '"><b>' + esc(c) + '</b></td>'; }).join('') + (more ? '<td></td>' : '') + '</tr>' +
+          '<tr>' + vals.slice(0, n).map(function (c) { return '<td title="' + esc(c) + '">' + esc(c) + '</td>'; }).join('') + (more ? '<td></td>' : '') + '</tr></tbody>';
+        $('lyHint').innerHTML = 'Slack: <b>Select a spreadsheet row</b> where <b>' + esc(head[0]) + '</b> = <b>' + esc(vals[0]) + '</b>. A link split into several URLs gets extra columns ("Name 2").';
+      } else {
+        $('lyPreview').innerHTML = '<thead><tr>' + ['Name', 'Kind', 'Date', 'Count', 'Missing', 'Text', 'URL'].map(function (c) { return '<th scope="col">' + c + '</th>'; }).join('') + '</tr></thead><tbody>' +
+          data.items.slice(0, 5).map(function (x) {
+            return '<tr><td>' + esc(x.name) + '</td><td>' + esc({ LINK: 'Link', PLAN: 'Plan', LIST: 'List' }[x.kind]) + '</td><td>' + esc(data.date) + '</td><td>' + x.count + (x.kind !== 'PLAN' && x.missing.length ? ' of ' + x.people : '') + '</td>' +
+              '<td>' + esc(x.missing.join(', ')) + '</td><td>' + esc(x.kind === 'LINK' ? '' : (x.text || '').split('\n')[0]) + '</td><td>' + esc(x.urls[0] || '') + '</td></tr>';
+          }).join('') + '</tbody>';
+        $('lyHint').innerHTML = 'Slack: <b>Select a spreadsheet row</b> where <b>Name</b> = the item\'s name.';
+      }
+    }
+    function saveLayout() {
+      var s = { layout: $('lyLayout').value, keyHeader: $('lyKeyHeader').value.trim(), keyValue: $('lyKeyValue').value.trim(), dateHeader: $('lyDateHeader').value.trim(), dateFormat: $('lyDateFormat').value.trim() };
+      call('Saving…', 'apiLinksSaveSheetSettings', s).then(function (r) {
+        data.sheetSettings = r;
+        showStatus('ok', 'Click <b>Generate now</b> to rewrite the sheet in this layout.', 'Sheet layout saved');
+      });
+    }
+
+    function exportPanel() {
+      return '<section class="panel' + (exportOpen ? '' : ' hidden') + '" id="exportPanel">' + moduleHead('Export CSV', null, '<span class="note">for ' + esc(data.date) + '</span><button type="button" class="btn sm ghost" onclick="toggleExport()">Close</button>') +
+        '<p class="small mt-0">Builds the ticked items for this day (as Generate does) into a CSV: one column per item, with your own header. Nothing in the sheet changes; your choices are remembered.</p>' +
+        '<div class="table-wrap"><table class="table"><thead><tr><th scope="col">Export</th><th scope="col">Item</th><th scope="col">Column header</th><th scope="col">Write</th></tr></thead><tbody id="csvItems"></tbody></table></div>' +
+        '<div class="row mt-2"><div class="field"><label class="label" for="csvLayout">Layout</label><select id="csvLayout"></select></div><div class="field"><label class="label" for="csvDelimiter">Separator</label><select id="csvDelimiter"></select></div></div>' +
+        '<label class="check"><input type="checkbox" id="csvPlain"> <span>Leave out the text added before/after each value <span class="hint">Agent lists only: e.g. "@John Doe" → "John Doe", "&lt;@U123&gt;" → "U123". The sheet stays as it is.</span></span></label>' +
+        '<div class="cluster mt-2"><button type="button" class="btn primary" onclick="downloadCsv()">Download CSV</button><button type="button" class="btn" onclick="csvToDrive()">Save to Google Drive</button></div><div id="csvResult" class="mt-2"></div></section>';
+    }
+    function toggleExport() { exportOpen = !exportOpen; render(); if (exportOpen) $('exportPanel').scrollIntoView({ block: 'start' }); }
+    function fillExport() {
+      var s = data.csvSettings, chosen = {}, field = {};
+      s.columns.forEach(function (c) { chosen[c.id] = c.header; field[c.id] = c.field || ''; });
+      var writeOptions = [{ key: '', label: 'The output as it is' }, { key: data.listNameField, label: 'Name' }].concat(data.idFields);
+      $('csvItems').innerHTML = data.items.map(function (x) {
+        var on = Object.prototype.hasOwnProperty.call(chosen, x.id);
+        var write = x.kind === 'LINK' ? '<span class="small muted">The link</span>' : '<select data-csv-field="' + esc(x.id) + '" aria-label="What to write for ' + esc(x.name) + '">' + options(writeOptions, 'key', 'label', field[x.id] || '') + '</select>';
+        return '<tr><td><input type="checkbox" data-csv="' + esc(x.id) + '" aria-label="Export ' + esc(x.name) + '"' + (on ? ' checked' : '') + '></td><td>' + esc(x.name) + '<div class="small muted">' + esc(data.kinds[x.kind]) + '</div></td>' +
+          '<td><input type="text" data-csv-header="' + esc(x.id) + '" aria-label="Column header for ' + esc(x.name) + '" value="' + esc(on && chosen[x.id] ? chosen[x.id] : x.name) + '"></td><td>' + write + '</td></tr>';
+      }).join('');
+      $('csvLayout').innerHTML = options(kv(data.csvLayouts), 'k', 'l', s.layout);
+      $('csvDelimiter').innerHTML = options(kv(data.csvDelimiters), 'k', 'l', s.delimiter);
+      $('csvPlain').checked = !!s.plain;
+    }
+    function readCsv() {
+      var columns = data.items.filter(function (x) { var b = document.querySelector('[data-csv="' + x.id + '"]'); return b && b.checked; }).map(function (x) {
+        var f = document.querySelector('[data-csv-field="' + x.id + '"]');
+        return { id: x.id, header: document.querySelector('[data-csv-header="' + x.id + '"]').value.trim() || x.name, field: f ? f.value : '' };
+      });
+      return { columns: columns, layout: $('csvLayout').value, delimiter: $('csvDelimiter').value, plain: $('csvPlain').checked };
+    }
+    function csvDone(r) {
+      data.csvSettings = readCsv();
+      return r.columns + ' column(s), ' + r.rows + ' row(s) for ' + esc(r.date) +
+        (r.missing && r.missing.length ? '<div class="small mt-2">Left out because their staff sheet has no value: ' + esc(r.missing.join('; ')) + '</div>' : '');
+    }
+    function downloadCsv() {
+      var s = readCsv();
+      if (!s.columns.length) { showStatus('warn', 'Tick at least one item.', 'Nothing to export'); return; }
+      call('Building the CSV…', 'apiLinksCsv', s, data.date).then(function (r) {
+        var url = URL.createObjectURL(new Blob([r.csv], { type: 'text/csv;charset=utf-8' })), a = document.createElement('a');
+        a.href = url; a.download = r.fileName; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        $('csvResult').innerHTML = alertHtml('success', 'Downloaded "' + r.fileName + '"', csvDone(r) + '. Nothing downloaded? Use Save to Google Drive.');
+      });
+    }
+    function csvToDrive() {
+      var s = readCsv();
+      if (!s.columns.length) { showStatus('warn', 'Tick at least one item.', 'Nothing to export'); return; }
+      call('Saving to Google Drive…', 'apiLinksCsvToDrive', s, data.date).then(function (r) {
+        $('csvResult').innerHTML = alertHtml('success', 'Saved "' + r.fileName + '" in your Google Drive', csvDone(r) + '.<div class="cluster mt-2"><a class="btn sm primary" href="' + esc(r.url) + '" target="_blank" rel="noopener" style="text-decoration:none">Open it ↗</a></div>');
+      });
+    }
+
+    function toggleUrls() { showUrls = !showUrls; render(); }
+    function copyText(i) {
+      var x = data.items[i], text = x.kind === 'LIST' ? x.text || x.values.join(', ') : x.kind === 'LINK' ? x.urls.join('\n') : x.text;
+      var done = function () { showStatus('ok', '', 'Copied "' + x.name + '".'); };
+      var fallback = function () { var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { showStatus('info', 'Select the text and press Ctrl+C.', ''); } ta.remove(); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+    }
+    function moveItem(i, k) { call('Moving…', 'apiLinksMove', data.items[i].id, k).then(function () { return load(data.date); }); }
+    function generate() {
+      var isToday = data.date === data.today;
+      call('Building all links and plans…', 'apiLinksGenerateAll', isToday ? '' : data.date).then(function (r) {
+        showStatus('ok', r.results.length + ' item(s) written to the "' + esc(r.sheet) + '" sheet' + (isToday ? '.' : ' for ' + esc(data.date) + '. The trigger writes today again at its next run.'), 'Generated');
+        return load(data.date);
+      });
+    }
+
+    load(BOOT.date || '');
+  </script>
+</body>
+</html>

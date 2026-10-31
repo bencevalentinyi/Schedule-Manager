@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles') ?>
+  <style>
+    .night { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .night .when { font: 700 26px/1.1 var(--figure); letter-spacing: -.01em; }
+    .night .when small { display: block; font: 600 12px/1.3 var(--font); color: var(--text-2); letter-spacing: 0; text-transform: uppercase; }
+    .night .nav-btn { width: 34px; padding: 0; justify-content: center; }
+    .night input[type=date] { width: auto; }
+    a.btn { text-decoration: none; }
+    /* The last 7 nights */
+    .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+    .week button { all: unset; cursor: pointer; padding: 8px 10px 9px; box-shadow: -1px 0 0 var(--rule); }
+    .week button:first-child { box-shadow: none; }
+    .week button:hover { background: var(--surface-2); }
+    .week button:focus-visible { box-shadow: var(--focus-ring); }
+    .week button[aria-current="true"] { background: var(--text); color: var(--surface); }
+    .week .d { font-size: 12px; font-weight: 600; opacity: .75; }
+    .week .n { font: 700 22px/1.1 var(--figure); display: block; }
+    .week .c { font-size: 11px; font-weight: 600; color: var(--error); }
+    .week button[aria-current="true"] .c { color: #ffb4ab; }
+    /* The night: a dot per taxi */
+    .tl { position: relative; height: 112px; margin: 6px 4px 0; }
+    .tl .axis { position: absolute; left: 0; right: 0; bottom: 22px; height: 1px; background: var(--border-strong); }
+    .tl .tick { position: absolute; bottom: 0; font: 600 11px/1 var(--figure); color: var(--text-2); transform: translateX(-50%); }
+    .tl .tick::before { content: ''; position: absolute; left: 50%; bottom: 16px; width: 1px; height: 6px; background: var(--border-strong); }
+    .tl .win { position: absolute; bottom: 23px; height: 84px; background: var(--surface-2); border-left: 1px dashed var(--border-strong); border-right: 1px dashed var(--border-strong); }
+    .tl .win span { position: absolute; top: 2px; left: 6px; font-size: 11px; color: var(--text-2); white-space: nowrap; }
+    .tl .dot { position: absolute; width: 14px; height: 14px; border-radius: 50%; transform: translate(-50%, 50%); cursor: pointer; border: 2px solid var(--surface); box-shadow: 0 0 0 1px rgba(0,0,0,.25); padding: 0; }
+    .tl .dot:hover::after, .tl .dot:focus-visible::after { content: attr(data-tip); position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); white-space: nowrap; background: #111; color: #fff; font-size: 12px; padding: 3px 7px; border-radius: 4px; z-index: 2; }
+    .k-check { background: var(--error); } .k-open { background: var(--warning); } .k-booked { background: var(--success); } .k-denied { background: #9aa0a6; }
+    .legend { font-size: 12px; color: var(--text-2); margin: 6px 0 0; }
+    .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 4px 0 10px; vertical-align: -1px; }
+    .legend i:first-child { margin-left: 0; }
+    /* Requests */
+    .rq { display: grid; grid-template-columns: 74px minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, .9fr); gap: 4px 16px; padding: 12px 14px 12px 12px; border-top: 1px solid var(--rule); border-left: 4px solid transparent; }
+    .rq:first-child { border-top: 0; }
+    .rq.check { border-left-color: var(--error); background: var(--error-bg, rgba(197,34,31,.045)); }
+    .rq.open { border-left-color: var(--warning); }
+    .rq.booked { border-left-color: var(--success); }
+    .rq.denied { border-left-color: #9aa0a6; opacity: .72; }
+    .rq .t { font: 700 24px/1 var(--figure); }
+    .rq .t small { display: block; font: 600 11px/1.4 var(--font); color: var(--text-2); margin-top: 4px; }
+    .rq .nm { font-weight: 700; overflow-wrap: anywhere; }
+    .rq .meta { font-size: 13px; color: var(--text-2); line-height: 1.45; overflow-wrap: anywhere; }
+    .rq .meta b { font-weight: 600; color: var(--text-2); }
+    .rq .msg { font-size: 13px; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; }
+    .rq .msg .bad { color: var(--error); font-weight: 600; }
+    .rq .msg .fix { color: var(--warning); }
+    .rq .dec { text-align: right; font-size: 13px; }
+    .rq.flash { outline: 2px solid var(--primary); outline-offset: -2px; }
+    @media (max-width: 760px) { .rq { grid-template-columns: 60px minmax(0, 1fr); } .rq .msg, .rq .dec { grid-column: 2; text-align: left; } }
+    .email pre { white-space: pre-wrap; font: 13px/1.5 var(--mono); background: var(--surface-2); border: 1px solid var(--rule); padding: 10px 12px; margin: 0; max-height: 240px; overflow: auto; }
+    .tool-list a { display: block; padding: 9px 0; border-top: 1px solid var(--rule); text-decoration: none; color: var(--text); font-weight: 600; }
+    .tool-list a:first-child { border-top: 0; }
+    .tool-list a span { display: block; font-weight: 400; font-size: 13px; color: var(--text-2); }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="night">
+      <button type="button" class="btn nav-btn" onclick="move(-1)" aria-label="Night before">&#9664;</button>
+      <div class="when" id="when"></div>
+      <button type="button" class="btn nav-btn" onclick="move(1)" aria-label="Night after">&#9654;</button>
+      <button type="button" class="btn sm ghost" onclick="go('')">Tonight</button>
+      <label class="sr-only" for="pick">Choose a night</label><input type="date" id="pick" onchange="go(this.value)">
+      <span class="spacer"></span>
+      <a class="btn sm ghost hidden" id="dayBtn" target="_blank" rel="noopener">Open Taxi Day ↗</a>
+      <a class="btn sm ghost" id="setBtn">Settings</a>
+    </div>
+  </header>
+  <main class="app-body" id="main">
+    <div id="status" aria-live="polite"></div>
+    <div id="out"><div class="inline-loading"><span class="spinner" aria-hidden="true"></span>Reading the requests…</div></div>
+  </main>
+
+  <?!= include('ClientCore') ?>
+  <script>
+    var BOOT = <?!= bootJson ?>;
+    var data = null, showKind = 'ALL';
+    var LABEL = { check: ['bad', 'To check'], open: ['warn', 'Not decided'], booked: ['ok', 'Booked'], denied: ['', 'Denied'] };
+    var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var AXIS_FROM = 18 * 60; // the night view runs from 18:00 to the day start
+
+    function addDay(iso, k) { return new Date(Date.parse(iso + 'T12:00:00Z') + k * 864e5).toISOString().slice(0, 10); }
+    function dt(iso) { var x = new Date(iso + 'T12:00:00Z'); return { dow: DAYS[x.getUTCDay()], day: x.getUTCDate(), mon: MON[x.getUTCMonth()] }; }
+    function hm(t) { var m = /^(\d{1,2}):(\d{2})/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; }
+    function load(night) { return call('Reading the requests…', 'apiTaxiNight', night).then(function (d) { data = d; render(); }); }
+    function go(night) { load(night || ''); }
+    function move(k) { go(addDay(data.night, k)); }
+    function settingsHref(tab, extra) { return webHref('taxirules', Object.assign({ tab: tab }, extra || {})); }
+
+    function render() {
+      $('setBtn').href = settingsHref('setup');
+      if (data.links.day) { $('dayBtn').href = data.links.day; show('dayBtn', true); }
+      var a = dt(data.night), b = dt(addDay(data.night, 1));
+      $('when').innerHTML = '<small>' + (data.night === data.tonight ? 'Tonight' : 'Night of') + '</small>' + a.dow + ' ' + a.day + ' → ' + b.dow + ' ' + b.day + ' ' + b.mon;
+      $('pick').value = data.night;
+      if (!data.setUp) {
+        $('out').innerHTML = emptyHtml('🚕', 'Taxi requests are not set up yet', 'Choose the tab your Slack workflow writes to and the rules, then Save and apply.',
+          '<a class="btn primary" href="' + esc(settingsHref('setup')) + '">Set up taxi requests</a>');
+        return;
+      }
+      var rows = data.rows, c = { check: 0, open: 0, booked: 0, denied: 0 };
+      rows.forEach(function (r) { c[r.kind]++; });
+      var stat = function (l, v, cls) { return '<div class="stat ' + (cls || '') + '"><b>' + v + '</b><span>' + l + '</span></div>'; };
+      var html = '<div class="mosaic"><section class="panel flush"><div class="stats">' + stat('Requests', rows.length) + stat('To check', c.check, c.check ? 'bad' : '') +
+        stat('Not decided', c.open, c.open ? 'warn' : '') + stat('Booked', c.booked, 'good') + stat('Denied', c.denied) + stat('In the email', data.email.count) + '</div></section>';
+
+      var F = [['ALL', 'All'], ['check', 'To check'], ['open', 'Not decided'], ['booked', 'Booked'], ['denied', 'Denied']];
+      var list = rows.filter(function (r) { return showKind === 'ALL' || r.kind === showKind; });
+      html += '<section class="panel flush w8">' + moduleHead('Requests', list.length,
+        '<div class="seg" role="group" aria-label="Show">' + F.map(function (f) { return '<button type="button" class="btn sm" aria-pressed="' + (showKind === f[0]) + '" onclick="showKind=\'' + f[0] + '\';render()">' + f[1] + '</button>'; }).join('') + '</div>') +
+        (list.length ? list.map(function (r) {
+          var L = LABEL[r.kind];
+          var msg = r.kind === 'denied' ? '<span class="small">Request denied</span>' : r.kind === 'check' ? '<span class="bad">⚠ ' + esc(r.problems) + '</span>' :
+            r.kind === 'booked' ? '<span class="small">Decided</span>' : '<span class="small">All rules met</span>';
+          if (r.note) msg += '<br><span class="fix">↻ ' + esc(r.note) + '</span>';
+          return '<div class="rq ' + r.kind + '" id="rq' + r.row + '"><div class="t">' + esc(r.time || '—') + '<small>' + (r.shiftEnd ? 'shift ends ' + esc(r.shiftEnd) : '') + '</small></div>' +
+            '<div><div class="nm">' + esc(r.name) + '</div><div class="meta">' + r.extras.map(function (x) { return '<b>' + esc(x.label) + ':</b> ' + esc(x.value); }).join('<br>') + '</div></div>' +
+            '<div class="msg">' + msg + '</div><div class="dec">' + badge(L[0], L[1]) + '<div class="small mt-1">' + (r.decidedBy ? 'by ' + esc(r.decidedBy) : r.kind === 'booked' || r.kind === 'denied' ? '' : 'waiting in Slack') + '</div>' +
+            '<div class="small muted">row ' + r.row + '</div></div></div>';
+        }).join('') : '<div style="padding:0 14px 14px">' + emptyHtml('🚕', rows.length ? 'Nothing here' : 'No taxi requests this night', rows.length ? 'No request matches this filter.' : 'Requests from the Slack workflow show here as they come in.') + '</div>') + '</section>';
+
+      // The night timeline and the email text.
+      var ds = hm(data.settings.dayStart) || 360, len = ((ds - AXIS_FROM + 1440) % 1440) || 1440;
+      var x = function (m) { return (Math.max(0, Math.min(len, (m - AXIS_FROM + 1440) % 1440)) / len * 100).toFixed(2) + '%'; };
+      var ticks = '';
+      for (var h = 0; h <= len; h += 120) ticks += '<span class="tick" style="left:' + (h / len * 100).toFixed(2) + '%">' + ('0' + Math.floor(((AXIS_FROM + h) % 1440) / 60)).slice(-2) + '</span>';
+      var se = data.settings.shiftEnd, win = '';
+      if (se && se.on) {
+        var wf = hm(se.from), wt = hm(se.to), l1 = (wf - AXIS_FROM + 1440) % 1440, l2 = (wt - AXIS_FROM + 1440) % 1440;
+        if (l1 < len) win = '<div class="win" style="left:' + x(wf) + ';right:' + (100 - Math.min(l2, len) / len * 100).toFixed(2) + '%"><span>shift end ' + esc(se.from) + '–' + esc(se.to) + '</span></div>';
+      }
+      var dots = rows.filter(function (r) { return hm(r.time) !== null; }).map(function (r, i) {
+        return '<button type="button" class="dot k-' + r.kind + '" style="left:' + x(hm(r.time)) + ';bottom:' + (30 + (i % 3) * 22) + 'px" data-tip="' + esc(r.time + ' ' + r.name) + '" aria-label="' + esc(r.time + ' ' + r.name + ', ' + LABEL[r.kind][1]) + '" onclick="jump(' + r.row + ')"></button>';
+      }).join('');
+      var au = data.settings.auto;
+      html += '<div class="w4" style="display:flex;flex-direction:column;gap:var(--gap)"><section class="panel">' + moduleHead('The night', null, '<span class="note">' + ('0' + AXIS_FROM / 60).slice(-2) + ':00 – ' + esc(data.settings.dayStart) + '</span>') +
+        '<div class="tl">' + win + '<div class="axis"></div>' + ticks + dots + '</div>' +
+        '<p class="legend"><i class="k-check"></i>To check<i class="k-open"></i>Not decided<i class="k-booked"></i>Booked<i class="k-denied"></i>Denied</p></section>' +
+        '<section class="panel email">' + moduleHead('Email text', data.email.count, '<button type="button" class="btn sm" onclick="copyEmail()">Copy</button>') +
+        '<pre id="emailText">' + esc(data.email.text) + '</pre><p class="hint" style="margin:8px 0 0">' + data.email.count + ' taxi(s)' + (data.email.denied ? ' · ' + data.email.denied + ' denied left out' : '') +
+        (data.email.pending ? ' · ' + data.email.pending + ' not decided yet ' + (data.settings.include === 'BOOKED' ? '(left out)' : '(included)') : '') +
+        (au && au.on ? ' · kept up to date for Slack ' + esc(au.from) + '–' + esc(au.to) : '') + '</p></section></div>';
+
+      // The last 7 nights.
+      html += '<section class="panel flush">' + moduleHead('Last 7 nights', null, '<span class="note">Click a night</span>') + '<div class="week">' + data.week.map(function (w) {
+        var d = dt(w.night);
+        return '<button type="button" aria-current="' + (w.night === data.night) + '" onclick="go(\'' + w.night + '\')" aria-label="' + esc(d.dow + ' ' + d.day + ' ' + d.mon + ': ' + w.total + ' request(s)') + '"><span class="d">' + d.dow + ' ' + d.day + '</span>' +
+          '<span class="n">' + w.total + '</span><span class="c">' + (w.open ? w.open + ' open' : '&nbsp;') + '</span></button>';
+      }).join('') + '</div></section>';
+
+      // Settings (set once) and housekeeping.
+      var tool = function (tab, title, text, extra) { return '<a href="' + esc(settingsHref(tab, extra)) + '">' + esc(title) + '<span>' + esc(text) + '</span></a>'; };
+      html += '<section class="panel w6">' + moduleHead('Settings', null, '<span class="note">Set once, rarely changed</span>') + '<div class="tool-list">' +
+        tool('rules', 'Rules', 'When a request is OK or needs checking') + tool('messages', 'Messages', 'What the Slack workflow posts for OK and CHECK') +
+        tool('email', 'Email layout', 'Start, one block per taxi, end; kept up to date for Slack') + tool('setup', 'Setup', 'Requests tab, columns, checks tab, Taxi Day') +
+        tool('slack', 'Slack steps', 'How the workflow reads the checks and sends the email') + '</div></section>' +
+        '<section class="panel w6">' + moduleHead('Housekeeping') + '<p class="small mt-0">' + data.total + ' request(s) in the requests tab' + (data.oldest ? ' · oldest taxi day ' + esc(data.oldest) : '') + '.</p>' +
+        '<div class="cluster"><a class="btn sm" href="' + esc(settingsHref('requests', { clear: '1' })) + '">Clear old requests…</a>' +
+        (data.links.requests ? '<a class="btn sm ghost" href="' + esc(data.links.requests) + '" target="_blank" rel="noopener">Requests tab ↗</a>' : '') +
+        (data.links.checks ? '<a class="btn sm ghost" href="' + esc(data.links.checks) + '" target="_blank" rel="noopener">Taxi Checks ↗</a>' : '') + '</div></section>';
+      $('out').innerHTML = html + '</div>';
+    }
+
+    function jump(row) {
+      if (showKind !== 'ALL') { showKind = 'ALL'; render(); }
+      var el = $('rq' + row);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1400);
+    }
+    function copyEmail() {
+      var text = data.email.text, done = function () { showStatus('ok', '', 'Email text copied.'); };
+      var fallback = function () { var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { showStatus('info', 'Select the text and press Ctrl+C.', ''); } ta.remove(); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+    }
+
+    load(BOOT.date || '');
+  </script>
+</body>
+</html>

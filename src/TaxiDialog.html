@@ -255,6 +255,8 @@
         if (!d.headers.length) showStatus('info', 'The tab "' + esc(s.requestTab) + '" does not exist yet. Choose the tab your Slack workflow writes to, or create a new one.', 'Choose the requests tab');
         // Opened from Maintenance → Clear Old Taxi Requests: straight to that section.
         if (BOOT && BOOT.clear) { selectPanel('requests'); $('clearSection').scrollIntoView({ block: 'start' }); }
+        // Opened on a tab (web app: ?tab=rules from the night view's Settings).
+        else if (BOOT && /^[a-z]+$/.test(BOOT.tab || '') && document.querySelector('#tabs [data-tab="' + BOOT.tab + '"]')) selectPanel(BOOT.tab);
       });
     }
 

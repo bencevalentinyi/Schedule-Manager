@@ -37,7 +37,10 @@ var WEB_PAGES = {
     boot: function (p) { return { teamId: str_(p.teamId), q: str_(p.q) }; }, prefetch: function (p, b) { return [['apiWebStaff', b.teamId]]; } },
   person: { file: 'WebPerson', title: 'Person', back: 'schedule',
     boot: function (p) { return { key: str_(p.key), week: webDateParam_(p.week) }; }, prefetch: function (p, b) { return [['apiWebPerson', b.key, b.week]]; } },
-  links: { file: 'MonitoringLinksDialog', title: 'Monitoring Links', nav: 'Links', prefetch: function () { return [['apiLinksBootstrap']]; } },
+  // The day's links, plans and lists (any day: today as in the sheet, others as a preview); the editor is its own page.
+  links: { file: 'WebLinks', title: 'Links', nav: 'Links',
+    boot: function (p) { return { date: webDateParam_(p.date) }; }, prefetch: function (p, b) { return [['apiWebLinksDay', b.date]]; } },
+  linkedit: { file: 'MonitoringLinksDialog', title: 'Monitoring Links', back: 'links', prefetch: function () { return [['apiLinksBootstrap']]; } },
   output: { file: 'WebLinksOutput', title: 'Monitoring Links output', back: 'links', prefetch: function () { return [['apiWebLinksOutput']]; } },
   settings: { file: 'SettingsDialog', title: 'Configure Display Settings', nav: 'Settings', prefetch: function () { return [['apiGetSettings']]; } },
   viewer: { file: 'Navigator', title: 'Schedule Viewer (sheet)', back: 'schedule', narrow: true,

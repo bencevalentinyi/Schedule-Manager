@@ -1,5 +1,5 @@
 /**
- * TaxiRequests.gs — optional extension (delete this file and TaxiDialog.html to remove it; nothing else changes).
+ * TaxiRequests.gs — optional extension (delete this file, TaxiDialog.html and TaxiNight.html to remove it; nothing else changes).
  * Taxi request rule checks for a Slack workflow, without a Slack app, API calls or triggers:
  *
  *  - The Slack workflow adds each request to the request tab ("Add a row to a spreadsheet"), as it does today.
@@ -23,8 +23,12 @@ SM_EXTENSIONS.push({
   id: 'taxi', title: 'Taxi Requests',
   menu: [{ label: 'Taxi Request Rules', fn: 'menuTaxiRules' }],
   maintenance: [{ label: 'Clear Old Taxi Requests', fn: 'menuTaxiClear' }],
-  // Web app page (only while this file is present): the same page as the dialog, with the request list.
-  webPages: { taxi: { file: 'TaxiDialog', title: 'Taxi Requests', nav: 'Taxi', prefetch: function () { return [['apiTaxiBootstrap']]; } } },
+  // Web app pages (only while this file is present): the night view (TaxiNight.html), and the settings, the same
+  // page as the dialog (opened on a tab: ?tab=rules|messages|requests|email|slack|setup).
+  webPages: {
+    taxi: { file: 'TaxiNight', title: 'Taxi', nav: 'Taxi', boot: function (p) { return { date: webDateParam_(p.date) }; }, prefetch: function (p, b) { return [['apiTaxiNight', b.date]]; } },
+    taxirules: { file: 'TaxiDialog', title: 'Taxi Request Rules', back: 'taxi', boot: function (p) { return { tab: str_(p.tab), clear: str_(p.clear) === '1' }; }, prefetch: function () { return [['apiTaxiBootstrap']]; } }
+  },
   // Repair Formatting and a theme change restyle the checks tab too.
   repairFormatting: function () { return taxiRepairFormatting_(); },
   tests: function () { return taxiUnitTests_(); }
@@ -928,6 +932,73 @@ function apiTaxiEmailText(settings, dateIso) {
   });
 }
 
+/** How a request shows on the night view: denied, booked, check (not decided, breaks a rule) or open (not decided). Pure. */
+function taxiNightKind_(status, result) {
+  return status === 'DENIED' ? 'denied' : status === 'BOOKED' ? 'booked' : result === 'CHECK' ? 'check' : 'open';
+}
+
+/** The taxi day a moment belongs to: before the day start it is the day before. Pure. */
+function taxiCurrentNight_(todayIso, nowMin, dayStart) {
+  return nowMin < hmToMinutes_(dayStart) ? addDays_(todayIso, -1) : todayIso;
+}
+
+/**
+ * The web page's night view (TaxiNight.html): the requests of one taxi day (as Taxi Day), each checked against
+ * the rules (as Taxi Checks), with the dates from when it was sent; the counts of the 7 nights up to it; and the
+ * night's email text. Nothing is written.
+ */
+function apiTaxiNight(dateIso) {
+  return apiCall_('apiTaxiNight', function () {
+    requireInitialized_();
+    var s = getTaxiSettings_(), tz = getTz_(), today = todayIso_(tz);
+    var nowNight = taxiCurrentNight_(today, hmToMinutes_(Utilities.formatDate(new Date(), tz, 'HH:mm')), s.dayStart);
+    var night = isIsoDate_(str_(dateIso)) ? str_(dateIso) : nowNight;
+    var out = { night: night, tonight: nowNight, settings: { dayStart: s.dayStart, shiftEnd: s.rules.shiftEnd, auto: s.email.auto, include: s.email.include, dayTab: s.dayTab },
+      setUp: !!getConfig_()[TAXI_SETTINGS_KEY_], rows: [], week: [], total: 0, oldest: '', links: {} };
+    var sh = getSs_().getSheetByName(s.requestTab);
+    if (!out.setUp || !sh) return out;
+    var cols = taxiRequestColumns_(s), staff = taxiStaffSources_(s);
+    var checks = getSs_().getSheetByName(s.checksTab), day = s.dayTab ? getSs_().getSheetByName(s.dayTab) : null;
+    out.links = { requests: sheetLink_(sh).url, checks: checks ? sheetLink_(checks).url : '', day: day ? sheetLink_(day).url : '' };
+    var weekFrom = addDays_(night, -6), counts = {};
+    if (sh.getLastRow() >= 2) {
+      var range = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
+      var values = range.getValues(), shown = range.getDisplayValues(), headers = shown[0];
+      var at = function (row, letter) { return letter ? row[columnNumber_(letter) - 1] : ''; };
+      var extras = s.dayColumns.map(function (h) { return { label: h, i: columnNumber_(taxiColumnLetter_(headers, h) || 'A') - 1, ok: !!taxiColumnLetter_(headers, h) }; }).filter(function (e) { return e.ok; });
+      for (var r = 1; r < values.length; r++) {
+        var v = values[r], name = str_(at(v, cols.name));
+        if (!name) continue;
+        out.total++;
+        var sent = cols.id ? taxiSentAt_(at(v, cols.id), tz) : null;
+        var fix = taxiFixDates_(at(v, cols.arrival), at(v, cols.shiftEnd), sent, tz);
+        var when = taxiDayOf_(fix.arrival || at(v, cols.arrival), s.dayStart, tz);
+        var tday = when.day || (sent ? (sent.min < hmToMinutes_(s.dayStart) ? addDays_(sent.day, -1) : sent.day) : '');
+        if (!tday) continue;
+        if (!out.oldest || tday < out.oldest) out.oldest = tday;
+        if (tday < weekFrom || tday > night) continue;
+        var bk = cols.booking ? at(v, cols.booking) : '';
+        var status = taxiBookingStatus_(cols.booking ? bk : 'BOOKED', s.deniedWords, [at(v, cols.shiftEnd), at(v, cols.arrival)]);
+        var e = status === 'DENIED' ? { result: 'DENIED', message: 'Request denied' }
+          : taxiEvaluate_(fix.arrival ? { name: name, shiftEnd: at(v, cols.shiftEnd), arrival: fix.arrival } : { name: name, shiftEnd: at(v, cols.shiftEnd), arrival: at(v, cols.arrival) }, staff.sinceByName, s, today, tz);
+        var kind = taxiNightKind_(status, e.result);
+        var c = counts[tday] = counts[tday] || { total: 0, check: 0, open: 0 };
+        c.total++; if (kind === 'check') c.check++; if (kind === 'open') c.open++;
+        if (tday !== night) continue;
+        var endMin = taxiTimeMinutes_(at(v, cols.shiftEnd), tz);
+        out.rows.push({ row: r + 1, name: name, time: when.time, order: when.order, shiftEnd: endMin === null ? '' : minutesToHm_(endMin), kind: kind,
+          decidedBy: kind === 'booked' || kind === 'denied' ? (bk === true ? '' : str_(bk)) : '', problems: kind === 'check' ? e.message : '',
+          note: kind !== 'denied' ? taxiFixNote_(fix) : '', extras: extras.map(function (x) { return { label: x.label, value: shown[r][x.i] }; }).filter(function (x) { return x.value && normText_(x.value) !== 'denied'; }) });
+      }
+    }
+    out.rows.sort(function (a, b) { return taxiOrderKey_(a) - taxiOrderKey_(b); });
+    for (var k = 6; k >= 0; k--) { var d = addDays_(night, -k); out.week.push({ night: d, total: (counts[d] || {}).total || 0, open: ((counts[d] || {}).check || 0) + ((counts[d] || {}).open || 0) }); }
+    var em = taxiEmailFor_(s, night);
+    out.email = { text: em.text, count: em.count, denied: em.denied, pending: em.pending, taxiDate: em.taxiDate };
+    return out;
+  });
+}
+
 /** The email text for one taxi day, read from the request tab (see buildTaxiEmail_). */
 function taxiEmailFor_(s, date) {
   var tz = getTz_();
@@ -1205,9 +1276,12 @@ function taxiUnitTests_() {
       assertEq_(taxiCheckHeaders_(s), ['Row', 'Date ID', 'Name', 'Booking done', 'Result', 'Message', 'Employee since', 'Months']);
     }],
     ['Taxi: a web app page and nav link only while this file is present', function () {
-      var p = webPages_().taxi;
-      assertEq_([p.file, p.nav, WEB_PAGES.taxi], ['TaxiDialog', 'Taxi', undefined]);
-      assertEq_(p.prefetch({}, {}), [['apiTaxiBootstrap']], 'same call as load() in the page');
+      var p = webPages_().taxi, rules = webPages_().taxirules;
+      assertEq_([p.file, p.nav, WEB_PAGES.taxi, rules.file, rules.back, rules.nav], ['TaxiNight', 'Taxi', undefined, 'TaxiDialog', 'taxi', undefined]);
+      assertEq_([p.prefetch({}, p.boot({})), rules.prefetch({}, {})], [[['apiTaxiNight', '']], [['apiTaxiBootstrap']]], 'same calls as load() in the pages');
+      assertEq_([rules.boot({ tab: 'rules' }).tab, rules.boot({ clear: '1' }).clear], ['rules', true]);
+      assertEq_(['DENIED', 'BOOKED', 'PENDING', 'PENDING'].map(function (st, i) { return taxiNightKind_(st, ['CHECK', 'CHECK', 'CHECK', 'OK'][i]); }), ['denied', 'booked', 'check', 'open']);
+      assertEq_([taxiCurrentNight_('2026-10-31', 125, '06:00'), taxiCurrentNight_('2026-10-31', 600, '06:00')], ['2026-10-30', '2026-10-31'], 'at 02:05 it is still the night before');
     }],
     ['Taxi: own messages per rule with {placeholders}, joined by the chosen separator', function () {
       var own = normalizeTaxiSettings_({ sinceField: 'x', separator: 'LINE', failText: 'Please check:',
