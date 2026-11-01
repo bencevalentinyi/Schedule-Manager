@@ -26,6 +26,15 @@
     .lk.none { opacity: .6; cursor: default; }
     .miss { font-size: 12px; color: var(--warning); margin-top: 4px; }
     .urlrow { grid-column: 2; font: 11px/1.45 var(--mono); color: var(--text-2); word-break: break-all; display: none; }
+    /* One row per monitoring link: its name (and teams) take the room, its Open buttons sit on the right. */
+    .lrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; align-items: start; padding: 12px 14px; border-top: 1px solid var(--rule); }
+    .lrow:first-child { border-top: 0; }
+    .lrow .tn { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+    .lrow .tn small { display: block; font-weight: 400; font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .lrow .links { justify-content: flex-end; }
+    .lrow .urlrow { grid-column: 1 / -1; }
+    .showurl .lrow .urlrow { display: block; }
+    @media (max-width: 700px) { .lrow { grid-template-columns: 1fr; } .lrow .links { justify-content: flex-start; } }
     .showurl .urlrow { display: block; }
     /* Daily plan, as Slack shows it */
     .slack { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; background: #fff; color: #1d1c1d; font: 14px/1.5 -apple-system, "Segoe UI", Lato, Roboto, sans-serif; max-height: 520px; overflow: auto; overflow-wrap: anywhere; }
@@ -116,26 +125,21 @@
         '<section class="panel flush"><div class="stats">' + stat('Links', links.length) + stat('URLs', urlN) + stat('Daily plans', plans.length) + stat('Agent lists', lists.length) +
           stat('Missing IDs', missNames.length, missNames.length ? 'warn' : '') + '</div></section>';
 
-      // Dashboards: link items grouped by their teams.
-      var groups = [], at = {};
-      links.forEach(function (x) { var k = teamLabel(x); if (!(k in at)) { at[k] = groups.length; groups.push({ label: k, items: [] }); } groups[at[k]].items.push(x); });
+      // Monitoring links: one row per link, its name first, the teams chosen for it under the name.
       html += '<section class="panel flush w7' + (showUrls ? ' showurl' : '') + '" id="dash">' + moduleHead('Monitoring links', links.length,
         links.length ? '<button type="button" class="btn sm ghost" onclick="toggleUrls()">' + (showUrls ? 'Hide URLs' : 'Show URLs') + '</button>' : '') +
-        (links.length ? groups.map(function (g) {
-          var people = g.items.reduce(function (n, x) { return Math.max(n, x.people || 0); }, 0);
-          var miss = [];
-          g.items.forEach(function (x) { if (x.missing.length) miss.push(x.idLabel + ': ' + x.missing.join(', ')); });
-          return '<div class="team"><div class="tn">' + esc(g.label) + '<small>' + people + ' working in the busiest link</small></div><div><div class="links">' +
-            g.items.map(function (x, i) {
-              var c = SWATCH[i % SWATCH.length];
-              if (x.error) return '<span class="lk warn none" title="' + esc(x.error) + '"><span class="sw" style="background:' + c + '"></span>' + esc(x.name) + ' ⚠</span>';
-              if (!x.urls.length) return '<span class="lk none"><span class="sw" style="background:' + c + '"></span>' + esc(x.name) + ' <span class="n">0</span></span>';
-              return x.urls.map(function (u, k) {
-                return '<a class="lk' + (x.missing.length ? ' warn' : '') + '" href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(x.name + ' · ' + x.when + (x.urls.length > 1 ? ' · link ' + (k + 1) + ' of ' + x.urls.length : '')) + '">' +
-                  '<span class="sw" style="background:' + c + '"></span>' + esc(x.name) + (x.urls.length > 1 ? ' ' + (k + 1) : '') + ' <span class="n">' + x.count + (x.missing.length ? '/' + x.people : '') + '</span> ↗</a>';
-              }).join('');
-            }).join('') + '</div>' + (miss.length ? '<div class="miss">⚠ No ID: ' + esc(miss.join(' · ')) + '</div>' : '') + '</div>' +
-            '<div class="urlrow">' + g.items.map(function (x) { return x.urls.map(function (u) { return '<b>' + esc(x.name) + '</b> ' + esc(u); }).join('<br>'); }).join('<br>') + '</div></div>';
+        (links.length ? links.map(function (x, i) {
+          var c = SWATCH[i % SWATCH.length], open;
+          if (x.error) open = '<span class="lk warn none" title="' + esc(x.error) + '"><span class="sw" style="background:' + c + '"></span>Not built ⚠</span>';
+          else if (!x.urls.length) open = '<span class="lk none"><span class="sw" style="background:' + c + '"></span>No one <span class="n">0</span></span>';
+          else open = x.urls.map(function (u, k) {
+            return '<a class="lk' + (x.missing.length ? ' warn' : '') + '" href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(x.name + ' · ' + x.when + (x.urls.length > 1 ? ' · link ' + (k + 1) + ' of ' + x.urls.length : '')) + '">' +
+              '<span class="sw" style="background:' + c + '"></span>' + (x.urls.length > 1 ? 'Open part <span class="n">' + (k + 1) + '/' + x.urls.length + '</span>'
+                : 'Open <span class="n">' + x.count + (x.missing.length ? '/' + x.people : '') + '</span>') + ' ↗</a>';
+          }).join('');
+          return '<div class="lrow"><div><div class="tn">' + esc(x.name) + '<small>' + esc(teamLabel(x)) + ' · ' + esc(x.when || '') + ' · ' + x.count + (x.missing.length ? ' of ' + x.people : '') + ' in it</small></div>' +
+            (x.missing.length ? '<div class="miss">⚠ No ' + esc(x.idLabel) + ': ' + esc(x.missing.join(', ')) + '</div>' : '') + (x.error ? '<div class="miss">' + esc(x.error) + '</div>' : '') + '</div>' +
+            '<div class="links">' + open + '</div><div class="urlrow">' + x.urls.map(esc).join('<br>') + '</div></div>';
         }).join('') : '<div style="padding:0 14px 14px">' + emptyHtml('🔗', 'No monitoring links', 'A monitoring link is a dashboard URL filled with the IDs of the people working.') + '</div>') + '</section>';
 
       // Daily plan, one at a time.
