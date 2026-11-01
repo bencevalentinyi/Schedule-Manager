@@ -233,7 +233,7 @@ function apiWebLinksDay(dateIso) {
     linkIdFieldOptions_().forEach(function (f) { label[f.key] = f.label; });
     label[LIST_NAME_FIELD_] = 'Name';
     var items = loadLinkTemplates_().map(function (t) {
-      var base = { id: t.id, name: t.name, kind: t.kind, idLabel: label[t.idField] || t.idField, allTeams: !t.teamIds.length };
+      var base = { id: t.id, name: t.name, kind: t.kind, idLabel: label[t.idField] || t.idField, allTeams: !t.teamIds.length, shiftTypes: linkShiftTypeLabel_(t) };
       try {
         var r = generateLink_(t, ctx, teams, cache);
         return Object.assign(base, { teams: r.teams, when: r.whenLabel, urls: r.urls, text: r.text, values: r.values || [], count: r.count,

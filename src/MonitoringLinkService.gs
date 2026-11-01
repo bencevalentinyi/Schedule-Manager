@@ -132,8 +132,41 @@ function normalizeLinkTemplate_(t) {
     includePrevDay: !!t.includePrevDay,
     // agent list
     listDay: LIST_DAYS[t.listDay] ? t.listDay : 'TODAY',
-    exceptDay: LIST_DAYS[t.exceptDay] ? t.exceptDay : ''
+    exceptDay: LIST_DAYS[t.exceptDay] ? t.exceptDay : '',
+    // all kinds: only shifts of these types (ONLY) or all but these (EXCEPT); none = every shift type.
+    shiftTypes: uniq_((Array.isArray(t.shiftTypes) ? t.shiftTypes : splitList_(t.shiftTypes || '')).map(normShiftType_).filter(Boolean)),
+    shiftTypeMode: t.shiftTypeMode === 'EXCEPT' ? 'EXCEPT' : 'ONLY'
   };
+}
+
+var LINK_SHIFT_TYPE_MODES = { ONLY: 'Only these shift types', EXCEPT: 'All shift types except these' };
+
+/**
+ * An item's shift-type filter as a test of a schedule record: none chosen = every record; otherwise shifts of
+ * the chosen types (ONLY) or of the other types (EXCEPT), matched ignoring case and spaces. Meetings and
+ * trainings are never filtered here (the item's meeting settings decide about them). Pure.
+ */
+function linkShiftTypeTest_(t) {
+  var types = (t.shiftTypes || []).map(normText_).filter(Boolean);
+  if (!types.length) return function () { return true; };
+  var only = t.shiftTypeMode !== 'EXCEPT';
+  return function (r) {
+    if (activityCategoryOf_(r) === ACTIVITY_CATEGORY.MEETING) return true;
+    return (types.indexOf(normText_(r.shiftType)) >= 0) === only;
+  };
+}
+
+/** "only Phone, Chat" / "not Training" / '' for an item's shift-type filter. Pure. */
+function linkShiftTypeLabel_(t) {
+  if (!t.shiftTypes || !t.shiftTypes.length) return '';
+  return (t.shiftTypeMode === 'EXCEPT' ? 'not ' : 'only ') + t.shiftTypes.join(', ');
+}
+
+/** Every shift type seen in imports (all teams), for the item editor. */
+function linkShiftTypeOptions_() {
+  var all = getKnownShiftTypes_();
+  listTeams_().forEach(function (t) { ((t.settings.import || {}).knownShiftTypes || []).forEach(function (x) { all.push(normShiftType_(x)); }); });
+  return uniq_(all.filter(Boolean)).sort(function (a, b) { return a.localeCompare(b); });
 }
 
 /**
@@ -479,7 +512,7 @@ function generateLink_(t, ctx, teamsById, staffCache) {
   // A window past midnight also needs the shifts starting the next morning.
   var overnight = t.who === 'WINDOW' && linkWindowCrossesMidnight_(hmToMinutes_(t.from), hmToMinutes_(t.to));
   if (overnight) dates.push(isoFromDayNumber_(dayNumber_(date) + 1));
-  var records = teamIds.length ? queryScheduleRecords_({ teamIds: teamIds, dates: dates }) : [];
+  var records = teamIds.length ? queryScheduleRecords_({ teamIds: teamIds, dates: dates }).filter(linkShiftTypeTest_(t)) : [];
   var opts = { date: date, who: t.who, atMin: t.who === 'NOW' ? ctx.nowMin : hmToMinutes_(t.at),
     fromMin: hmToMinutes_(t.from), toMin: hmToMinutes_(t.to), excludeMeetings: t.excludeMeetings, excludePrevDay: !t.includePrevDay };
   var whenLabel = (t.who === 'NOW' ? 'now (' + minutesToHm_(ctx.nowMin) + ')' : t.who === 'AT' ? 'at ' + t.at
@@ -716,6 +749,7 @@ function apiLinksBootstrap() {
       templates: loadLinkTemplates_(),
       idFields: linkIdFieldOptions_(), sectionFields: planSectionFieldOptions_(),
       teams: Object.keys(teams).map(function (k) { return { teamId: k, teamName: teams[k].teamName, active: teams[k].active }; }),
+      shiftTypes: linkShiftTypeOptions_(), shiftTypeModes: LINK_SHIFT_TYPE_MODES,
       who: LINK_WHO, kinds: LINK_KINDS, listDays: LIST_DAYS, listNameField: LIST_NAME_FIELD_, include: PLAN_INCLUDE, tagModes: PLAN_TAG_MODES, tagWindowModes: PLAN_TAG_WINDOW_MODES_, defaultLine: PLAN_DEFAULT_LINE_,
       sheetSettings: loadLinkSheetSettings_(), layouts: LINK_SHEET_LAYOUTS,
       csvSettings: normalizeLinkCsvSettings_(parseJson_(getConfig_().LINK_CSV_SETTINGS, {})), csvLayouts: LINK_CSV_LAYOUTS, csvDelimiters: LINK_CSV_DELIMITERS,

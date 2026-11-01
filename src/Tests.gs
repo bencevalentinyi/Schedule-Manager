@@ -971,6 +971,20 @@ function unitTestsLinks_() {
       assertEq_(buildPlanText_(normalizeLinkTemplate_({ kind: 'PLAN', emptyText: 'Nobody' }), [], {}, function () { return ''; }), 'Nobody');
       assertEq_(selectAssignments_(recs, { date: '2026-10-15', who: 'DAY', include: 'MEETINGS' }).length, 1);
     }],
+    ['Monitoring links: a shift-type filter (only these / all except these); meetings are never filtered by it', function () {
+      var none = normalizeLinkTemplate_({ kind: 'PLAN' });
+      assertEq_([none.shiftTypes, none.shiftTypeMode, linkShiftTypeLabel_(none)], [[], 'ONLY', ''], 'none by default: every shift type');
+      var only = normalizeLinkTemplate_({ kind: 'PLAN', shiftTypes: ['Phone', ' phone ', 'Chat  Support'] });
+      assertEq_([only.shiftTypes, linkShiftTypeLabel_(only)], [['Phone', 'phone', 'Chat Support'], 'only Phone, phone, Chat Support']);
+      var except = normalizeLinkTemplate_({ kind: 'LINK', shiftTypes: 'Training, Onboarding', shiftTypeMode: 'EXCEPT' });
+      assertEq_([except.shiftTypes, except.shiftTypeMode, linkShiftTypeLabel_(except)], [['Training', 'Onboarding'], 'EXCEPT', 'not Training, Onboarding'], 'a comma list from older callers too');
+      var recs = [{ shiftType: 'Phone', activityCategory: 'SHIFT' }, { shiftType: 'CHAT support', activityCategory: 'SHIFT' }, { shiftType: 'Training', activityCategory: 'SHIFT' },
+        { shiftType: 'Team meeting', activityCategory: 'MEETING' }, { shiftType: '', activityCategory: 'SHIFT' }];
+      var kept = function (t) { return recs.filter(linkShiftTypeTest_(t)).map(function (r) { return r.shiftType || '(blank)'; }); };
+      assertEq_(kept(none), ['Phone', 'CHAT support', 'Training', 'Team meeting', '(blank)'], 'no filter: everything');
+      assertEq_(kept(only), ['Phone', 'CHAT support', 'Team meeting'], 'only: matched ignoring case and spaces; the meeting stays');
+      assertEq_(kept(except), ['Phone', 'CHAT support', 'Team meeting', '(blank)'], 'all except: Training left out');
+    }],
     ['Daily plans: roles from the staff sheet put shift leads first (with headings), or filter by role', function () {
       var roles = { E2: 'Support Shift Lead', E4: 'support  shift lead', E1: 'Agent' };
       var roleOf = function (r) { return roles[r.employeeId] || ''; };

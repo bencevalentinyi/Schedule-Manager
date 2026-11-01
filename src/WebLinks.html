@@ -99,7 +99,8 @@
     function go(date) { load(date || ''); }
     function move(k) { go(addDay(data.date, k)); }
     function byKind(k) { return data.items.filter(function (x) { return x.kind === k; }); }
-    function teamLabel(x) { return x.allTeams ? 'All teams' : (x.teams.length ? x.teams.join(', ') : 'No active team'); }
+    /** The item's teams, and its shift-type filter when it has one ("Support · only Phone, Chat"). */
+    function teamLabel(x) { return (x.allTeams ? 'All teams' : (x.teams.length ? x.teams.join(', ') : 'No active team')) + (x.shiftTypes ? ' · ' + x.shiftTypes : ''); }
 
     function render() {
       var d = new Date(data.date + 'T12:00:00Z'), diff = dayDiff(data.today, data.date), isToday = diff === 0;
