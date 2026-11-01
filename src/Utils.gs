@@ -416,7 +416,7 @@ var READ_MEMO_ = null;
 function withReadMemo_(fn, label) {
   if (READ_MEMO_) return fn();
   var started = Date.now();
-  READ_MEMO_ = { staff: {}, teams: null, stats: { scheduleQueries: 0, scheduleMs: 0, scheduleRows: 0, staffReads: 0, staffHits: 0, staffMs: 0 } };
+  READ_MEMO_ = { staff: {}, teams: null, stats: { scheduleQueries: 0, scheduleMs: 0, scheduleRows: 0, staffReads: 0, staffCached: 0, staffHits: 0, staffMs: 0 } };
   try {
     var out = fn();
     if (label) console.log(label + ': ' + (Date.now() - started) + ' ms (' + readMemoSummary_(READ_MEMO_.stats) + ')');
@@ -428,10 +428,11 @@ function withReadMemo_(fn, label) {
 }
 var LAST_READ_STATS_ = null;
 
-/** "schedule: 11 queries, 1 read of 24000 rows, 900 ms; staff sheets: 3 read (8 reused), 400 ms". Pure. */
+/** "schedule: 11 queries, 1166 rows, 900 ms; staff sheets: 1 read, 2 from cache (8 reused), 400 ms". Pure. */
 function readMemoSummary_(st) {
+  var used = st.staffReads + (st.staffCached || 0);
   return 'schedule: ' + st.scheduleQueries + ' quer' + (st.scheduleQueries === 1 ? 'y' : 'ies') + (st.scheduleQueries ? ', ' + st.scheduleRows + ' rows, ' + st.scheduleMs + ' ms' : '') +
-    '; staff sheets: ' + st.staffReads + ' read' + (st.staffHits ? ' (' + st.staffHits + ' reused)' : '') + (st.staffReads ? ', ' + st.staffMs + ' ms' : '');
+    '; staff sheets: ' + st.staffReads + ' read' + (st.staffCached ? ', ' + st.staffCached + ' from cache' : '') + (st.staffHits ? ' (' + st.staffHits + ' reused)' : '') + (used ? ', ' + st.staffMs + ' ms' : '');
 }
 
 /**
@@ -445,12 +446,18 @@ function withLock_(fn, timeoutMs) {
   if (!lock.tryLock(timeoutMs || 30000)) {
     fail_('BUSY', 'Another Schedule Manager operation is currently running (for example an import). Wait a moment and try again.');
   }
+  // While a write operation runs, staff sheets are read from the sheet (never the cache); when it ends, a new
+  // staff version makes every cached copy out of date (see readStaffCached_).
+  LOCK_DEPTH_++;
   try {
     return fn();
   } finally {
+    LOCK_DEPTH_--;
+    if (!LOCK_DEPTH_ && typeof staffCacheBump_ === 'function') staffCacheBump_();
     lock.releaseLock();
   }
 }
+var LOCK_DEPTH_ = 0;
 
 /** Structured technical log. Never includes row data or personal data. */
 function logError_(where, e) {

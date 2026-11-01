@@ -79,6 +79,8 @@ function onEdit(e) {
     }
     var entry = getSheetIndex_()[String(sh.getSheetId())];
     if (!entry) return;
+    // A staff sheet edited by hand (also its header): cached copies of staff sheets are out of date.
+    if (entry.kind === 'staff') staffCacheBump_();
     if (entry.kind === 'schedule' && (e.range.getRow() > VIEW.FILTER_ROW || e.range.getLastRow() < VIEW.FILTER_ROW)) return;
     if (entry.kind === 'staff' && e.range.getLastRow() <= STAFF_LAYOUT.HEADER_ROW) return;
     var team = getTeam_(entry.teamId);

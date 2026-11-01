@@ -1541,6 +1541,35 @@ function runIntegrationTests() {
       assert_(READ_MEMO_ === null, 'the memo ends with the run');
       assert_(/schedule: 6 queries, \d+ rows, \d+ ms; staff sheets: 1 read \(1 reused\), \d+ ms/.test(readMemoSummary_(memo.stats)), readMemoSummary_(memo.stats));
     }],
+    ['Staff cache: a copy is used until a write or an edit by hand; never inside a write', function () {
+      var store = {};
+      STAFF_CACHE_OVERRIDE_ = {
+        get: function (k) { return k in store ? store[k] : null; },
+        getAll: function (ks) { var o = {}; ks.forEach(function (k) { if (k in store) o[k] = store[k]; }); return o; },
+        put: function (k, v) { store[k] = String(v); }, remove: function (k) { delete store[k]; }
+      };
+      try {
+        var team = getTeam_(ctx.teams.alpha.teamId);
+        var fresh = readStaff_(team);
+        assert_(!fresh.fromCache && Object.keys(store).length === 2, 'first read: from the sheet, then kept (copy + version)');
+        var cached = readStaff_(team);
+        assert_(cached.fromCache, 'second read: from the cache');
+        assertEq_(JSON.stringify(cached.rows.map(function (r) { return [r._row, r.employeeId, r.employeeName, r.fields]; })),
+          JSON.stringify(fresh.rows.map(function (r) { return [r._row, r.employeeId, r.employeeName, r.fields]; })), 'the same rows');
+        assertEq_([cached.keys, cached.sheetName, cached.sheet.getName()], [fresh.keys, fresh.sheetName, fresh.sheet.getName()], 'the same columns, and its sheet when asked');
+        var when = new Date(2026, 9, 15, 12, 0, 0);
+        var back = staffFromCache_(JSON.parse(staffToCache_({ sheetName: 'S', header: ['A'], keys: ['a'], registry: {}, rows: [{ _row: 4, employeeId: 'E1', employeeName: 'Ann', active: true, values: { A: when }, fields: { a: when } }] }, 'g')), team);
+        assert_(isDate_(back.rows[0].values.A) && back.rows[0].fields.a.getTime() === when.getTime(), 'dates stay dates');
+        var inside = withLock_(function () { return readStaff_(team).fromCache; });
+        assert_(!inside, 'inside a write operation the sheet is read');
+        assert_(!readStaff_(team).fromCache, 'after a write operation the copy is out of date');
+        assert_(readStaff_(team).fromCache, '…and the new read is kept again');
+        staffCacheBump_(); // what an edit by hand in a staff sheet does (onEdit)
+        assert_(!readStaff_(team).fromCache, 'after an edit by hand the sheet is read again');
+        var memo = withReadMemo_(function () { readStaff_(team); readStaff_(team); return READ_MEMO_.stats; });
+        assertEq_([memo.staffReads, memo.staffCached, memo.staffHits], [0, 1, 1], 'a page: from the cache once, then from the page memo');
+      } finally { STAFF_CACHE_OVERRIDE_ = null; }
+    }],
     ['Recover from a missing team worksheet', function () {
       var team = getTeam_(ctx.teams.beta.teamId);
       ss.deleteSheet(resolveTeamSheet_(team, 'schedule'));

@@ -232,7 +232,7 @@ function layoutStaffSheet_(sh, team) {
 
 /**
  * Reads a team's staff sheet.
- * @return {{sheet, header: string[], keys: string[], registry: Object, rows: Object[]}}
+ * @return {{sheet, sheetName: string, header: string[], keys: string[], registry: Object, rows: Object[]}}
  *   rows: {_row, employeeId, employeeName, active, values: {label: v}, fields: {key: v}}
  */
 function readStaff_(team) {
@@ -240,11 +240,71 @@ function readStaff_(team) {
   if (READ_MEMO_) {
     var key = team.teamId + '|' + (team.settings && team.settings.staffSheetId);
     if (READ_MEMO_.staff[key]) { READ_MEMO_.stats.staffHits++; return READ_MEMO_.staff[key]; }
-    var t0 = Date.now(), memo = READ_MEMO_, st = readStaffFromSheet_(team);
-    memo.staff[key] = st; memo.stats.staffReads++; memo.stats.staffMs += Date.now() - t0;
+    var t0 = Date.now(), memo = READ_MEMO_, st = readStaffCached_(team);
+    memo.staff[key] = st; memo.stats[st.fromCache ? 'staffCached' : 'staffReads']++; memo.stats.staffMs += Date.now() - t0;
     return st;
   }
-  return readStaffFromSheet_(team);
+  return readStaffCached_(team);
+}
+
+/*
+ * Staff sheets are kept in the script cache for STAFF_CACHE_TTL_ seconds, so page after page does not read them
+ * again. A copy is used only while the cache's staff version is the one it was made with; the version changes
+ * after every write operation (withLock_) and every edit by hand in a staff sheet (onEdit), so the next page reads
+ * the sheet fresh. Inside a write operation the cache is never used. A change made outside Schedule Manager
+ * (another script, the Sheets API) shows after at most STAFF_CACHE_TTL_ seconds.
+ */
+var STAFF_CACHE_TTL_ = 300, STAFF_CACHE_GEN_KEY_ = 'sm-staff-gen', STAFF_CACHE_MAX_ = 95000;
+var STAFF_CACHE_OVERRIDE_ = null; // tests: an in-memory cache
+
+function staffCache_() {
+  if (STAFF_CACHE_OVERRIDE_) return STAFF_CACHE_OVERRIDE_;
+  try { return typeof CacheService !== 'undefined' ? CacheService.getScriptCache() : null; } catch (e) { return null; }
+}
+
+/** A new staff version: every cached staff sheet is out of date from now on. Never throws. */
+function staffCacheBump_() {
+  var c = staffCache_();
+  if (!c) return '';
+  var gen = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try { c.put(STAFF_CACHE_GEN_KEY_, gen, 21600); } catch (e) { return ''; }
+  return gen;
+}
+
+/** A staff read as cache text: dates kept as {__d: ms}, no sheet object. Pure. */
+function staffToCache_(st, gen) {
+  var enc = function (o) { var out = {}; Object.keys(o).forEach(function (k) { out[k] = isDate_(o[k]) ? { __d: o[k].getTime() } : o[k]; }); return out; };
+  return JSON.stringify({ gen: gen, sheetName: st.sheetName, header: st.header, keys: st.keys, registry: st.registry,
+    rows: st.rows.map(function (r) { return { _row: r._row, employeeId: r.employeeId, employeeName: r.employeeName, active: r.active, values: enc(r.values), fields: enc(r.fields) }; }) });
+}
+
+/** The cached text back as a staff read; its sheet is found only when a caller asks for it. */
+function staffFromCache_(o, team) {
+  var dec = function (m) { Object.keys(m).forEach(function (k) { var v = m[k]; if (v && typeof v === 'object' && typeof v.__d === 'number') m[k] = new Date(v.__d); }); return m; };
+  o.rows.forEach(function (r) { dec(r.values); dec(r.fields); });
+  var st = { sheetName: o.sheetName, header: o.header, keys: o.keys, registry: o.registry, rows: o.rows, fromCache: true };
+  var sheet = null;
+  Object.defineProperty(st, 'sheet', { enumerable: false, get: function () { return sheet || (sheet = resolveTeamSheet_(team, 'staff')); } });
+  return st;
+}
+
+function readStaffCached_(team) {
+  var cache = LOCK_DEPTH_ ? null : staffCache_();
+  if (!cache) return readStaffFromSheet_(team);
+  var key = 'sm-staff-' + team.teamId + '-' + str_(team.settings && team.settings.staffSheetId), gen = '';
+  try {
+    var got = cache.getAll([STAFF_CACHE_GEN_KEY_, key]) || {};
+    gen = got[STAFF_CACHE_GEN_KEY_] || '';
+    var o = got[key] ? JSON.parse(got[key]) : null;
+    if (gen && o && o.gen === gen) return staffFromCache_(o, team);
+  } catch (e) { /* read the sheet */ }
+  var st = readStaffFromSheet_(team);
+  try {
+    if (!gen) gen = staffCacheBump_();
+    var text = gen ? staffToCache_(st, gen) : '';
+    if (text && text.length <= STAFF_CACHE_MAX_) cache.put(key, text, STAFF_CACHE_TTL_);
+  } catch (e2) { /* too big or cache unavailable: next time it is read again */ }
+  return st;
 }
 
 function readStaffFromSheet_(team) {
@@ -253,9 +313,10 @@ function readStaffFromSheet_(team) {
   var cfg = getConfig_();
   var registry = getStaffFieldMap_();
   var H = STAFF_LAYOUT.HEADER_ROW;
-  var lr = sh.getLastRow(), lc = sh.getLastColumn();
+  // One call for the sheet's used range (its size comes with it), one for its values, one for the header's notes.
+  var used = sh.getDataRange(), lr = used.getLastRow(), lc = used.getLastColumn();
   if (lr < H || lc < 1) fail_('SCHEMA', 'The staff sheet "' + sh.getName() + '" has no header row. Run Maintenance → Repair Formatting.');
-  var values = sh.getRange(H, 1, lr - H + 1, lc).getValues();
+  var values = used.getValues().slice(H - 1);
   var notes = sh.getRange(H, 1, 1, lc).getNotes()[0];
   var header = values[0].map(str_);
   var keys = resolveStaffColumns_(header, notes, registry);
@@ -277,7 +338,7 @@ function readStaffFromSheet_(team) {
     o.active = true; // the Active column is retired: everyone in the staff sheet is active
     rows.push(o);
   }
-  return { sheet: sh, header: header, keys: keys, registry: registry, rows: rows };
+  return { sheet: sh, sheetName: sh.getName(), header: header, keys: keys, registry: registry, rows: rows };
 }
 
 /**

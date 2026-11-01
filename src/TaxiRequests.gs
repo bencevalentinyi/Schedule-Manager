@@ -637,7 +637,7 @@ function taxiStaffSources_(s) {
     });
     var iKey = st.keys.indexOf(s.staffMatch), iSince = st.keys.indexOf(s.sinceField);
     if (iKey < 0 || (s.rules.tenure.on && iSince < 0)) { out.missing.push(team.teamName); return; }
-    out.sources.push({ sheet: st.sheet.getName(), key: columnLetter_(iKey + 1), since: columnLetter_((iSince < 0 ? iKey : iSince) + 1), firstRow: STAFF_LAYOUT.FIRST_DATA_ROW });
+    out.sources.push({ sheet: st.sheetName || st.sheet.getName(), key: columnLetter_(iKey + 1), since: columnLetter_((iSince < 0 ? iKey : iSince) + 1), firstRow: STAFF_LAYOUT.FIRST_DATA_ROW });
     st.rows.forEach(function (r) {
       var name = s.staffMatch === 'employeeName' ? r.employeeName : str_(r.fields[s.staffMatch]);
       var k = normText_(name);
