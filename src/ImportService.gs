@@ -369,11 +369,11 @@ function buildImportPlan_(input) {
     var name = (g('employeeName') || (g('firstName') + ' ' + g('lastName'))).replace(/\s+/g, ' ').trim();
     return { key: id ? 'ID:' + idKey_(id) : 'NM:' + normName_(name), employeeId: id, employeeName: name };
   };
-  /** Teams (of staffTeams) whose staff sheet contains the person. */
+  /** Teams (of staffTeams) whose own staff sheet contains the person (matchEmployeeIn_: never another team's sheet, which would list everyone in every team). */
   var teamsListing = function (who) {
     return staffTeams.filter(function (t) {
       var ix = getStaff(t);
-      var m = matchEmployee_(ix, who.employeeId, who.employeeName, (ix && ix.nameMatch) || cfg.NAME_MATCH_STRATEGY);
+      var m = matchEmployeeIn_(ix, who.employeeId, who.employeeName, (ix && ix.nameMatch) || cfg.NAME_MATCH_STRATEGY);
       return m.status === STAFF_MATCH.ID || m.status === STAFF_MATCH.NAME;
     });
   };
@@ -478,7 +478,7 @@ function buildImportPlan_(input) {
     // that would be excluded anyway never need a decision.
     if ((input.reviewUnknown || mode === 'STAFF') && !decision) {
       var ixh = getStaff(teamId);
-      var mh = matchEmployee_(ixh, who.employeeId, who.employeeName, (ixh && ixh.nameMatch) || cfg.NAME_MATCH_STRATEGY);
+      var mh = matchEmployeeIn_(ixh, who.employeeId, who.employeeName, (ixh && ixh.nameMatch) || cfg.NAME_MATCH_STRATEGY);
       if (mh.status === STAFF_MATCH.UNKNOWN || mh.status === STAFF_MATCH.AMBIGUOUS) {
         if (meeting) S.meetingsSelected--;
         if (ts) ts.included--;
@@ -500,7 +500,7 @@ function buildImportPlan_(input) {
 
     var idx = getStaff(teamId);
     var altKey = !!idx && idx.matchField && idx.matchField !== 'employeeId';
-    var m = matchEmployee_(idx, rec.employeeId, rec.employeeName, (idx && idx.nameMatch) || cfg.NAME_MATCH_STRATEGY);
+    var m = matchEmployeeIn_(idx, rec.employeeId, rec.employeeName, (idx && idx.nameMatch) || cfg.NAME_MATCH_STRATEGY);
     var notInSheet = m.status === STAFF_MATCH.UNKNOWN || m.status === STAFF_MATCH.AMBIGUOUS;
     rec._person = who.key;       // for joining split shift pieces (not stored)
     if (meeting) addBridge(who, rec);

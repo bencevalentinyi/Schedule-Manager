@@ -722,6 +722,16 @@ function unitTestsStaffRouting_() {
       assertEq_(heldKeys(p), ['Zed New:NOT_IN_STAFF']);
       assertEq_([p.summary.heldPeople[0].candidates.length, p.canCommit], [2, false], 'any team can be chosen; held people block the import');
     }],
+    ['All teams: routing looks only at each team\'s own staff sheet, even when the index can look in other sheets', function () {
+      // As tryStaffIndex_ builds them: every team's index can fall back on the other teams' sheets (idx.others).
+      var staff = testStaff_();
+      Object.defineProperty(staff.TEAM_001, 'others', { value: staff.TEAM_002 });
+      Object.defineProperty(staff.TEAM_002, 'others', { value: staff.TEAM_001 });
+      var p = planFromCsv_(csv, { teamMode: 'STAFF', teamId: '', getStaffIndex: function (id) { return staff[id] || null; } });
+      assertEq_(teamsOf(p), ['Dee Fox>TEAM_002', 'ann lee>TEAM_001'], 'each person still goes to the one team that lists them');
+      assertEq_(heldKeys(p), ['Zed New:NOT_IN_STAFF'], 'nobody is "in several staff sheets" because of the fallback');
+      assertEq_(matchEmployee_(staff.TEAM_001, '', 'Dee Fox', 'EXACT').otherTeam !== undefined, true, 'views still find people in other sheets');
+    }],
     ['All teams: a decision imports or skips every row of the held person', function () {
       var key = 'NM:' + normName_('Zed New');
       var imp = planFromCsv_(csv, { teamMode: 'STAFF', teamId: '', decisions: (function () { var d = {}; d[key] = 'TEAM_002'; return d; })() });
