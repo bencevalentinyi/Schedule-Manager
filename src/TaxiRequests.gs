@@ -117,6 +117,8 @@ function normalizeTaxiSettings_(s) {
     // Empty = not decided yet: those come first in the checks tab, colored. '' = no booking column.
     bookingColumn: s.bookingColumn === undefined ? 'Booking done' : str_(s.bookingColumn),
     deniedWords: str_(s.deniedWords) || 'deny, denied, rejected',
+    // Why a request was denied, as the Slack workflow writes it ('' = none).
+    reasonColumn: s.reasonColumn === undefined ? 'Reason' : str_(s.reasonColumn),
     // The day view: a tab with a date cell, like the daily schedule ('' = no day view). A taxi day runs from dayStart
     // to dayStart, so a 00:15 taxi after a late shift belongs to the evening before; the email text uses the same day.
     dayTab: s.dayTab === undefined ? 'Taxi Day' : str_(s.dayTab),
@@ -523,10 +525,15 @@ function buildTaxiFormula_(s, cols, staff, offMin) {
     'refDay,IF(arrFix>=0,INT(arrFix),IF(arrDate>=0,arrDate,TODAY()))',
     'tenure,IF(since="",-1,IFERROR(DATEDIF(since,refDay,"M"),-1))',
     'msg,' + msg,
-    'denied,' + denied,
+    'denied,' + denied
+  ]).concat(cols.reason ? [
+    // Why it was denied (the Slack workflow's reason), unless it only says BOOKED or DENIED.
+    'reason,TRIM(TO_TEXT(' + col(cols.reason) + '))',
+    'deniedMsg,"Request denied"&IF((reason<>"")*(UPPER(reason)<>"BOOKED")*(UPPER(reason)<>"DENIED"),": "&reason,"")'
+  ] : ['deniedMsg,"Request denied"']).concat([
     'keep,reqName<>""',
     'out,{rowNo,' + (withId ? 'reqId,' : '') + 'reqName,' + (withBooking ? 'booked,' : '') + 'IF(denied,"DENIED",IF(msg="","OK","CHECK")),' +
-      'IF(denied,"Request denied",IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + '))&IF(note="","",CHAR(10)&note)),' +
+      'IF(denied,deniedMsg,IF(msg="",' + taxiLit_(taxiNl_(s.okText)) + ',' + fail + 'LEFT(msg,LEN(msg)-' + sepText.length + '))&IF(note="","",CHAR(10)&note)),' +
       'IF(since="","",TEXT(since,"yyyy-mm-dd")),IF(tenure<0,"",tenure)}',
     'VSTACK({' + headers.map(taxiText_).join(',') + '},IFERROR(' + sorted + ',{' +
       headers.map(function () { return '""'; }).join(',') + '}))'
@@ -667,6 +674,8 @@ function taxiRequestColumns_(s) {
   if (missing.length) fail_('VALIDATION', 'The tab "' + s.requestTab + '" has no column ' + missing.map(function (m) { return '"' + m + '"'; }).join(', ') + '.');
   // The booking column is optional: without it nothing is sorted or colored by decision.
   cols.booking = s.bookingColumn ? taxiColumnLetter_(headers, s.bookingColumn) : '';
+  // Optional: why a request was denied (shown in Taxi Checks, Taxi Day and the web page).
+  cols.reason = s.reasonColumn ? taxiColumnLetter_(headers, s.reasonColumn) : '';
   cols.warnings = s.bookingColumn && !cols.booking
     ? ['The tab "' + s.requestTab + '" has no column "' + s.bookingColumn + '", so requests are not sorted or colored by decision.'] : [];
   return cols;
@@ -908,7 +917,7 @@ function apiTaxiPreview(settings, opts) {
         var e = taxiEvaluate_(fix.arrival ? { name: req.name, shiftEnd: req.shiftEnd, arrival: fix.arrival } : req, staff.sinceByName, s, today, tz);
         var status = taxiBookingStatus_(bk, s.deniedWords, [req.shiftEnd, req.arrival]);
         // A denied request is DENIED whatever the rules say.
-        if (status === 'DENIED') e = { result: 'DENIED', message: 'Request denied', since: e.since, months: e.months };
+        if (status === 'DENIED') e = { result: 'DENIED', message: taxiDenialText_(cols.reason ? at(values[i], cols.reason) : ''), since: e.since, months: e.months };
         else if (fix.fixed) e.message += '\n' + taxiFixNote_(fix);
         if (opts.onlyCheck && e.result !== 'CHECK') continue;
         rows.push({ row: first + i, id: isDate_(idv) ? Utilities.formatDate(idv, tz, 'yyyy-MM-dd HH:mm:ss') : str_(idv), name: req.name,
@@ -933,6 +942,12 @@ function apiTaxiEmailText(settings, dateIso) {
     var s = normalizeTaxiSettings_(settings);
     return taxiEmailFor_(s, isIsoDate_(str_(dateIso)) ? str_(dateIso) : todayIso_(getTz_()));
   });
+}
+
+/** "Request denied: <reason>", or just "Request denied" when the reason is empty or only says BOOKED / DENIED. Pure. */
+function taxiDenialText_(reason) {
+  var r = str_(reason === false ? '' : reason);
+  return !r || ['booked', 'denied'].indexOf(r.toLowerCase()) >= 0 ? 'Request denied' : 'Request denied: ' + r;
 }
 
 /** How a request shows on the night view: denied, booked, check (not decided, breaks a rule) or open (not decided). Pure. */
@@ -985,7 +1000,7 @@ function apiTaxiNight(dateIso) {
         if (tday < weekFrom || tday > night) continue;
         var bk = cols.booking ? at(v, cols.booking) : '';
         var status = taxiBookingStatus_(cols.booking ? bk : 'BOOKED', s.deniedWords, [at(v, cols.shiftEnd), at(v, cols.arrival)]);
-        var e = status === 'DENIED' ? { result: 'DENIED', message: 'Request denied' }
+        var e = status === 'DENIED' ? { result: 'DENIED', message: taxiDenialText_(cols.reason ? shown[r][columnNumber_(cols.reason) - 1] : '') }
           : taxiEvaluate_(fix.arrival ? { name: name, shiftEnd: at(v, cols.shiftEnd), arrival: fix.arrival } : { name: name, shiftEnd: at(v, cols.shiftEnd), arrival: at(v, cols.arrival) }, staff.sinceByName, s, today, tz);
         var kind = taxiNightKind_(status, e.result);
         var c = counts[tday] = counts[tday] || { total: 0, check: 0, open: 0 };
@@ -994,6 +1009,7 @@ function apiTaxiNight(dateIso) {
         var endMin = taxiTimeMinutes_(at(v, cols.shiftEnd), tz);
         out.rows.push({ row: r + 1, name: name, time: when.time, order: when.order, shiftEnd: endMin === null ? '' : minutesToHm_(endMin), kind: kind,
           decidedBy: kind === 'booked' || kind === 'denied' ? (bk === true ? '' : str_(bk)) : '', problems: kind === 'check' ? e.message : '',
+          denial: kind === 'denied' ? e.message : '',
           note: kind !== 'denied' ? taxiFixNote_(fix) : '', extras: extras.map(function (x) { return { label: x.label, value: shown[r][x.i] }; }).filter(function (x) { return x.value && normText_(x.value) !== 'denied'; }) });
       }
     }
@@ -1334,7 +1350,15 @@ function taxiUnitTests_() {
       assertEq_(taxiDeniedExpr_(s, ['booked', 'arrival']), '((ISNUMBER(SEARCH(" deny"," "&TO_TEXT(booked)&" "&TO_TEXT(arrival)))+ISNUMBER(SEARCH(" denied"," "&TO_TEXT(booked)&" "&TO_TEXT(arrival)))+' +
         'ISNUMBER(SEARCH(" rejected"," "&TO_TEXT(booked)&" "&TO_TEXT(arrival))))>0)');
       var f = buildTaxiFormula_(s, { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J' }, []);
-      assert_(f.indexOf("booked,'Taxi Requests'!J2:J") > 0 && f.indexOf('out,{rowNo,reqId,reqName,booked,IF(denied,"DENIED",IF(msg="","OK","CHECK")),IF(denied,"Request denied",') > 0, 'booking column after Name; denied');
+      assert_(f.indexOf("booked,'Taxi Requests'!J2:J") > 0 && f.indexOf('out,{rowNo,reqId,reqName,booked,IF(denied,"DENIED",IF(msg="","OK","CHECK")),IF(denied,deniedMsg,') > 0, 'booking column after Name; denied');
+      assert_(f.indexOf('deniedMsg,"Request denied"') > 0 && f.indexOf('reason,') < 0, 'no reason column: just "Request denied"');
+      var fr = buildTaxiFormula_(s, { id: 'A', name: 'C', shiftEnd: 'G', arrival: 'H', booking: 'J', reason: 'L' }, []);
+      assert_(fr.indexOf("reason,TRIM(TO_TEXT('Taxi Requests'!L2:L))") > 0 &&
+        fr.indexOf('deniedMsg,"Request denied"&IF((reason<>"")*(UPPER(reason)<>"BOOKED")*(UPPER(reason)<>"DENIED"),": "&reason,"")') > 0, 'the reason after "Request denied"');
+      assertEq_((fr.match(/\(/g) || []).length, (fr.match(/\)/g) || []).length, 'balanced parentheses');
+      assertEq_([s.reasonColumn, normalizeTaxiSettings_({ reasonColumn: '' }).reasonColumn], ['Reason', ''], '"Reason" by default; can be switched off');
+      assertEq_(['No ride needed, lives close', 'BOOKED', 'denied', '', false].map(taxiDenialText_),
+        ['Request denied: No ride needed, lives close', 'Request denied', 'Request denied', 'Request denied', 'Request denied']);
       assert_(f.indexOf('SORT(FILTER(out,keep),FILTER(IF(((TO_TEXT(booked)="")+(TO_TEXT(booked)="FALSE"))*(1-denied),0,1),keep),TRUE,FILTER(rowNo,keep),FALSE)') > 0, 'undecided first, then newest');
       assert_(f.indexOf('{"Row","Date ID","Name","Booking done","Result"') > 0, 'headers');
       assertEq_((f.match(/\(/g) || []).length, (f.match(/\)/g) || []).length, 'balanced parentheses');

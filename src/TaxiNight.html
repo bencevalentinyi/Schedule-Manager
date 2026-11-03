@@ -53,6 +53,7 @@
     .rq .msg { font-size: 13px; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; }
     .rq .msg .bad { color: var(--error); font-weight: 600; }
     .rq .msg .fix { color: var(--warning); }
+    .rq .msg .deny { color: var(--text); }
     .rq .dec { text-align: right; font-size: 13px; }
     .rq.flash { outline: 2px solid var(--primary); outline-offset: -2px; }
     @media (max-width: 760px) { .rq { grid-template-columns: 60px minmax(0, 1fr); } .rq .msg, .rq .dec { grid-column: 2; text-align: left; } }
@@ -119,7 +120,9 @@
         '<div class="seg" role="group" aria-label="Show">' + F.map(function (f) { return '<button type="button" class="btn sm" aria-pressed="' + (showKind === f[0]) + '" onclick="showKind=\'' + f[0] + '\';render()">' + f[1] + '</button>'; }).join('') + '</div>') +
         (list.length ? list.map(function (r) {
           var L = LABEL[r.kind];
-          var msg = r.kind === 'denied' ? '<span class="small">Request denied</span>' : r.kind === 'check' ? '<span class="bad">⚠ ' + esc(r.problems) + '</span>' :
+          // A denied request shows why (the Slack workflow's reason), when it was given.
+          var msg = r.kind === 'denied' ? (r.denial && r.denial !== 'Request denied'
+            ? '<span class="deny"><b>Denied:</b> ' + esc(r.denial.replace(/^Request denied:\s*/, '')) + '</span>' : '<span class="small">Request denied</span>') : r.kind === 'check' ? '<span class="bad">⚠ ' + esc(r.problems) + '</span>' :
             r.kind === 'booked' ? '<span class="small">Decided</span>' : '<span class="small">All rules met</span>';
           if (r.note) msg += '<br><span class="fix">↻ ' + esc(r.note) + '</span>';
           return '<div class="rq ' + r.kind + '" id="rq' + r.row + '"><div class="t">' + esc(r.time || '—') + '<small>' + (r.shiftEnd ? 'shift ends ' + esc(r.shiftEnd) : '') + '</small></div>' +

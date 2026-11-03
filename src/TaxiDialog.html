@@ -55,6 +55,8 @@
         <div class="row">
           <div class="field"><label class="label" for="bookingColumn">Decision</label><select id="bookingColumn"></select>
             <p class="hint">E.g. "Booking done". Empty = not decided yet: shown first and colored.</p></div>
+          <div class="field"><label class="label" for="reasonColumn">Denial reason</label><select id="reasonColumn"></select>
+            <p class="hint">The column the workflow fills with why a request was denied (e.g. "Reason"). Shown in Taxi Checks, Taxi Day and the web page.</p></div>
           <div class="field"><label class="label" for="deniedWords">…counts as denied when it contains</label><input type="text" id="deniedWords" maxlength="200">
             <p class="hint">Comma separated. Anything else counts as booked.</p></div>
         </div>
@@ -212,6 +214,7 @@
       $('shiftEndColumn').innerHTML = headerOptions(headers, s.shiftEndColumn);
       $('arrivalColumn').innerHTML = headerOptions(headers, s.arrivalColumn);
       $('bookingColumn').innerHTML = '<option value=""' + (s.bookingColumn ? '' : ' selected') + '>(none)</option>' + headerOptions(headers, s.bookingColumn);
+      $('reasonColumn').innerHTML = '<option value=""' + (s.reasonColumn ? '' : ' selected') + '>(none)</option>' + headerOptions(headers, s.reasonColumn);
       var chosen = s.dayColumns || [];
       $('dayColumns').innerHTML = headers.filter(Boolean).map(function (h) {
         return '<label class="check"><input type="checkbox" data-daycol="' + esc(h) + '"' + (chosen.indexOf(h) >= 0 ? ' checked' : '') + '> <span>' + esc(h) + '</span></label>';
@@ -283,7 +286,7 @@
         requestTab: $('requestTab').value, checksTab: $('checksTab').value, idColumn: $('idColumn').value,
         nameColumn: $('nameColumn').value, shiftEndColumn: $('shiftEndColumn').value, arrivalColumn: $('arrivalColumn').value,
         staffMatch: $('staffMatch').value, sinceField: $('sinceField').value,
-        bookingColumn: $('bookingColumn').value, deniedWords: $('deniedWords').value,
+        bookingColumn: $('bookingColumn').value, reasonColumn: $('reasonColumn').value, deniedWords: $('deniedWords').value,
         dayTab: $('dayTab').value, dayStart: $('dayStart').value,
         dayColumns: Array.prototype.filter.call(document.querySelectorAll('[data-daycol]'), function (c) { return c.checked; }).map(function (c) { return c.getAttribute('data-daycol'); }),
         rules: { shiftEnd: { on: $('seOn').checked, from: $('seFrom').value, to: $('seTo').value }, tenure: { on: $('teOn').checked, months: $('teMonths').value },
