@@ -31,6 +31,9 @@ SM_EXTENSIONS.push({
   },
   // Repair Formatting and a theme change restyle the checks tab too.
   repairFormatting: function () { return taxiRepairFormatting_(); },
+  // A team added, changed or deleted (or staff columns changed): the checks formula lists the staff sheets, so
+  // it is rebuilt at once (TeamService.gs teamsChangedSafe_). Before, a new team needed Save and apply by hand.
+  teamsChanged: function () { return taxiRepairFormatting_(); },
   tests: function () { return taxiUnitTests_(); }
 });
 

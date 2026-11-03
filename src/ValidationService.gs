@@ -119,7 +119,7 @@ function validateData_() {
     if (team.status !== TEAM_STATUS.READY) return;
     var st;
     try { st = readStaff_(team); } catch (e) { rep.fatal.push('Team "' + team.teamName + '": ' + toUserError_(e).message); return; }
-    var idx = buildStaffIndex_(st.rows);
+    var idx = withOtherTeamsStaff_(buildStaffIndex_(st.rows), team);
     if (idx.duplicateIds.length) rep.fatal.push('Team "' + team.teamName + '": duplicate Employee ID(s) in the staff sheet: ' + idx.duplicateIds.join(', ') + '. Matching uses the first occurrence.');
     var dupIds = findDuplicateIdentifiers_(st.rows, st.keys, st.header, st.registry);
     Object.keys(dupIds).forEach(function (label) {

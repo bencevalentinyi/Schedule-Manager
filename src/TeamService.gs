@@ -683,6 +683,22 @@ function apiPreviewTeam(form, teamId) {
   });
 }
 
+/**
+ * After teams or their staff columns change: every extension's teamsChanged step (e.g. Taxi rebuilds its checks
+ * formula, which lists the staff sheets). Call under lock. Never throws. @return {string[]} warnings
+ */
+function teamsChangedSafe_() {
+  var warnings = [];
+  smExtensions_().forEach(function (e) {
+    if (!e.teamsChanged) return;
+    try { e.teamsChanged(); } catch (err) {
+      logError_('teamsChangedSafe_.' + e.id, err);
+      warnings.push(e.title + ' could not be updated: ' + toUserError_(err).message + ' Run Maintenance → Repair Formatting.');
+    }
+  });
+  return warnings;
+}
+
 function apiCreateTeam(form) {
   return apiCall_('apiCreateTeam', function () {
     requireInitialized_();
@@ -690,7 +706,7 @@ function apiCreateTeam(form) {
       var r = createTeam_(form);
       var sh = resolveTeamSheet_(r.team, 'schedule');
       var link = sh ? activateSheet_(sh) : null;
-      return { teamId: r.team.teamId, teamName: r.team.teamName, scheduleSheet: r.team.scheduleSheet, staffSheet: r.team.staffSheet, warnings: r.warnings, link: link };
+      return { teamId: r.team.teamId, teamName: r.team.teamName, scheduleSheet: r.team.scheduleSheet, staffSheet: r.team.staffSheet, warnings: r.warnings.concat(teamsChangedSafe_()), link: link };
     }, 60000);
   });
 }
@@ -700,7 +716,7 @@ function apiUpdateTeam(teamId, form) {
     requireInitialized_();
     return withLock_(function () {
       var r = updateTeam_(teamId, form);
-      return { teamId: r.team.teamId, teamName: r.team.teamName, scheduleSheet: r.team.scheduleSheet, staffSheet: r.team.staffSheet, warnings: r.warnings, renames: r.renames };
+      return { teamId: r.team.teamId, teamName: r.team.teamName, scheduleSheet: r.team.scheduleSheet, staffSheet: r.team.staffSheet, warnings: r.warnings.concat(teamsChangedSafe_()), renames: r.renames };
     }, 60000);
   });
 }
@@ -746,7 +762,7 @@ function apiRebuildTeam(teamId) {
 function apiDeleteTeam(teamId, confirmName, deleteSheets) {
   return apiCall_('apiDeleteTeam', function () {
     requireInitialized_();
-    return withLock_(function () { return deleteTeam_(teamId, confirmName, !!deleteSheets); });
+    return withLock_(function () { var r = deleteTeam_(teamId, confirmName, !!deleteSheets); teamsChangedSafe_(); return r; });
   });
 }
 

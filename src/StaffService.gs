@@ -89,10 +89,44 @@ function buildStaffIndex_(staffRows, matchField) {
 }
 
 /**
- * Matches one schedule row to a staff record.
- * @return {{status: string, staff: Object|null, note: string}}
+ * Gives a team's staff index the other teams' staff sheets to fall back on (idx.others), read only when a
+ * person is not in the team's own sheet (readStaff_ memo and cache make that cheap). People often work in one
+ * team's schedule while their row is in another team's staff sheet. Returns idx.
+ */
+function withOtherTeamsStaff_(idx, team, matchField) {
+  if (!idx || !team) return idx;
+  var others;
+  Object.defineProperty(idx, 'others', { enumerable: false, configurable: true, get: function () {
+    if (others !== undefined) return others;
+    var rows = [];
+    listTeams_().filter(function (t) { return t.teamId !== team.teamId && t.status === TEAM_STATUS.READY; }).forEach(function (t) {
+      try { readStaff_(t).rows.forEach(function (r) { rows.push(Object.assign({}, r, { _teamName: t.teamName })); }); }
+      catch (e) { logError_('withOtherTeamsStaff_', e); }
+    });
+    others = rows.length ? buildStaffIndex_(rows, matchField || idx.matchField) : null;
+    return others;
+  } });
+  return idx;
+}
+
+/**
+ * Matches one schedule row to a staff record: in the team's own staff sheet, else (when the index has them,
+ * see withOtherTeamsStaff_) in another team's. A match in another sheet is not "Unknown"; its note names the team.
+ * @return {{status: string, staff: Object|null, note: string, otherTeam?: string}}
  */
 function matchEmployee_(index, employeeId, employeeName, strategy) {
+  var m = matchEmployeeIn_(index, employeeId, employeeName, strategy);
+  if (m.status !== STAFF_MATCH.UNKNOWN || !index || (!employeeId && (!employeeName || strategy === 'NONE'))) return m;
+  var others = index.others;
+  if (!others) return m;
+  var o = matchEmployeeIn_(others, employeeId, employeeName, strategy);
+  if (o.status !== STAFF_MATCH.ID && o.status !== STAFF_MATCH.NAME) return m;
+  o.otherTeam = o.staff._teamName || '';
+  o.note = 'In the staff sheet of ' + (o.otherTeam || 'another team') + '.' + (o.note ? ' ' + o.note : '');
+  return o;
+}
+
+function matchEmployeeIn_(index, employeeId, employeeName, strategy) {
   if (!index) return { status: STAFF_MATCH.UNKNOWN, staff: null, note: 'No staff directory available.' };
   if (employeeId) {
     var s = index.byId[idKey_(employeeId)];
@@ -355,7 +389,7 @@ function tryStaffIndex_(team, forImport) {
     idx.nameMatch = imp.nameMatch || '';
     idx.matchFieldLabel = staffFieldLabel_(matchField, st.registry);
     idx.matchFieldMissing = matchField !== 'employeeId' && st.keys.indexOf(matchField) < 0;
-    return idx;
+    return withOtherTeamsStaff_(idx, team, matchField);
   } catch (e) {
     logError_('tryStaffIndex_', e);
     return null;
@@ -442,7 +476,8 @@ function upsertStaff_(team, values, originalId) {
  * listed for manual review (an ID must be entered).
  */
 function unknownStaffCandidates_(team) {
-  var idx = buildStaffIndex_(readStaff_(team).rows);
+  // People in another team's staff sheet are not missing (not offered, so no duplicate rows get added).
+  var idx = withOtherTeamsStaff_(buildStaffIndex_(readStaff_(team).rows), team);
   var strategy = (team.settings.import && team.settings.import.nameMatch) || getConfig_().NAME_MATCH_STRATEGY;
   var out = {};
   queryScheduleRecords_({ teamIds: [team.teamId] }).forEach(function (r) {

@@ -243,7 +243,7 @@ function apiSaveStaffField(input) {
     requireInitialized_();
     return withLock_(function () {
       var r = saveStaffField_(input || {});
-      var problems = relayoutAllStaffSheets_();
+      var problems = relayoutAllStaffSheets_().concat(teamsChangedSafe_());
       return { field: r.field, renamed: r.renamed, created: r.created, problems: problems };
     }, 60000);
   });
@@ -252,13 +252,13 @@ function apiSaveStaffField(input) {
 function apiDeleteStaffField(fieldKey, deleteValues, confirmText) {
   return apiCall_('apiDeleteStaffField', function () {
     requireInitialized_();
-    return withLock_(function () { return deleteStaffField_(fieldKey, !!deleteValues, confirmText); }, 60000);
+    return withLock_(function () { var r = deleteStaffField_(fieldKey, !!deleteValues, confirmText); teamsChangedSafe_(); return r; }, 60000);
   });
 }
 
 function apiSetStaffFieldTeams(fieldKey, teamIds) {
   return apiCall_('apiSetStaffFieldTeams', function () {
     requireInitialized_();
-    return withLock_(function () { return { changedTeams: setStaffFieldTeams_(fieldKey, teamIds) }; }, 60000);
+    return withLock_(function () { var changed = setStaffFieldTeams_(fieldKey, teamIds); teamsChangedSafe_(); return { changedTeams: changed }; }, 60000);
   });
 }

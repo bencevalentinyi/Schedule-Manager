@@ -487,7 +487,8 @@ function linkIdReader_(idField, teamsById, staffCache) {
     if (!staffCache[r.teamId]) {
       var st = null;
       try { st = readStaff_(team); } catch (e) { logError_('linkIdReader_', e); }
-      staffCache[r.teamId] = st ? buildStaffIndex_(st.rows) : null;
+      // Also the other teams' staff sheets, for people whose row is in another team's sheet.
+      staffCache[r.teamId] = st ? withOtherTeamsStaff_(buildStaffIndex_(st.rows), team) : null;
     }
     var m = matchEmployee_(staffCache[r.teamId], r.employeeId, r.employeeName, getConfig_().NAME_MATCH_STRATEGY);
     if (!m.staff) return '';
